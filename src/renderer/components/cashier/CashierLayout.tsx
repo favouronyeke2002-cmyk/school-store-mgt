@@ -1,16 +1,7 @@
 import React from 'react';
-import { useAuth } from '../../context/AuthContext';
-import { ShiftProvider } from '../../context/ShiftContext';
 import CashierPOS from './CashierPOS';
 
-const CashierLayout: React.FC = () => {
-  const { logout } = useAuth();
-
-  return (
-    <ShiftProvider>
-      <CashierPOS />
-    </ShiftProvider>
-  );
-};
+// ShiftProvider is applied at App level — no double-wrapping here.
+const CashierLayout: React.FC = () => <CashierPOS />;
 
 export default CashierLayout;

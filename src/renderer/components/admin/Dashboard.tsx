@@ -1,19 +1,58 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
+import {
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, Legend
+} from 'recharts';
+import { TrendingUp, TrendingDown, ShoppingBag, DollarSign, Package, AlertCircle, Users, ArrowUpRight } from 'lucide-react';
 import { adminAPI } from '../../lib/api';
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtShort = (n: number) => {
+  if (n >= 1_000_000) return `₦${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `₦${(n / 1_000).toFixed(1)}k`;
+  return `₦${n.toFixed(0)}`;
+};
+
+const StatCard: React.FC<{ label: string; value: string; sub?: string; color?: string; icon: React.ReactNode }> = ({ label, value, sub, color = 'text-gray-900', icon }) => (
+  <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-start gap-4">
+    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+      {icon}
+    </div>
+    <div className="flex-1 min-w-0">
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">{label}</div>
+      <div className={`text-2xl font-extrabold truncate ${color}`}>{value}</div>
+      {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
+    </div>
+  </div>
+);
+
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white border rounded-xl shadow-lg p-3 text-sm">
+      <div className="font-semibold text-gray-700 mb-2">{label}</div>
+      {payload.map((p: any) => (
+        <div key={p.name} className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full" style={{ background: p.color }} />
+          <span className="text-gray-500">{p.name}:</span>
+          <span className="font-bold">{fmt(p.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
 
 const Dashboard: React.FC = () => {
   const [stats, setStats] = useState<any>(null);
   const [dailySales, setDailySales] = useState<any[]>([]);
   const [classRevenue, setClassRevenue] = useState<any[]>([]);
   const [topProducts, setTopProducts] = useState<any[]>([]);
-  const [inventoryValuation, setInventoryValuation] = useState<any>(null);
+  const [inventoryVal, setInventoryVal] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState(30);
 
-  useEffect(() => {
+  const loadData = () => {
+    setLoading(true);
     Promise.all([
       adminAPI.getStats(),
       adminAPI.getDailySales(period),
@@ -25,134 +64,182 @@ const Dashboard: React.FC = () => {
       setDailySales(d);
       setClassRevenue(c);
       setTopProducts(p);
-      setInventoryValuation(i);
+      setInventoryVal(i);
     }).catch(console.error).finally(() => setLoading(false));
-  }, [period]);
+  };
 
-  if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div></div>;
+  useEffect(() => { loadData(); }, [period]);
 
-  const formatCurrency = (n: number) => `N${n?.toLocaleString() || 0}`;
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+    </div>
+  );
+
+  const netProfit = stats?.profit || 0;
+  const storeRevenue = stats?.storeRevenue || 0;
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-8">
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-gray-500">Overview of store performance</p>
+          <h1 className="text-2xl font-extrabold text-gray-900">Sales Summary</h1>
+          <p className="text-sm text-gray-400 mt-0.5">Store performance overview</p>
         </div>
-        <select value={period} onChange={(e) => setPeriod(Number(e.target.value))} className="px-3 py-2 border rounded-md">
-          <option value={7}>Last 7 days</option>
-          <option value={30}>Last 30 days</option>
-          <option value={90}>Last 90 days</option>
-        </select>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-4 gap-4 mb-8">
-        {[
-          { label: 'Total Revenue', value: formatCurrency(stats?.totalRevenue) },
-          { label: 'Store Revenue', value: formatCurrency(stats?.storeRevenue) },
-          { label: 'Fees Collected', value: formatCurrency(stats?.feesCollected) },
-          { label: 'Net Profit', value: formatCurrency(stats?.profit), sub: `${stats?.profitMargin}% margin` },
-        ].map((s, i) => (
-          <div key={i} className="bg-white rounded-lg shadow-sm p-5">
-            <div className="text-sm text-gray-500 mb-1">{s.label}</div>
-            <div className="text-2xl font-bold">{s.value}</div>
-            {s.sub && <div className="text-sm text-success-600">{s.sub}</div>}
+        <div className="flex items-center gap-3">
+          <div className="flex bg-gray-100 rounded-lg p-1">
+            {[7, 30, 90].map((d) => (
+              <button key={d} onClick={() => setPeriod(d)} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${period === d ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
+                {d === 7 ? '7 days' : d === 30 ? '30 days' : '90 days'}
+              </button>
+            ))}
           </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        {[
-          { label: 'COGS', value: formatCurrency(stats?.cogs) },
-          { label: 'Outstanding Fees', value: formatCurrency(stats?.uncollectedFees) },
-          { label: 'Transactions', value: stats?.transactionCount || 0 },
-        ].map((s, i) => (
-          <div key={i} className="bg-white rounded-lg shadow-sm p-5">
-            <div className="text-sm text-gray-500 mb-1">{s.label}</div>
-            <div className="text-2xl font-bold">{s.value}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Charts */}
-      <div className="grid grid-cols-2 gap-6 mb-8">
-        {/* Daily Sales Chart */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-lg font-bold mb-4">Daily Sales Trend</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={dailySales}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d) => d.slice(5)} />
-              <YAxis tickFormatter={(v) => `N${v / 1000}k`} />
-              <Tooltip formatter={(v: any) => formatCurrency(v)} />
-              <Line type="monotone" dataKey="store_sales" stroke="#3b82f6" strokeWidth={2} name="Store" />
-              <Line type="monotone" dataKey="fees_collected" stroke="#10b981" strokeWidth={2} name="Fees" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Revenue by Class */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-lg font-bold mb-4">Revenue by Class</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={classRevenue} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" tickFormatter={(v) => `N${v / 1000}k`} />
-              <YAxis dataKey="student_class" type="category" width={60} tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v: any) => formatCurrency(v)} />
-              <Bar dataKey="total_revenue" fill="#3b82f6" />
-            </BarChart>
-          </ResponsiveContainer>
+          <button onClick={loadData} className="px-3 py-2 bg-white border rounded-lg text-sm hover:bg-gray-50 text-gray-600">
+            Refresh
+          </button>
         </div>
       </div>
 
+      {/* Top stat strip (Loyverse-style) */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="grid grid-cols-5 divide-x">
+          {[
+            { label: 'Gross Sales', value: fmt(stats?.storeRevenue || 0), color: 'text-gray-900' },
+            { label: 'Fees Collected', value: fmt(stats?.feesCollected || 0), color: 'text-gray-900' },
+            { label: 'Cost of Goods', value: fmt(stats?.cogs || 0), color: 'text-gray-900' },
+            { label: 'Net Sales', value: fmt(storeRevenue - (stats?.cogs || 0)), color: 'text-primary-700' },
+            { label: 'Gross Profit', value: fmt(netProfit), color: netProfit >= 0 ? 'text-success-700' : 'text-danger-700' },
+          ].map((item) => (
+            <div key={item.label} className="px-5 py-4">
+              <div className="text-xs text-gray-400 font-medium mb-1">{item.label}</div>
+              <div className={`text-xl font-extrabold ${item.color}`}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Secondary stat cards */}
+      <div className="grid grid-cols-4 gap-4">
+        <StatCard label="Outstanding Fees" value={fmt(stats?.uncollectedFees || 0)} color="text-danger-700" icon={<AlertCircle className="w-5 h-5 text-danger-500" />} sub="Unpaid across all students" />
+        <StatCard label="Transactions" value={(stats?.transactionCount || 0).toLocaleString()} color="text-gray-900" icon={<ShoppingBag className="w-5 h-5 text-primary-500" />} />
+        <StatCard label="Profit Margin" value={`${stats?.profitMargin || 0}%`} color={Number(stats?.profitMargin) >= 0 ? 'text-success-700' : 'text-danger-700'} icon={<TrendingUp className="w-5 h-5 text-success-500" />} />
+        <StatCard label="Inventory Value" value={fmt(inventoryVal?.total_retail_value || 0)} icon={<Package className="w-5 h-5 text-warning-500" />} sub={`${inventoryVal?.item_count || 0} items · ${inventoryVal?.total_units?.toLocaleString() || 0} units`} />
+      </div>
+
+      {/* Area Chart: Gross Sales over time */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-bold text-gray-900">Gross Sales Trend</h2>
+          <span className="text-xs text-gray-400">Last {period} days</span>
+        </div>
+        {dailySales.length === 0 ? (
+          <div className="flex items-center justify-center h-48 text-gray-300 text-sm">No data for this period</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={260}>
+            <AreaChart data={dailySales} margin={{ top: 5, right: 0, left: 10, bottom: 0 }}>
+              <defs>
+                <linearGradient id="storeFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.15} />
+                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="feesFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.15} />
+                  <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={(d) => d.slice(5)} />
+              <YAxis tickFormatter={fmtShort} tick={{ fontSize: 10, fill: '#94a3b8' }} />
+              <Tooltip content={<CustomTooltip />} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Area type="monotone" dataKey="store_sales" name="Store Sales" stroke="#3b82f6" strokeWidth={2} fill="url(#storeFill)" dot={{ r: 3, fill: '#3b82f6' }} />
+              <Area type="monotone" dataKey="fees_collected" name="Fees Collected" stroke="#10b981" strokeWidth={2} fill="url(#feesFill)" dot={{ r: 3, fill: '#10b981' }} />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* Two-column: Revenue by Class + Top Products */}
       <div className="grid grid-cols-2 gap-6">
-        {/* Top Products */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-lg font-bold mb-4">Top Products</h2>
-          <table className="w-full">
+        {/* Revenue by class */}
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+          <h2 className="font-bold text-gray-900 mb-4">Revenue by Class</h2>
+          {classRevenue.length === 0 ? (
+            <div className="flex items-center justify-center h-48 text-gray-300 text-sm">No data yet</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={classRevenue} layout="vertical" margin={{ left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis type="number" tickFormatter={fmtShort} tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                <YAxis dataKey="student_class" type="category" width={52} tick={{ fontSize: 11, fill: '#475569' }} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="total_revenue" name="Revenue" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Top Products table */}
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+          <h2 className="font-bold text-gray-900 mb-4">Top Products</h2>
+          {topProducts.length === 0 ? (
+            <div className="flex items-center justify-center h-48 text-gray-300 text-sm">No sales data yet</div>
+          ) : (
+            <div className="space-y-2">
+              {topProducts.slice(0, 8).map((p, i) => {
+                const pct = topProducts[0]?.total_revenue > 0 ? (p.total_revenue / topProducts[0].total_revenue) * 100 : 0;
+                return (
+                  <div key={i} className="flex items-center gap-3">
+                    <span className="text-xs font-bold text-gray-300 w-4">{i + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-sm font-medium text-gray-700 truncate">{p.item_name}</span>
+                        <span className="text-sm font-bold text-gray-900 ml-2 shrink-0">{fmt(p.total_revenue)}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                          <div className="bg-primary-500 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="text-xs text-gray-400 shrink-0">{p.total_quantity} units</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Daily breakdown table */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b flex items-center justify-between">
+          <h2 className="font-bold text-gray-900">Daily Breakdown</h2>
+          <span className="text-xs text-gray-400">Rows: {dailySales.length}</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Product</th>
-                <th className="text-right px-4 py-2 text-xs font-medium text-gray-500 uppercase">Qty</th>
-                <th className="text-right px-4 py-2 text-xs font-medium text-gray-500 uppercase">Revenue</th>
+                {['Date', 'Store Sales', 'Fees Collected', 'Total'].map((h) => (
+                  <th key={h} className="px-5 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {topProducts.map((p, i) => (
-                <tr key={i} className="border-b last:border-0">
-                  <td className="px-4 py-3">{p.item_name}</td>
-                  <td className="px-4 py-3 text-right">{p.total_quantity}</td>
-                  <td className="px-4 py-3 text-right font-semibold">{formatCurrency(p.total_revenue)}</td>
+              {dailySales.length === 0 ? (
+                <tr><td colSpan={4} className="text-center py-8 text-gray-300">No data for this period</td></tr>
+              ) : dailySales.map((row, i) => (
+                <tr key={i} className="border-t hover:bg-gray-50">
+                  <td className="px-5 py-3 font-medium text-gray-800">{row.date}</td>
+                  <td className="px-5 py-3 text-primary-700 font-semibold">{fmt(row.store_sales)}</td>
+                  <td className="px-5 py-3 text-success-700 font-semibold">{fmt(row.fees_collected)}</td>
+                  <td className="px-5 py-3 font-extrabold text-gray-900">{fmt(row.total)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-
-        {/* Inventory Summary */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-lg font-bold mb-4">Inventory Summary</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="text-sm text-gray-500">Total Items</div>
-              <div className="text-2xl font-bold">{inventoryValuation?.item_count || 0}</div>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="text-sm text-gray-500">Total Units</div>
-              <div className="text-2xl font-bold">{inventoryValuation?.total_units?.toLocaleString() || 0}</div>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="text-sm text-gray-500">Cost Value</div>
-              <div className="text-2xl font-bold">{formatCurrency(inventoryValuation?.total_cost_value)}</div>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="text-sm text-gray-500">Retail Value</div>
-              <div className="text-2xl font-bold text-success-600">{formatCurrency(inventoryValuation?.total_retail_value)}</div>
-            </div>
-          </div>
         </div>
       </div>
     </div>

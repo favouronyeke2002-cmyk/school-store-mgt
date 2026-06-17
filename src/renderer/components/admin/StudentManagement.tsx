@@ -59,7 +59,7 @@ const StudentManagement: React.FC = () => {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold">Student Management</h1>
-          <p className="text-gray-500">{students.length} students - N{totalFees.toLocaleString()} outstanding fees</p>
+          <p className="text-gray-500">{students.length} students · ₦{totalFees.toLocaleString('en-NG', { minimumFractionDigits: 2 })} outstanding fees</p>
         </div>
         <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">Add Student</button>
       </div>
@@ -95,7 +95,7 @@ const StudentManagement: React.FC = () => {
                 <td className="px-4 py-3 font-mono text-sm">{s.student_id}</td>
                 <td className="px-4 py-3 font-medium">{s.name}</td>
                 <td className="px-4 py-3"><span className="px-2 py-1 bg-primary-100 text-primary-800 rounded text-xs">{s.student_class}</span></td>
-                <td className={`px-4 py-3 text-right font-semibold ${s.current_fees_owed > 0 ? 'text-danger-600' : 'text-success-600'}`}>N{s.current_fees_owed.toLocaleString()}</td>
+                <td className={`px-4 py-3 text-right font-semibold ${s.current_fees_owed > 0 ? 'text-danger-600' : 'text-success-600'}`}>₦{Number(s.current_fees_owed).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</td>
                 <td className="px-4 py-3 text-center">
                   <button onClick={() => viewHistory(s)} className="px-2 py-1 text-sm bg-gray-200 rounded mr-1 hover:bg-gray-300">History</button>
                   <button onClick={() => updateFees(s)} className="px-2 py-1 text-sm bg-warning-100 text-warning-700 rounded mr-1 hover:bg-warning-200">Edit Fees</button>
@@ -172,14 +172,14 @@ const StudentManagement: React.FC = () => {
                       <td className="px-3 py-2"><span className={`px-2 py-1 rounded text-xs ${h.type === 'STORE_PURCHASE' ? 'bg-primary-100 text-primary-700' : 'bg-success-100 text-success-700'}`}>{h.type === 'STORE_PURCHASE' ? 'Store' : 'Fees'}</span></td>
                       <td className="px-3 py-2 max-w-xs truncate">{h.items_summary || '-'}</td>
                       <td className="px-3 py-2">{h.payment_mode}</td>
-                      <td className="px-3 py-2 text-right font-semibold">N{h.amount_paid.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right font-semibold">₦{Number(h.amount_paid).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot className="font-bold border-t-2">
                   <tr>
                     <td colSpan={4} className="px-3 py-2">Total:</td>
-                    <td className="px-3 py-2 text-right">N{history.reduce((s, h) => s + h.amount_paid, 0).toLocaleString()}</td>
+                    <td className="px-3 py-2 text-right">₦{history.reduce((s, h) => s + Number(h.amount_paid), 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</td>
                   </tr>
                 </tfoot>
               </table>

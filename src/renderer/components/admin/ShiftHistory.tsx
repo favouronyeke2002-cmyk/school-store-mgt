@@ -31,7 +31,7 @@ const ShiftHistory: React.FC = () => {
     setTransactions(txns.filter((t: any) => t.shift_id === s.id));
   };
 
-  const formatCurrency = (n: number | null) => n !== null ? `N${n.toLocaleString()}` : '-';
+  const formatCurrency = (n: number | null) => n !== null ? `₦${(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-';
   const totalOpened = shifts.reduce((s, sh) => s + sh.opening_cash, 0);
   const closedShifts = shifts.filter(s => s.status === 'closed');
   const totalClosed = closedShifts.reduce((s, sh) => s + (sh.closing_cash || 0), 0);

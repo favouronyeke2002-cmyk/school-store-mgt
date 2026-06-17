@@ -174,13 +174,13 @@ const BulkImport: React.FC = () => {
                         <td className="px-3 py-2 font-mono">{row.student_id}</td>
                         <td className="px-3 py-2">{row.name}</td>
                         <td className="px-3 py-2">{row.student_class}</td>
-                        <td className="px-3 py-2 text-right">N{(row.fees_owed || 0).toLocaleString()}</td>
+                        <td className="px-3 py-2 text-right">₦{(row.fees_owed || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</td>
                       </>
                     ) : (
                       <>
                         <td className="px-3 py-2">{row.item_name}</td>
-                        <td className="px-3 py-2 text-right">N{row.cost_price?.toLocaleString()}</td>
-                        <td className="px-3 py-2 text-right">N{row.selling_price?.toLocaleString()}</td>
+                        <td className="px-3 py-2 text-right">₦{(row.cost_price || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-3 py-2 text-right">₦{(row.selling_price || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</td>
                         <td className="px-3 py-2 text-right">{row.stock_quantity}</td>
                         <td className="px-3 py-2 font-mono text-xs">{row.barcode || '-'}</td>
                       </>

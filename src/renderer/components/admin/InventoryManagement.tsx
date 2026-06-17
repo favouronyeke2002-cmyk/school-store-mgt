@@ -69,7 +69,7 @@ const InventoryManagement: React.FC = () => {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold">Inventory Management</h1>
-          <p className="text-gray-500">{inventory.length} items - N{totalValue.toLocaleString()} total value</p>
+          <p className="text-gray-500">{inventory.length} items · ₦{totalValue.toLocaleString('en-NG', { minimumFractionDigits: 2 })} total value</p>
         </div>
         <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">Add Item</button>
       </div>
@@ -79,7 +79,7 @@ const InventoryManagement: React.FC = () => {
         {[
           { label: 'Total Items', value: inventory.length },
           { label: 'Total Units', value: totalItems.toLocaleString() },
-          { label: 'Inventory Value', value: `N${totalValue.toLocaleString()}` },
+          { label: 'Inventory Value', value: `₦${totalValue.toLocaleString('en-NG', { minimumFractionDigits: 2 })}` },
           { label: 'Low Stock', value: inventory.filter(i => i.stock_quantity <= 10).length },
         ].map((s, i) => (
           <div key={i} className="bg-white rounded-lg shadow-sm p-5">
@@ -123,10 +123,10 @@ const InventoryManagement: React.FC = () => {
               <tr key={item.item_id} className={`border-t ${item.stock_quantity <= 10 ? 'bg-danger-50' : ''}`}>
                 <td className="px-4 py-3 font-medium">{item.item_name}</td>
                 <td className="px-4 py-3 font-mono text-sm text-gray-500">{item.barcode || <span className="italic">N/A</span>}</td>
-                <td className="px-4 py-3 text-right">N{item.cost_price.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right font-semibold text-primary-600">N{item.selling_price.toLocaleString()}</td>
+                <td className="px-4 py-3 text-right">₦{item.cost_price.toLocaleString('en-NG', { minimumFractionDigits: 2 })}</td>
+                <td className="px-4 py-3 text-right font-semibold text-primary-600">₦{item.selling_price.toLocaleString('en-NG', { minimumFractionDigits: 2 })}</td>
                 <td className={`px-4 py-3 text-right font-semibold ${item.stock_quantity <= 10 ? 'text-danger-600' : ''}`}>{item.stock_quantity}</td>
-                <td className="px-4 py-3 text-right text-success-600">N{(item.selling_price - item.cost_price).toLocaleString()}</td>
+                <td className="px-4 py-3 text-right text-success-600">₦{(item.selling_price - item.cost_price).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</td>
                 <td className="px-4 py-3 text-center">
                   <button onClick={() => openEdit(item)} className="px-2 py-1 text-sm bg-gray-200 rounded mr-1 hover:bg-gray-300">Edit</button>
                   <button onClick={() => openAdjust(item)} className="px-2 py-1 text-sm bg-warning-100 text-warning-700 rounded hover:bg-warning-200">Stock</button>

@@ -45,7 +45,7 @@ const TransactionHistory: React.FC = () => {
     setDetails(d);
   };
 
-  const formatCurrency = (n: number) => `N${n?.toLocaleString() || 0}`;
+  const formatCurrency = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const total = transactions.reduce((s, t) => s + t.amount_paid, 0);
   const storeTotal = transactions.filter(t => t.type === 'STORE_PURCHASE').reduce((s, t) => s + t.amount_paid, 0);
   const feesTotal = transactions.filter(t => t.type === 'FEES_CASH_COLLECTION').reduce((s, t) => s + t.amount_paid, 0);
@@ -139,7 +139,7 @@ const TransactionHistory: React.FC = () => {
                 <td className="px-4 py-3"><span className="px-2 py-1 bg-primary-100 text-primary-800 rounded text-xs">{t.student_class}</span></td>
                 <td className="px-4 py-3"><span className={`px-2 py-1 rounded text-xs ${t.type === 'STORE_PURCHASE' ? 'bg-primary-100 text-primary-700' : 'bg-success-100 text-success-700'}`}>{t.type === 'STORE_PURCHASE' ? 'Store' : 'Fees'}</span></td>
                 <td className="px-4 py-3 text-sm">{t.payment_mode}</td>
-                <td className="px-4 py-3 text-right font-bold">N{t.amount_paid.toLocaleString()}</td>
+                <td className="px-4 py-3 text-right font-bold">₦{Number(t.amount_paid).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</td>
                 <td className="px-4 py-3 text-center"><button onClick={() => viewDetails(t)} className="px-2 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300">View</button></td>
               </tr>
             ))}
