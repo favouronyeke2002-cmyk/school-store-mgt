@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Upload, Image, AlertCircle } from 'lucide-react';
+import { Save, Upload, Image, AlertCircle, X } from 'lucide-react';
 import { settingsAPI } from '../../lib/api';
 
 interface Settings {
@@ -17,6 +17,7 @@ const SchoolSettings: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
     settingsAPI.get().then((data) => {
@@ -30,8 +31,8 @@ const SchoolSettings: React.FC = () => {
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) { alert('Please select an image file.'); return; }
-    if (file.size > 200 * 1024) { alert('Image must be under 200KB for receipt printing.'); return; }
+    if (!file.type.startsWith('image/')) { setErrorMsg('Please select an image file.'); return; }
+    if (file.size > 200 * 1024) { setErrorMsg('Image must be under 200KB for receipt printing.'); return; }
 
     const reader = new FileReader();
     reader.onload = (ev) => {
@@ -45,12 +46,13 @@ const SchoolSettings: React.FC = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    setErrorMsg('');
     try {
       await settingsAPI.save(settings);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
-      alert('Failed to save: ' + (err as Error).message);
+      setErrorMsg('Failed to save: ' + (err as Error).message);
     }
     setSaving(false);
   };
@@ -73,6 +75,18 @@ const SchoolSettings: React.FC = () => {
 
   return (
     <div className="max-w-2xl space-y-6">
+      {/* Error Modal */}
+      {errorMsg && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6 text-center">
+            <div className="w-14 h-14 bg-danger-100 rounded-full flex items-center justify-center mx-auto mb-4"><AlertCircle className="w-7 h-7 text-danger-600" /></div>
+            <h2 className="text-lg font-bold mb-2">Error</h2>
+            <p className="text-gray-600 text-sm mb-5">{errorMsg}</p>
+            <button onClick={() => setErrorMsg('')} className="w-full py-2.5 bg-gray-100 rounded-xl text-gray-700 hover:bg-gray-200 font-medium">OK</button>
+          </div>
+        </div>
+      )}
+
       {/* Receipt Preview Card */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b">

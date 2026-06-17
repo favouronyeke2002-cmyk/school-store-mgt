@@ -7,14 +7,7 @@ export const settingsAPI = {
     if (error) throw error;
     return data;
   },
-  async save(updates: {
-    school_name?: string;
-    tagline?: string;
-    phone_number?: string;
-    logo_url?: string | null;
-    academic_session?: string;
-    address?: string;
-  }) {
+  async save(updates: { school_name?: string; tagline?: string; phone_number?: string; logo_url?: string | null; academic_session?: string; address?: string; }) {
     const { error } = await supabase.from('school_settings').upsert({ id: 1, ...updates, updated_at: new Date().toISOString() });
     if (error) throw error;
     return { success: true };
@@ -24,18 +17,14 @@ export const settingsAPI = {
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 export const authAPI = {
   async loginPin(pin: string) {
-    const { data, error } = await supabase
-      .from('pos_users').select('id, username, role')
-      .eq('pin', pin).eq('is_active', true).maybeSingle();
+    const { data, error } = await supabase.from('pos_users').select('id, username, role').eq('pin', pin).eq('is_active', true).maybeSingle();
     if (error) return { success: false, error: error.message };
     if (!data) return { success: false, error: 'Invalid PIN' };
     if (data.role === 'admin') return { success: false, error: 'Admin must login with password' };
     return { success: true, user: data };
   },
   async loginPassword(password: string) {
-    const { data, error } = await supabase
-      .from('pos_users').select('id, username, role')
-      .eq('password', password).eq('is_active', true).maybeSingle();
+    const { data, error } = await supabase.from('pos_users').select('id, username, role').eq('password', password).eq('is_active', true).maybeSingle();
     if (error) return { success: false, error: error.message };
     if (!data) return { success: false, error: 'Invalid password' };
     return { success: true, user: data };
@@ -45,9 +34,7 @@ export const authAPI = {
 // ─── SHIFTS ───────────────────────────────────────────────────────────────────
 export const shiftAPI = {
   async getActive() {
-    const { data, error } = await supabase
-      .from('shifts').select('*, pos_users(username)')
-      .eq('status', 'open').order('opened_at', { ascending: false }).limit(1).maybeSingle();
+    const { data, error } = await supabase.from('shifts').select('*, pos_users(username)').eq('status', 'open').order('opened_at', { ascending: false }).limit(1).maybeSingle();
     if (error) throw error;
     if (!data) return null;
     return { ...data, username: (data.pos_users as any)?.username };
@@ -59,7 +46,7 @@ export const shiftAPI = {
     if (error) throw error;
     return { success: true, shiftId: data.id };
   },
-  async close(shiftId: number, closingCash: number, _userId: number) {
+  async close(shiftId: number, closingCash: number) {
     const { data: shift } = await supabase.from('shifts').select('*').eq('id', shiftId).single();
     if (!shift) throw new Error('Shift not found');
     const { data: cashSales } = await supabase.from('transactions').select('amount_paid').eq('shift_id', shiftId).eq('payment_mode', 'Cash');
@@ -79,7 +66,20 @@ export const shiftAPI = {
 
 // ─── STUDENTS ─────────────────────────────────────────────────────────────────
 export const studentAPI = {
-  async getAll(filters?: { search?: string; class?: string }) {
+  async getAll(filters?: { search?: string; class?: string; page?: number; pageSize?: number }) {
+    const pageSize = filters?.pageSize || 15;
+    const page = filters?.page || 1;
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    let query = supabase.from('students').select('*', { count: 'exact' }).order('name').range(from, to);
+    if (filters?.search) query = query.ilike('name', `%${filters.search}%`);
+    if (filters?.class && filters.class !== 'all') query = query.eq('student_class', filters.class);
+    const { data, error, count } = await query;
+    if (error) throw error;
+    return { students: data || [], total: count || 0, page, pageSize };
+  },
+  async getAllUnpaginated(filters?: { search?: string; class?: string }) {
     let query = supabase.from('students').select('*').order('name');
     if (filters?.search) query = query.ilike('name', `%${filters.search}%`);
     if (filters?.class && filters.class !== 'all') query = query.eq('student_class', filters.class);
@@ -90,27 +90,26 @@ export const studentAPI = {
   async getClasses() {
     const { data, error } = await supabase.from('students').select('student_class');
     if (error) throw error;
-    const unique = [...new Set((data || []).map((s: any) => s.student_class))].sort();
-    return unique;
+    return [...new Set((data || []).map((s: any) => s.student_class))].sort() as string[];
   },
   async getById(id: string) {
     const { data, error } = await supabase.from('students').select('*').eq('student_id', id).maybeSingle();
     if (error) throw error;
     return data;
   },
-  async create(data: { studentId?: string; name: string; studentClass: string; feesOwed?: number }) {
+  async create(data: { studentId?: string; name: string; studentClass: string; feesOwed?: number; admissionType?: 'Returning' | 'New' }) {
     let id = data.studentId;
     if (!id) {
       const { data: all } = await supabase.from('students').select('student_id');
       const maxId = (all || []).reduce((max: number, s: any) => { const n = parseInt(s.student_id.replace('STU-', '')); return n > max ? n : max; }, 0);
       id = 'STU-' + String(maxId + 1).padStart(4, '0');
     }
-    const { error } = await supabase.from('students').insert({ student_id: id, name: data.name, student_class: data.studentClass, current_fees_owed: data.feesOwed || 0 });
+    const { error } = await supabase.from('students').insert({ student_id: id, name: data.name, student_class: data.studentClass, current_fees_owed: data.feesOwed || 0, admission_type: data.admissionType || 'Returning' });
     if (error) return { success: false, error: error.message };
     return { success: true, studentId: id };
   },
-  async update(id: string, data: { name: string; studentClass: string }) {
-    const { error } = await supabase.from('students').update({ name: data.name, student_class: data.studentClass, updated_at: new Date().toISOString() }).eq('student_id', id);
+  async update(id: string, data: { name: string; studentClass: string; admissionType?: 'Returning' | 'New' }) {
+    const { error } = await supabase.from('students').update({ name: data.name, student_class: data.studentClass, admission_type: data.admissionType, updated_at: new Date().toISOString() }).eq('student_id', id);
     if (error) throw error;
     return { success: true };
   },
@@ -125,7 +124,7 @@ export const studentAPI = {
     return { success: true };
   },
   async bulkImport(students: any[]) {
-    const rows = students.map((s) => ({ student_id: s.student_id, name: s.name, student_class: s.student_class, current_fees_owed: Number(s.fees_owed) || 0 }));
+    const rows = students.map((s) => ({ student_id: s.student_id, name: s.name, student_class: s.student_class, current_fees_owed: Number(s.fees_owed) || 0, admission_type: 'Returning' }));
     const { error } = await supabase.from('students').upsert(rows, { onConflict: 'student_id' });
     if (error) return { success: false, error: error.message };
     return { success: true, count: rows.length };
@@ -133,11 +132,7 @@ export const studentAPI = {
   async getHistory(studentId: string) {
     const { data, error } = await supabase.from('transactions').select('*, transaction_items(quantity, unit_price, total_price, inventory(item_name)), fee_types(name)').eq('student_id', studentId).order('timestamp', { ascending: false });
     if (error) throw error;
-    return (data || []).map((t: any) => ({
-      ...t,
-      items_summary: t.transaction_items?.map((ti: any) => `${ti.inventory?.item_name} (x${ti.quantity})`).join(', ') || null,
-      fee_name: t.fee_types?.name || null,
-    }));
+    return (data || []).map((t: any) => ({ ...t, items_summary: t.transaction_items?.map((ti: any) => `${ti.inventory?.item_name} (x${ti.quantity})`).join(', ') || null, fee_name: t.fee_types?.name || null }));
   },
 };
 
@@ -199,7 +194,7 @@ export const inventoryAPI = {
   async adjustStock(id: number, quantity: number, reason: string) {
     const { data: item } = await supabase.from('inventory').select('stock_quantity').eq('item_id', id).single();
     if (!item) throw new Error('Item not found');
-    await supabase.from('inventory').update({ stock_quantity: item.stock_quantity + quantity }).eq('item_id', id);
+    await supabase.from('inventory').update({ stock_quantity: Math.max(0, item.stock_quantity + quantity) }).eq('item_id', id);
     await supabase.from('stock_adjustments').insert({ item_id: id, quantity_change: quantity, reason });
     return { success: true };
   },
@@ -220,13 +215,20 @@ export const feeTypeAPI = {
     if (error) throw error;
     return data || [];
   },
-  async create(data: { name: string; description?: string; academicSession: string; amount: number; classFilter?: string }) {
-    const { data: ft, error } = await supabase.from('fee_types').insert({ name: data.name, description: data.description || null, academic_session: data.academicSession, amount: data.amount, class_filter: data.classFilter || null }).select('id').single();
+  async getByClass(studentClass: string) {
+    // Get fee types applicable to a class (class_filter matches OR is null=all)
+    const { data, error } = await supabase.from('fee_types').select('*')
+      .or(`class_filter.eq.${studentClass},class_filter.is.null`);
+    if (error) throw error;
+    return data || [];
+  },
+  async create(data: { name: string; description?: string; academicSession: string; amount: number; classFilter?: string; feeCategory?: 'standard' | 'registration' }) {
+    const { data: ft, error } = await supabase.from('fee_types').insert({ name: data.name, description: data.description || null, academic_session: data.academicSession, amount: data.amount, class_filter: data.classFilter || null, fee_category: data.feeCategory || 'standard' }).select('id').single();
     if (error) return { success: false, error: error.message };
     return { success: true, id: ft.id };
   },
-  async update(id: number, data: { name: string; description?: string; amount: number; classFilter?: string }) {
-    const { error } = await supabase.from('fee_types').update({ name: data.name, description: data.description || null, amount: data.amount, class_filter: data.classFilter || null }).eq('id', id);
+  async update(id: number, data: { name: string; description?: string; amount: number; classFilter?: string; feeCategory?: 'standard' | 'registration' }) {
+    const { error } = await supabase.from('fee_types').update({ name: data.name, description: data.description || null, amount: data.amount, class_filter: data.classFilter || null, fee_category: data.feeCategory || 'standard' }).eq('id', id);
     if (error) throw error;
     return { success: true };
   },
@@ -235,23 +237,22 @@ export const feeTypeAPI = {
     if (error) throw error;
     return { success: true };
   },
-  // Assign a fee type to all students in a class (or a specific student)
-  async assignToStudents(feeTypeId: number, amount: number, classFilter?: string, specificStudentId?: string) {
-    let students: any[] = [];
+  // Assign a fee type to students; for 'standard' fees, exclude 'New' admission students
+  async assignToStudents(feeTypeId: number, amount: number, classFilter?: string, specificStudentId?: string, feeCategory: 'standard' | 'registration' = 'standard') {
+    let query = supabase.from('students').select('student_id');
+
     if (specificStudentId) {
-      const { data } = await supabase.from('students').select('student_id').eq('student_id', specificStudentId);
-      students = data || [];
-    } else if (classFilter) {
-      const { data } = await supabase.from('students').select('student_id').eq('student_class', classFilter);
-      students = data || [];
+      query = query.eq('student_id', specificStudentId);
     } else {
-      const { data } = await supabase.from('students').select('student_id');
-      students = data || [];
+      if (classFilter) query = query.eq('student_class', classFilter);
+      // Standard fees do NOT apply to 'New' students
+      if (feeCategory === 'standard') query = query.eq('admission_type', 'Returning');
     }
 
-    if (students.length === 0) return { success: true, count: 0 };
+    const { data: students } = await query;
+    if (!students || students.length === 0) return { success: true, count: 0 };
 
-    const rows = students.map((s) => ({ student_id: s.student_id, fee_type_id: feeTypeId, amount_due: amount, amount_paid: 0 }));
+    const rows = students.map((s: any) => ({ student_id: s.student_id, fee_type_id: feeTypeId, amount_due: amount, amount_paid: 0 }));
     const { error } = await supabase.from('student_fees').upsert(rows, { onConflict: 'student_id,fee_type_id', ignoreDuplicates: true });
     if (error) return { success: false, error: error.message };
     return { success: true, count: rows.length };
@@ -261,50 +262,26 @@ export const feeTypeAPI = {
 // ─── STUDENT FEE LEDGER ───────────────────────────────────────────────────────
 export const studentFeeAPI = {
   async getForStudent(studentId: string) {
-    const { data, error } = await supabase.from('student_fees').select('*, fee_types(name, description, academic_session)').eq('student_id', studentId).order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('student_fees').select('*, fee_types(name, description, academic_session, fee_category)').eq('student_id', studentId).order('created_at', { ascending: false });
     if (error) throw error;
-    return (data || []).map((sf: any) => ({
-      ...sf,
-      fee_name: sf.fee_types?.name || 'Unknown',
-      fee_description: sf.fee_types?.description || '',
-      academic_session: sf.fee_types?.academic_session || '',
-      balance: Number(sf.amount_due) - Number(sf.amount_paid),
-    }));
+    return (data || []).map((sf: any) => ({ ...sf, fee_name: sf.fee_types?.name || 'Unknown', fee_description: sf.fee_types?.description || '', academic_session: sf.fee_types?.academic_session || '', fee_category: sf.fee_types?.fee_category || 'standard', balance: Number(sf.amount_due) - Number(sf.amount_paid) }));
   },
   async getAll(filters?: { session?: string }) {
-    let q = supabase.from('student_fees').select('*, students(name, student_class), fee_types(name, academic_session)').order('created_at', { ascending: false });
-    const { data, error } = await q;
+    const { data, error } = await supabase.from('student_fees').select('*, students(name, student_class, admission_type), fee_types(name, academic_session, fee_category)').order('created_at', { ascending: false });
     if (error) throw error;
-    return (data || []).map((sf: any) => ({
-      ...sf,
-      student_name: sf.students?.name,
-      student_class: sf.students?.student_class,
-      fee_name: sf.fee_types?.name,
-      academic_session: sf.fee_types?.academic_session,
-      balance: Number(sf.amount_due) - Number(sf.amount_paid),
-    })).filter((sf: any) => !filters?.session || sf.academic_session === filters.session);
+    return (data || []).map((sf: any) => ({ ...sf, student_name: sf.students?.name, student_class: sf.students?.student_class, admission_type: sf.students?.admission_type, fee_name: sf.fee_types?.name, academic_session: sf.fee_types?.academic_session, fee_category: sf.fee_types?.fee_category, balance: Number(sf.amount_due) - Number(sf.amount_paid) })).filter((sf: any) => !filters?.session || sf.academic_session === filters.session);
   },
   async recordPayment(studentFeeId: number, amount: number, studentId: string, shiftId: number, paymentMode: string) {
-    // Validate overpayment
     const { data: sf } = await supabase.from('student_fees').select('amount_due, amount_paid, fee_type_id').eq('id', studentFeeId).single();
     if (!sf) throw new Error('Fee record not found');
     const balance = Number(sf.amount_due) - Number(sf.amount_paid);
-    if (amount > balance) throw new Error(`Cannot pay ₦${amount.toLocaleString('en-NG')} — balance is only ₦${balance.toLocaleString('en-NG')}`);
+    if (amount > balance + 0.01) throw new Error(`Cannot pay ₦${amount.toLocaleString('en-NG')} — balance is only ₦${balance.toLocaleString('en-NG')}`);
 
-    // Create transaction
-    const { error: txnError } = await supabase.from('transactions').insert({ student_id: studentId, shift_id: shiftId, type: 'FEES_CASH_COLLECTION', amount_paid: amount, payment_mode: paymentMode, fee_type_id: sf.fee_type_id });
-    if (txnError) throw txnError;
+    await supabase.from('transactions').insert({ student_id: studentId, shift_id: shiftId, type: 'FEES_CASH_COLLECTION', amount_paid: amount, payment_mode: paymentMode, fee_type_id: sf.fee_type_id });
+    await supabase.from('student_fees').update({ amount_paid: Number(sf.amount_paid) + amount }).eq('id', studentFeeId);
 
-    // Update student_fees.amount_paid
-    const newPaid = Number(sf.amount_paid) + amount;
-    const { error: updateError } = await supabase.from('student_fees').update({ amount_paid: newPaid }).eq('id', studentFeeId);
-    if (updateError) throw updateError;
-
-    // Update student.current_fees_owed (keep in sync)
     const { data: student } = await supabase.from('students').select('current_fees_owed').eq('student_id', studentId).single();
-    if (student) {
-      await supabase.from('students').update({ current_fees_owed: Math.max(0, Number(student.current_fees_owed) - amount), updated_at: new Date().toISOString() }).eq('student_id', studentId);
-    }
+    if (student) await supabase.from('students').update({ current_fees_owed: Math.max(0, Number(student.current_fees_owed) - amount), updated_at: new Date().toISOString() }).eq('student_id', studentId);
     return { success: true };
   },
 };
@@ -312,15 +289,13 @@ export const studentFeeAPI = {
 // ─── TRANSACTIONS ─────────────────────────────────────────────────────────────
 export const transactionAPI = {
   async createPurchase(studentId: string, shiftId: number, items: any[], paymentMode: string) {
-    if (!studentId) throw new Error('Student ID is required. No anonymous purchases allowed.');
+    if (!studentId) throw new Error('Student ID required');
     const totalAmount = items.reduce((sum, item) => sum + item.selling_price * item.quantity, 0);
-
     const { data: txn, error: txnError } = await supabase.from('transactions').insert({ student_id: studentId, shift_id: shiftId, type: 'STORE_PURCHASE', amount_paid: totalAmount, payment_mode: paymentMode }).select('transaction_id').single();
     if (txnError) throw txnError;
 
     const itemRows = items.map((item) => ({ transaction_id: txn.transaction_id, item_id: item.item_id, quantity: item.quantity, unit_price: item.selling_price, total_price: item.selling_price * item.quantity }));
-    const { error: itemsError } = await supabase.from('transaction_items').insert(itemRows);
-    if (itemsError) throw itemsError;
+    await supabase.from('transaction_items').insert(itemRows);
 
     for (const item of items) {
       const { data: inv } = await supabase.from('inventory').select('stock_quantity').eq('item_id', item.item_id).single();
@@ -330,14 +305,51 @@ export const transactionAPI = {
     const details = await transactionAPI.getDetails(txn.transaction_id);
     return { success: true, transactionId: txn.transaction_id, ...details, total: totalAmount };
   },
-  async getHistory(filters?: { studentId?: string; limit?: number }) {
+
+  // Registration payment for new students: logs as REGISTRATION_PAYMENT, decrements bundled items
+  async createRegistration(studentId: string, shiftId: number, registrationFeeId: number | null, feeAmount: number, bundledItems: any[], paymentMode: string) {
+    if (!studentId) throw new Error('Student ID required');
+    const itemsTotal = bundledItems.reduce((s, i) => s + i.selling_price * i.quantity, 0);
+    const totalAmount = feeAmount + itemsTotal;
+
+    // Create the registration transaction
+    const { data: txn, error: txnError } = await supabase.from('transactions').insert({
+      student_id: studentId, shift_id: shiftId, type: 'REGISTRATION_PAYMENT', amount_paid: totalAmount, payment_mode: paymentMode,
+      fee_type_id: registrationFeeId,
+      notes: `Registration: ${bundledItems.length} items + ₦${feeAmount.toLocaleString('en-NG')} reg fee`,
+    }).select('transaction_id').single();
+    if (txnError) throw txnError;
+
+    // Insert transaction items for bundled inventory
+    if (bundledItems.length > 0) {
+      const itemRows = bundledItems.map((item) => ({ transaction_id: txn.transaction_id, item_id: item.item_id, quantity: item.quantity, unit_price: item.selling_price, total_price: item.selling_price * item.quantity }));
+      await supabase.from('transaction_items').insert(itemRows);
+
+      for (const item of bundledItems) {
+        const { data: inv } = await supabase.from('inventory').select('stock_quantity').eq('item_id', item.item_id).single();
+        if (inv) await supabase.from('inventory').update({ stock_quantity: Math.max(0, inv.stock_quantity - item.quantity) }).eq('item_id', item.item_id);
+      }
+    }
+
+    // If a registration fee type was selected, create a student_fees record and mark as paid
+    if (registrationFeeId && feeAmount > 0) {
+      await supabase.from('student_fees').upsert([{ student_id: studentId, fee_type_id: registrationFeeId, amount_due: feeAmount, amount_paid: feeAmount }], { onConflict: 'student_id,fee_type_id', ignoreDuplicates: false });
+    }
+
+    const details = await transactionAPI.getDetails(txn.transaction_id);
+    return { success: true, transactionId: txn.transaction_id, ...details, total: totalAmount };
+  },
+
+  async getHistory(filters?: { studentId?: string; limit?: number; shiftId?: number }) {
     let query = supabase.from('transactions').select('*, students(name, student_class)').order('timestamp', { ascending: false });
     if (filters?.studentId) query = query.eq('student_id', filters.studentId);
+    if (filters?.shiftId) query = query.eq('shift_id', filters.shiftId);
     if (filters?.limit) query = query.limit(filters.limit);
     const { data, error } = await query;
     if (error) throw error;
     return (data || []).map((t: any) => ({ ...t, student_name: t.students?.name, student_class: t.students?.student_class }));
   },
+
   async getDetails(id: number) {
     const { data: txn, error: txnError } = await supabase.from('transactions').select('*, students(name, student_class), fee_types(name)').eq('transaction_id', id).single();
     if (txnError) throw txnError;
@@ -347,6 +359,7 @@ export const transactionAPI = {
       items: (items || []).map((i: any) => ({ ...i, item_name: i.inventory?.item_name })),
     };
   },
+
   async search(filters: { query?: string; startDate?: string; endDate?: string; type?: string; paymentMode?: string }) {
     let q = supabase.from('transactions').select('*, students(name, student_class, student_id)').order('timestamp', { ascending: false }).limit(500);
     if (filters.type) q = q.eq('type', filters.type);
@@ -390,7 +403,7 @@ export const adminAPI = {
     const since = new Date(); since.setDate(since.getDate() - days);
     const { data, error } = await supabase.from('transactions').select('timestamp, type, amount_paid').gte('timestamp', since.toISOString()).order('timestamp');
     if (error) throw error;
-    const grouped: Record<string, { store_sales: number; fees_collected: number; total: number }> = {};
+    const grouped: Record<string, any> = {};
     for (const t of data || []) {
       const date = t.timestamp.slice(0, 10);
       if (!grouped[date]) grouped[date] = { store_sales: 0, fees_collected: 0, total: 0 };
@@ -404,7 +417,7 @@ export const adminAPI = {
   async getClassRevenue() {
     const { data, error } = await supabase.from('transactions').select('amount_paid, students(student_class)');
     if (error) throw error;
-    const grouped: Record<string, { total_revenue: number; transaction_count: number }> = {};
+    const grouped: Record<string, any> = {};
     for (const t of data || []) {
       const cls = (t.students as any)?.student_class || 'Unknown';
       if (!grouped[cls]) grouped[cls] = { total_revenue: 0, transaction_count: 0 };
@@ -416,7 +429,7 @@ export const adminAPI = {
   async getTopProducts(limit: number = 10) {
     const { data, error } = await supabase.from('transaction_items').select('item_id, quantity, total_price, inventory(item_name)').order('total_price', { ascending: false }).limit(limit);
     if (error) throw error;
-    const grouped: Record<number, { item_name: string; total_quantity: number; total_revenue: number }> = {};
+    const grouped: Record<number, any> = {};
     for (const ti of data || []) {
       const id = ti.item_id;
       if (!grouped[id]) grouped[id] = { item_name: (ti.inventory as any)?.item_name || 'Unknown', total_quantity: 0, total_revenue: 0 };

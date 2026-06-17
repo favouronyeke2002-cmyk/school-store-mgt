@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Package, X, Tag } from 'lucide-react';
+import { Plus, Pencil, Package, X, Tag, AlertCircle } from 'lucide-react';
 import { inventoryAPI, categoryAPI } from '../../lib/api';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -31,6 +31,13 @@ const InventoryManagement: React.FC = () => {
   // Adjust stock state
   const [adjQty, setAdjQty] = useState('');
   const [adjReason, setAdjReason] = useState('');
+  const [adjError, setAdjError] = useState('');
+
+  // Error modal
+  const [errorMsg, setErrorMsg] = useState('');
+
+  // Create error
+  const [addError, setAddError] = useState('');
 
   const reload = () => {
     setLoading(true);
@@ -44,9 +51,10 @@ const InventoryManagement: React.FC = () => {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAddError('');
     const result = await inventoryAPI.create({ itemName: form.itemName, costPrice: parseFloat(form.costPrice), sellingPrice: parseFloat(form.sellingPrice), stockQuantity: parseInt(form.stockQuantity) || 0, barcode: form.barcode || undefined, categoryId: form.categoryId ? Number(form.categoryId) : null });
-    if (result.success) { setShowAdd(false); setForm(emptyForm); reload(); }
-    else alert(result.error);
+    if (result.success) { setShowAdd(false); setForm(emptyForm); setAddError(''); reload(); }
+    else setAddError(result.error || 'Failed to create item');
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
@@ -61,8 +69,9 @@ const InventoryManagement: React.FC = () => {
     e.preventDefault();
     if (!selected) return;
     const qty = parseInt(adjQty);
-    if (isNaN(qty) || qty === 0) { alert('Enter a non-zero quantity'); return; }
-    if (!adjReason.trim()) { alert('Please enter a reason'); return; }
+    if (isNaN(qty) || qty === 0) { setAdjError('Enter a non-zero quantity'); return; }
+    if (!adjReason.trim()) { setAdjError('Please enter a reason'); return; }
+    setAdjError('');
     await inventoryAPI.adjustStock(selected.item_id, qty, adjReason);
     setShowAdjust(false);
     setAdjQty('');
@@ -82,7 +91,7 @@ const InventoryManagement: React.FC = () => {
       await categoryAPI.update(editCat.id, catForm.name, catForm.color);
     } else {
       const r = await categoryAPI.create(catForm.name, catForm.color);
-      if (!r.success) { alert(r.error); return; }
+      if (!r.success) { setErrorMsg(r.error || 'Failed to create category'); return; }
     }
     setCatForm({ name: '', color: '#3b82f6' });
     setEditCat(null);
@@ -91,8 +100,9 @@ const InventoryManagement: React.FC = () => {
 
   const totalValue = inventory.reduce((s, i) => s + i.stock_quantity * i.selling_price, 0);
 
-  const FormFields: React.FC<{ onSubmit: (e: React.FormEvent) => void; submitLabel: string; onCancel: () => void }> = ({ onSubmit, submitLabel, onCancel }) => (
+  const FormFields: React.FC<{ onSubmit: (e: React.FormEvent) => void; submitLabel: string; onCancel: () => void; error?: string }> = ({ onSubmit, submitLabel, onCancel, error }) => (
     <form onSubmit={onSubmit} className="space-y-4">
+      {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2">{error}</div>}
       <div>
         <label className="text-sm font-medium text-gray-700 mb-1 block">Item Name *</label>
         <input type="text" value={form.itemName} onChange={(e) => setForm((p) => ({ ...p, itemName: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required />
@@ -136,6 +146,18 @@ const InventoryManagement: React.FC = () => {
 
   return (
     <div>
+      {/* Error Modal */}
+      {errorMsg && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6 text-center">
+            <div className="w-14 h-14 bg-danger-100 rounded-full flex items-center justify-center mx-auto mb-4"><AlertCircle className="w-7 h-7 text-danger-600" /></div>
+            <h2 className="text-lg font-bold mb-2">Error</h2>
+            <p className="text-gray-600 text-sm mb-5">{errorMsg}</p>
+            <button onClick={() => setErrorMsg('')} className="w-full py-2.5 bg-gray-100 rounded-xl text-gray-700 hover:bg-gray-200 font-medium">OK</button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
@@ -146,7 +168,7 @@ const InventoryManagement: React.FC = () => {
           <button onClick={() => setShowCatMgr(true)} className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200">
             <Tag className="w-4 h-4" /> Categories
           </button>
-          <button onClick={() => { setForm(emptyForm); setShowAdd(true); }} className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700">
+          <button onClick={() => { setForm(emptyForm); setAddError(''); setShowAdd(true); }} className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700">
             <Plus className="w-4 h-4" /> Add Item
           </button>
         </div>
@@ -210,7 +232,7 @@ const InventoryManagement: React.FC = () => {
                 <td className="px-4 py-3 text-right text-success-600 font-medium">{fmt(item.selling_price - item.cost_price)}</td>
                 <td className="px-4 py-3 text-center">
                   <button onClick={() => openEdit(item)} className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg mr-1 transition-colors"><Pencil className="w-4 h-4" /></button>
-                  <button onClick={() => { setSelected(item); setAdjQty(''); setAdjReason(''); setShowAdjust(true); }} className="px-2 py-1 text-xs bg-warning-100 text-warning-700 rounded-lg hover:bg-warning-200 font-medium">Stock</button>
+                  <button onClick={() => { setSelected(item); setAdjQty(''); setAdjReason(''); setAdjError(''); setShowAdjust(true); }} className="px-2 py-1 text-xs bg-warning-100 text-warning-700 rounded-lg hover:bg-warning-200 font-medium">Stock</button>
                 </td>
               </tr>
             ))}
@@ -223,7 +245,7 @@ const InventoryManagement: React.FC = () => {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between mb-5"><h2 className="text-lg font-bold">Add New Item</h2><button onClick={() => setShowAdd(false)}><X className="w-5 h-5 text-gray-400" /></button></div>
-            <FormFields onSubmit={handleCreate} submitLabel="Add Item" onCancel={() => setShowAdd(false)} />
+            <FormFields onSubmit={handleCreate} submitLabel="Add Item" onCancel={() => setShowAdd(false)} error={addError} />
           </div>
         </div>
       )}
@@ -248,17 +270,18 @@ const InventoryManagement: React.FC = () => {
               <div className="text-3xl font-extrabold mt-1">{selected.stock_quantity}</div>
               <div className="text-xs text-gray-400">current units</div>
             </div>
+            {adjError && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-3">{adjError}</div>}
             <form onSubmit={handleAdjust} className="space-y-3">
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Quantity Change (use - for removals)</label>
-                <input type="number" value={adjQty} onChange={(e) => setAdjQty(e.target.value)} placeholder="e.g. +50 or -5" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required />
+                <input type="number" value={adjQty} onChange={(e) => { setAdjQty(e.target.value); setAdjError(''); }} placeholder="e.g. +50 or -5" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required />
                 {adjQty && !isNaN(parseInt(adjQty)) && (
                   <div className="mt-1 text-sm">New stock will be: <strong>{selected.stock_quantity + parseInt(adjQty)}</strong></div>
                 )}
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Reason *</label>
-                <input type="text" value={adjReason} onChange={(e) => setAdjReason(e.target.value)} placeholder="e.g. Received new stock, Damaged items" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required />
+                <input type="text" value={adjReason} onChange={(e) => { setAdjReason(e.target.value); setAdjError(''); }} placeholder="e.g. Received new stock, Damaged items" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required />
               </div>
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setShowAdjust(false)} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
