@@ -1,44 +1,44 @@
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
+import { Upload, Download, CheckCircle, XCircle, FileText } from 'lucide-react';
 import { studentAPI, inventoryAPI } from '../../lib/api';
 
 type ImportType = 'students' | 'inventory';
 
-const BulkImport: React.FC = () => {
-  const [type, setType] = useState<ImportType>('students');
-  const [data, setData] = useState<any[]>([]);
-  const [error, setError] = useState('');
-  const [result, setResult] = useState<{ success: boolean; count?: number; error?: string } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
+const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`;
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setError('');
-    setResult(null);
-    setData([]);
+const STUDENT_TEMPLATE = `student_id,name,class,fees_owed\nSTU-0011,John Doe,JSS1A,15000\nSTU-0012,Jane Smith,JSS2B,0`;
+const INVENTORY_TEMPLATE = `item_name,barcode,cost_price,selling_price,stock_quantity\nExercise Book 80pg,1234567890099,50,120,200\nBallpoint Pen Blue,1234567890100,20,50,100`;
 
+function parseFile(file: File, type: ImportType): Promise<any[]> {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const workbook = XLSX.read(evt.target?.result, { type: 'binary' });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
 
-        if (rows.length < 2) throw new Error('File must have header row and data');
+        if (rows.length < 2) throw new Error('File must have a header row and at least one data row');
 
-        const headers = (rows[0] as string[]).map(h => h?.toString().toLowerCase().trim() || '');
+        const headers = (rows[0] as any[]).map((h: any) => String(h || '').toLowerCase().trim());
         const parsed: any[] = [];
 
         for (let i = 1; i < rows.length; i++) {
           const row = rows[i] as any[];
+          if (!row.some((cell) => cell !== '' && cell !== undefined && cell !== null)) continue; // skip empty rows
           const obj: any = {};
-
           headers.forEach((h, idx) => {
-            const val = row[idx]?.toString().trim() || '';
+            const raw = row[idx];
+            const val = raw !== undefined && raw !== null ? String(raw).trim() : '';
+
             if (type === 'students') {
-              if (h === 'student_id') obj.student_id = val;
+              if (h === 'student_id' || h === 'id') {
+                // Normalize: add STU- prefix if it's just a number
+                const clean = val.startsWith('STU-') ? val : val ? `STU-${val.padStart(4, '0')}` : '';
+                obj.student_id = clean;
+              }
               if (h === 'name') obj.name = val;
               if (h === 'class' || h === 'student_class') obj.student_class = val;
               if (h === 'fees' || h === 'fees_owed') obj.fees_owed = parseFloat(val) || 0;
@@ -46,173 +46,230 @@ const BulkImport: React.FC = () => {
               if (h === 'item_name' || h === 'name') obj.item_name = val;
               if (h === 'barcode') obj.barcode = val || null;
               if (h === 'cost_price' || h === 'cost') obj.cost_price = parseFloat(val) || 0;
-              if (h === 'selling_price' || h === 'price') obj.selling_price = parseFloat(val) || 0;
-              if (h === 'stock_quantity' || h === 'stock' || h === 'quantity') obj.stock_quantity = parseInt(val) || 0;
+              if (h === 'selling_price' || h === 'price' || h === 'sell_price') obj.selling_price = parseFloat(val) || 0;
+              if (h === 'stock_quantity' || h === 'stock' || h === 'quantity' || h === 'qty') obj.stock_quantity = parseInt(val) || 0;
             }
           });
 
-          if (type === 'students' && obj.student_id) parsed.push(obj);
+          // Validate required fields
+          if (type === 'students' && obj.student_id && obj.name && obj.student_class) parsed.push(obj);
           else if (type === 'inventory' && obj.item_name) parsed.push(obj);
         }
 
-        setData(parsed);
+        resolve(parsed);
       } catch (err: any) {
-        setError(err.message);
+        reject(new Error(err.message || 'Failed to parse file'));
       }
     };
-    reader.readAsBinaryString(file);
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+const BulkImport: React.FC = () => {
+  const [type, setType] = useState<ImportType>('students');
+  const [preview, setPreview] = useState<any[]>([]);
+  const [parseError, setParseError] = useState('');
+  const [result, setResult] = useState<{ success: boolean; count?: number; error?: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [fileName, setFileName] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setParseError('');
+    setResult(null);
+    setPreview([]);
+    setFileName(file.name);
+    try {
+      const rows = await parseFile(file, type);
+      if (rows.length === 0) setParseError('No valid rows found. Check your file matches the template format.');
+      else setPreview(rows);
+    } catch (err: any) {
+      setParseError(err.message);
+    }
   };
 
   const doImport = async () => {
+    if (preview.length === 0) return;
     setLoading(true);
+    setResult(null);
     try {
       const res = type === 'students'
-        ? await studentAPI.bulkImport(data)
-        : await inventoryAPI.bulkImport(data);
+        ? await studentAPI.bulkImport(preview)
+        : await inventoryAPI.bulkImport(preview);
       setResult(res);
-      if (res.success) {
-        setData([]);
-        if (fileInput.current) fileInput.current.value = '';
-      }
+      if (res.success) { setPreview([]); setFileName(''); if (fileInput.current) fileInput.current.value = ''; }
     } catch (err: any) {
       setResult({ success: false, error: err.message });
     }
     setLoading(false);
   };
 
-  const clearAll = () => {
-    setData([]);
-    setError('');
-    setResult(null);
-    if (fileInput.current) fileInput.current.value = '';
-  };
-
-  const studentTemplate = 'student_id,name,class,fees_owed\n0001,John Doe,JSS1A,15000\n0002,Jane Smith,JSS2B,25000';
-  const inventoryTemplate = 'item_name,barcode,cost_price,selling_price,stock_quantity\nExercise Book,1234567890001,50,120,500\nPen,1234567890002,20,50,300';
+  const clearAll = () => { setPreview([]); setParseError(''); setResult(null); setFileName(''); if (fileInput.current) fileInput.current.value = ''; };
 
   const downloadTemplate = () => {
-    const template = type === 'students' ? studentTemplate : inventoryTemplate;
-    const blob = new Blob([template], { type: 'text/csv' });
+    const csv = type === 'students' ? STUDENT_TEMPLATE : INVENTORY_TEMPLATE;
+    const blob = new Blob([csv], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${type}_template.csv`;
+    a.download = `${type}_import_template.csv`;
     a.click();
   };
 
   return (
-    <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Bulk Import</h1>
-        <p className="text-gray-500">Import students or inventory from CSV/Excel files</p>
+    <div className="max-w-3xl space-y-5">
+      <div>
+        <h1 className="text-2xl font-extrabold text-gray-900">Bulk Import</h1>
+        <p className="text-gray-400 text-sm mt-0.5">Upload a CSV or Excel file to add/update students or inventory in bulk</p>
       </div>
 
-      {/* Type Selection */}
-      <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-        <div className="flex gap-4 mb-4">
-          <button onClick={() => { setType('students'); clearAll(); }} className={`flex-1 py-4 rounded-lg font-medium ${type === 'students' ? 'bg-primary-600 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>Import Students</button>
-          <button onClick={() => { setType('inventory'); clearAll(); }} className={`flex-1 py-4 rounded-lg font-medium ${type === 'inventory' ? 'bg-primary-600 text-white' : 'bg-gray-200 hover:bg-gray-300'}`}>Import Inventory</button>
+      {/* Type Selector */}
+      <div className="flex gap-2 bg-gray-100 p-1 rounded-xl w-fit">
+        {(['students', 'inventory'] as const).map((t) => (
+          <button key={t} onClick={() => { setType(t); clearAll(); }} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all capitalize ${type === t ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {/* Template Download */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="font-bold text-gray-900 mb-1">Step 1: Download Template</h2>
+            <p className="text-sm text-gray-500">Use this template to format your data. Required columns are shown below.</p>
+            <pre className="mt-2 bg-gray-50 rounded-lg px-3 py-2 text-xs font-mono text-gray-600 overflow-x-auto">{type === 'students' ? STUDENT_TEMPLATE : INVENTORY_TEMPLATE}</pre>
+          </div>
+          <button onClick={downloadTemplate} className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg text-sm font-medium hover:bg-gray-200 shrink-0">
+            <Download className="w-4 h-4" /> Template
+          </button>
         </div>
-        <p className="text-sm text-gray-500">{type === 'students' ? 'Import student roster with name, class, and fees.' : 'Import inventory items with prices and stock quantities.'}</p>
+        {type === 'students' && (
+          <div className="mt-3 text-xs text-gray-400 bg-gray-50 rounded-lg p-3 space-y-1">
+            <div><strong>student_id</strong>: Required, e.g. STU-0011 (or just 0011 — prefix auto-added)</div>
+            <div><strong>name</strong>: Required, student's full name</div>
+            <div><strong>class</strong>: Required, e.g. JSS1A, SS2B</div>
+            <div><strong>fees_owed</strong>: Optional, numeric amount e.g. 15000</div>
+          </div>
+        )}
+        {type === 'inventory' && (
+          <div className="mt-3 text-xs text-gray-400 bg-gray-50 rounded-lg p-3 space-y-1">
+            <div><strong>item_name</strong>: Required, product name</div>
+            <div><strong>barcode</strong>: Optional, unique barcode (items without barcodes are always inserted)</div>
+            <div><strong>cost_price</strong>: Required, purchase cost e.g. 50</div>
+            <div><strong>selling_price</strong>: Required, selling price e.g. 120</div>
+            <div><strong>stock_quantity</strong>: Optional, initial stock count</div>
+          </div>
+        )}
       </div>
 
       {/* File Upload */}
-      <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-        <h2 className="text-lg font-bold mb-4">Upload File</h2>
-        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center mb-4">
-          <input ref={fileInput} type="file" accept=".csv,.xlsx,.xls" onChange={handleFile} className="hidden" id="file-upload" />
-          <label htmlFor="file-upload" className="cursor-pointer">
-            <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-            <p className="text-gray-600">Click to select CSV or Excel file</p>
-          </label>
-        </div>
-        {error && <div className="bg-danger-50 border border-danger-200 text-danger-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
-      </div>
-
-      {/* Template */}
-      <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-bold">CSV Template</h2>
-          <button onClick={downloadTemplate} className="px-4 py-2 bg-gray-200 rounded text-sm hover:bg-gray-300">Download Template</button>
-        </div>
-        <pre className="bg-gray-50 rounded-lg p-4 text-xs font-mono overflow-auto">{type === 'students' ? studentTemplate : inventoryTemplate}</pre>
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+        <h2 className="font-bold text-gray-900 mb-3">Step 2: Upload File</h2>
+        <label className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-8 cursor-pointer transition-colors ${fileName ? 'border-primary-300 bg-primary-50' : 'border-gray-200 hover:border-primary-300 hover:bg-gray-50'}`}>
+          <input ref={fileInput} type="file" accept=".csv,.xlsx,.xls" onChange={handleFile} className="hidden" />
+          <Upload className={`w-10 h-10 mb-3 ${fileName ? 'text-primary-500' : 'text-gray-300'}`} />
+          {fileName ? (
+            <div className="text-center">
+              <div className="font-semibold text-primary-700 flex items-center gap-1"><FileText className="w-4 h-4" />{fileName}</div>
+              <div className="text-sm text-gray-500 mt-1">Click to change file</div>
+            </div>
+          ) : (
+            <div className="text-center">
+              <div className="font-medium text-gray-600">Click to upload CSV or Excel</div>
+              <div className="text-sm text-gray-400 mt-1">.csv, .xlsx, .xls supported</div>
+            </div>
+          )}
+        </label>
+        {parseError && (
+          <div className="mt-3 flex items-start gap-2 bg-danger-50 border border-danger-200 rounded-lg px-4 py-3 text-sm text-danger-700">
+            <XCircle className="w-4 h-4 shrink-0 mt-0.5" /> {parseError}
+          </div>
+        )}
       </div>
 
       {/* Preview */}
-      {data.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold">Preview ({data.length} rows)</h2>
-            <button onClick={clearAll} className="px-4 py-2 bg-danger-100 text-danger-700 rounded text-sm hover:bg-danger-200">Clear</button>
+      {preview.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b flex items-center justify-between">
+            <h2 className="font-bold text-gray-900">Step 3: Preview ({preview.length} rows ready to import)</h2>
+            <button onClick={clearAll} className="text-sm text-danger-500 hover:text-danger-700">Clear</button>
           </div>
-          <div className="overflow-auto max-h-80">
+          <div className="overflow-x-auto max-h-72">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-50 sticky top-0">
                 <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th>
                   {type === 'students' ? (
                     <>
-                      <th className="px-3 py-2 text-left">ID</th>
-                      <th className="px-3 py-2 text-left">Name</th>
-                      <th className="px-3 py-2 text-left">Class</th>
-                      <th className="px-3 py-2 text-right">Fees</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Student ID</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Class</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Fees Owed</th>
                     </>
                   ) : (
                     <>
-                      <th className="px-3 py-2 text-left">Name</th>
-                      <th className="px-3 py-2 text-right">Cost</th>
-                      <th className="px-3 py-2 text-right">Price</th>
-                      <th className="px-3 py-2 text-right">Stock</th>
-                      <th className="px-3 py-2 text-left">Barcode</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Item Name</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Cost</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Selling</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Stock</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Barcode</th>
                     </>
                   )}
                 </tr>
               </thead>
               <tbody>
-                {data.slice(0, 20).map((row, i) => (
-                  <tr key={i} className="border-t">
+                {preview.slice(0, 50).map((row, i) => (
+                  <tr key={i} className="border-t hover:bg-gray-50">
+                    <td className="px-3 py-2 text-gray-400 text-xs">{i + 1}</td>
                     {type === 'students' ? (
                       <>
-                        <td className="px-3 py-2 font-mono">{row.student_id}</td>
-                        <td className="px-3 py-2">{row.name}</td>
-                        <td className="px-3 py-2">{row.student_class}</td>
-                        <td className="px-3 py-2 text-right">₦{(row.fees_owed || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-gray-600">{row.student_id}</td>
+                        <td className="px-3 py-2 font-medium">{row.name}</td>
+                        <td className="px-3 py-2"><span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs">{row.student_class}</span></td>
+                        <td className="px-3 py-2 text-right">{fmt(row.fees_owed || 0)}</td>
                       </>
                     ) : (
                       <>
-                        <td className="px-3 py-2">{row.item_name}</td>
-                        <td className="px-3 py-2 text-right">₦{(row.cost_price || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</td>
-                        <td className="px-3 py-2 text-right">₦{(row.selling_price || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</td>
-                        <td className="px-3 py-2 text-right">{row.stock_quantity}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{row.barcode || '-'}</td>
+                        <td className="px-3 py-2 font-medium">{row.item_name}</td>
+                        <td className="px-3 py-2 text-right">{fmt(row.cost_price || 0)}</td>
+                        <td className="px-3 py-2 text-right text-primary-600 font-semibold">{fmt(row.selling_price || 0)}</td>
+                        <td className="px-3 py-2 text-right">{row.stock_quantity || 0}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-gray-400">{row.barcode || '—'}</td>
                       </>
                     )}
                   </tr>
                 ))}
               </tbody>
             </table>
-            {data.length > 20 && <div className="text-center text-gray-400 py-4">... and {data.length - 20} more rows</div>}
+            {preview.length > 50 && <div className="text-center text-gray-400 text-sm py-3">Showing first 50 of {preview.length} rows</div>}
           </div>
-          <button onClick={doImport} disabled={loading} className="w-full mt-4 py-3 bg-success-600 text-white rounded-lg font-semibold hover:bg-success-700 disabled:opacity-50">{loading ? 'Importing...' : `Import ${data.length} ${type}`}</button>
+          <div className="px-5 py-4 bg-gray-50 border-t">
+            <button onClick={doImport} disabled={loading} className="w-full py-3 bg-success-600 text-white rounded-xl font-bold hover:bg-success-700 disabled:opacity-50 text-base">
+              {loading ? 'Importing…' : `Import ${preview.length} ${type === 'students' ? 'Students' : 'Inventory Items'}`}
+            </button>
+          </div>
         </div>
       )}
 
       {/* Result */}
       {result && (
-        <div className={`bg-white rounded-lg shadow-sm p-6 ${result.success ? 'bg-success-50' : 'bg-danger-50'}`}>
-          <div className="text-center">
-            {result.success ? (
-              <>
-                <div className="w-16 h-16 bg-success-100 rounded-full flex items-center justify-center mx-auto mb-4"><svg className="w-8 h-8 text-success-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div>
-                <h3 className="text-xl font-bold text-success-700">Import Successful!</h3>
-                <p className="text-success-600">{result.count} records imported.</p>
-              </>
-            ) : (
-              <>
-                <div className="w-16 h-16 bg-danger-100 rounded-full flex items-center justify-center mx-auto mb-4"><svg className="w-8 h-8 text-danger-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div>
-                <h3 className="text-xl font-bold text-danger-700">Import Failed</h3>
-                <p className="text-danger-600">{result.error}</p>
-              </>
-            )}
-          </div>
+        <div className={`bg-white rounded-xl border shadow-sm p-6 text-center ${result.success ? 'border-success-200' : 'border-danger-200'}`}>
+          {result.success ? (
+            <>
+              <CheckCircle className="w-12 h-12 text-success-500 mx-auto mb-3" />
+              <h3 className="text-lg font-bold text-success-700">Import Successful!</h3>
+              <p className="text-success-600 mt-1">{result.count} records imported or updated.</p>
+            </>
+          ) : (
+            <>
+              <XCircle className="w-12 h-12 text-danger-500 mx-auto mb-3" />
+              <h3 className="text-lg font-bold text-danger-700">Import Failed</h3>
+              <p className="text-danger-600 mt-1 text-sm">{result.error}</p>
+            </>
+          )}
         </div>
       )}
     </div>
