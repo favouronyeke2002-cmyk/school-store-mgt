@@ -9,10 +9,12 @@ interface Settings {
   logo_url: string | null;
   academic_session: string;
   address: string;
+  min_partial_payment_floor: number;
+  min_acceptance_partial_floor: number;
 }
 
 const SchoolSettings: React.FC = () => {
-  const [settings, setSettings] = useState<Settings>({ school_name: '', tagline: '', phone_number: '', logo_url: null, academic_session: '', address: '' });
+  const [settings, setSettings] = useState<Settings>({ school_name: '', tagline: '', phone_number: '', logo_url: null, academic_session: '', address: '', min_partial_payment_floor: 30000, min_acceptance_partial_floor: 5000 });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -149,6 +151,23 @@ const SchoolSettings: React.FC = () => {
         {field('School Name', 'school_name', 'e.g. St. Mary\'s Secondary School')}
         {field('Motto / Tagline / Slogan', 'tagline', 'e.g. Excellence in Education', 'Displayed on the receipt under the school name')}
         {field('Academic Session', 'academic_session', 'e.g. 2025/2026', 'Used as the default session when creating new fees')}
+
+        <div className="border-t pt-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Partial Payment Floors</h3>
+          <p className="text-xs text-gray-400 mb-3">Minimum amounts allowed for partial payments. Cashier cannot accept less than these amounts.</p>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Minimum Registration Partial Payment (₦)</label>
+              <p className="text-xs text-gray-400 mb-1">Floor for Registration Fee Bundle and School Fees. Default: ₦30,000</p>
+              <input type="number" min="0" step="1000" value={(settings.min_partial_payment_floor || 0)} onChange={(e) => setSettings((p) => ({ ...p, min_partial_payment_floor: parseFloat(e.target.value) || 0 }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Minimum Acceptance Partial Payment (₦)</label>
+              <p className="text-xs text-gray-400 mb-1">Floor for Acceptance Fee Bundle. Default: ₦5,000</p>
+              <input type="number" min="0" step="1000" value={(settings.min_acceptance_partial_floor || 0)} onChange={(e) => setSettings((p) => ({ ...p, min_acceptance_partial_floor: parseFloat(e.target.value) || 0 }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" />
+            </div>
+          </div>
+        </div>
 
         <div className="border-t pt-4">
           <h3 className="text-sm font-semibold text-gray-700 mb-3">Receipt Footer</h3>

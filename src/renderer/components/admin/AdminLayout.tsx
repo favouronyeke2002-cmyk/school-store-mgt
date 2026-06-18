@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   LayoutDashboard, Users, Package, FileText, Clock, Settings,
-  Upload, LogOut, ChevronRight, Store, DollarSign, Cog
+  Upload, LogOut, ChevronRight, Store, DollarSign, Cog, Layers, UserPlus
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import Dashboard from './Dashboard';
@@ -13,15 +13,19 @@ import UserManagement from './UserManagement';
 import BulkImport from './BulkImport';
 import FeesManagement from './FeesManagement';
 import SchoolSettings from './SchoolSettings';
+import BundleManagement from './BundleManagement';
+import PendingAdmissions from './PendingAdmissions';
 
-type AdminView = 'dashboard' | 'students' | 'inventory' | 'transactions' | 'shifts' | 'fees' | 'users' | 'import' | 'settings';
+type AdminView = 'dashboard' | 'students' | 'inventory' | 'transactions' | 'shifts' | 'fees' | 'bundles' | 'admissions' | 'users' | 'import' | 'settings';
 
 const navItems: { id: AdminView; label: string; icon: React.ElementType; group?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, group: 'Overview' },
   { id: 'transactions', label: 'Transactions', icon: FileText, group: 'Overview' },
   { id: 'shifts', label: 'Shift History', icon: Clock, group: 'Overview' },
   { id: 'inventory', label: 'Inventory', icon: Package, group: 'Store' },
+  { id: 'bundles', label: 'Bundles', icon: Layers, group: 'Store' },
   { id: 'students', label: 'Students', icon: Users, group: 'People' },
+  { id: 'admissions', label: 'Pending Admissions', icon: UserPlus, group: 'People' },
   { id: 'fees', label: 'Fees & Billing', icon: DollarSign, group: 'People' },
   { id: 'users', label: 'Staff', icon: Settings, group: 'Admin' },
   { id: 'import', label: 'Bulk Import', icon: Upload, group: 'Admin' },
@@ -117,6 +121,8 @@ const AdminLayout: React.FC = () => {
           {currentView === 'transactions' && <TransactionHistory />}
           {currentView === 'shifts' && <ShiftHistory />}
           {currentView === 'fees' && <FeesManagement />}
+          {currentView === 'bundles' && <BundleManagement />}
+          {currentView === 'admissions' && <PendingAdmissions />}
           {currentView === 'users' && <UserManagement />}
           {currentView === 'import' && <BulkImport />}
           {currentView === 'settings' && <SchoolSettings />}

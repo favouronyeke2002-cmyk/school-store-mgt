@@ -2,11 +2,11 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ShoppingCart, Users, Clock, LogOut, Search, Plus, Minus,
   Trash2, CreditCard, Banknote, AlertTriangle, CheckCircle,
-  Package, User, RefreshCw, X, Tag, ChevronLeft, ChevronRight, Printer, UserPlus
+  Package, User, RefreshCw, X, Tag, ChevronLeft, ChevronRight, Printer, UserPlus, Layers, UserCheck
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useShift } from '../../context/ShiftContext';
-import { studentAPI, inventoryAPI, transactionAPI, studentFeeAPI, categoryAPI, settingsAPI, feeTypeAPI } from '../../lib/api';
+import { studentAPI, inventoryAPI, transactionAPI, studentFeeAPI, categoryAPI, settingsAPI, feeTypeAPI, bundleAPI, applicantAPI, bundlePaymentAPI } from '../../lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Student { student_id: string; name: string; student_class: string; current_fees_owed: number; admission_type?: 'Returning' | 'New'; }
@@ -14,8 +14,9 @@ interface InventoryItem { item_id: number; item_name: string; cost_price: number
 interface CartItem { item_id: number; item_name: string; selling_price: number; quantity: number; }
 interface StudentFee { id: number; fee_name: string; fee_description: string; academic_session: string; amount_due: number; amount_paid: number; balance: number; fee_category: string; }
 interface Category { id: number; name: string; color: string; }
+interface Bundle { id: number; name: string; description: string | null; base_price: number; bundle_type: 'acceptance' | 'registration' | 'custom'; is_active: boolean; items: { item_id: number; item_name: string; selling_price: number; quantity: number }[]; }
 type SideTab = 'sale' | 'history' | 'students';
-type SaleMode = 'store' | 'fees';
+type SaleMode = 'store' | 'fees' | 'bundles';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -296,6 +297,158 @@ const QuickAddStudentModal: React.FC<{
   );
 };
 
+// ─── Walk-In Applicant Modal ──────────────────────────────────────────────────
+const WalkInApplicantModal: React.FC<{
+  classes: string[];
+  onSave: (data: { firstName: string; lastName: string; proposedClass: string }) => void;
+  onCancel: () => void;
+  saving: boolean;
+  error: string;
+}> = ({ classes, onSave, onCancel, saving, error }) => {
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [proposedClass, setProposedClass] = useState(classes[0] || '');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!firstName.trim() || !lastName.trim()) return;
+    onSave({ firstName: firstName.trim(), lastName: lastName.trim(), proposedClass });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-warning-100 rounded-xl flex items-center justify-center"><User className="w-5 h-5 text-warning-600" /></div>
+            <h2 className="text-lg font-bold">Walk-In Applicant</h2>
+          </div>
+          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+        </div>
+
+        {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{error}</div>}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">First Name *</label>
+              <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" placeholder="First name" required autoFocus />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">Last Name *</label>
+              <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" placeholder="Last name" required />
+            </div>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-1 block">Proposed Class</label>
+            <select value={proposedClass} onChange={(e) => setProposedClass(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
+              {classes.length === 0 && <option value="">No classes available</option>}
+              {classes.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <p className="text-xs text-gray-400">Applicant will be created and you can process registration bundle payment. They will appear in Pending Admissions for enrollment.</p>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
+            <button type="submit" disabled={saving || !firstName.trim() || !lastName.trim()} className="flex-1 py-2.5 bg-warning-500 text-white rounded-xl text-sm font-semibold hover:bg-warning-600 disabled:opacity-50">
+              {saving ? 'Creating…' : 'Create Applicant'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ─── Bundle Payment Modal ─────────────────────────────────────────────────────
+const BundlePaymentModal: React.FC<{
+  bundle: Bundle;
+  minFloor: number;
+  applicantName: string;
+  onComplete: (amount: number, paymentMode: 'Cash' | 'POS_Transfer') => void;
+  onCancel: () => void;
+  processing: boolean;
+  error: string;
+}> = ({ bundle, minFloor, applicantName, onComplete, onCancel, processing, error }) => {
+  const [amount, setAmount] = useState(String(bundle.base_price));
+  const [paymentMode, setPaymentMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onComplete(parseFloat(amount) || 0, paymentMode);
+  };
+
+  const isPartial = parseFloat(amount) < bundle.base_price;
+  const isBelowFloor = isPartial && parseFloat(amount) < minFloor;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 max-h-[90vh] overflow-auto">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-success-100 rounded-xl flex items-center justify-center"><Layers className="w-5 h-5 text-success-600" /></div>
+            <h2 className="text-lg font-bold">{bundle.name}</h2>
+          </div>
+          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="bg-gray-50 rounded-xl p-3 mb-4">
+          <div className="font-semibold text-gray-900">{applicantName}</div>
+          <div className="text-xs text-gray-500">{bundle.bundle_type === 'acceptance' ? 'Acceptance Fee' : 'Registration Package'}</div>
+        </div>
+
+        {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{error}</div>}
+
+        {/* Bundle items */}
+        <div className="mb-4">
+          <label className="text-sm font-semibold text-gray-700 mb-2 block">Package Contents</label>
+          <div className="space-y-1">
+            {bundle.items.map((item) => (
+              <div key={item.item_id} className="flex justify-between text-sm bg-gray-50 rounded-lg px-3 py-2">
+                <span>{item.item_name} ×{item.quantity}</span>
+                <span className="font-medium">{fmt(item.selling_price * item.quantity)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-1 block">Payment Amount</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-gray-500">₦</span>
+              <input type="number" min="0" step="100" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full pl-8 pr-3 py-3 border-2 border-gray-200 rounded-xl text-xl font-bold focus:outline-none focus:border-primary-400" />
+            </div>
+            <div className="flex gap-2 mt-2">
+              <button type="button" onClick={() => setAmount(String(bundle.base_price))} className="flex-1 py-1.5 text-xs bg-gray-100 rounded-lg hover:bg-gray-200 font-semibold">Full ({fmt(bundle.base_price)})</button>
+              <button type="button" onClick={() => setAmount(String(minFloor))} className="flex-1 py-1.5 text-xs bg-gray-100 rounded-lg hover:bg-gray-200 font-medium">Min. Partial ({fmt(minFloor)})</button>
+            </div>
+            {isPartial && (
+              <div className={`mt-2 text-xs ${isBelowFloor ? 'text-danger-600 font-semibold' : 'text-warning-600'}`}>
+                {isBelowFloor ? `Minimum partial payment is ${fmt(minFloor)}` : `Partial payment — balance will be ${fmt(bundle.base_price - parseFloat(amount))}`}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-2 block">Payment Method</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setPaymentMode('Cash')} className={`flex items-center justify-center gap-2 py-3 rounded-xl font-semibold border-2 transition-all text-sm ${paymentMode === 'Cash' ? 'bg-success-600 border-success-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-success-400'}`}><Banknote className="w-4 h-4" /> CASH</button>
+              <button type="button" onClick={() => setPaymentMode('POS_Transfer')} className={`flex items-center justify-center gap-2 py-3 rounded-xl font-semibold border-2 transition-all text-sm ${paymentMode === 'POS_Transfer' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-primary-400'}`}><CreditCard className="w-4 h-4" /> POS</button>
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
+            <button type="submit" disabled={processing || isBelowFloor || parseFloat(amount) <= 0} className="flex-1 py-2.5 bg-success-600 text-white rounded-xl text-sm font-semibold hover:bg-success-700 disabled:opacity-50">
+              {processing ? 'Processing…' : `Pay ${fmt(parseFloat(amount) || 0)}`}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 // ─── Registration Flow Modal ─────────────────────────────────────────────────
 const RegistrationFlowModal: React.FC<{
   student: Student;
@@ -534,6 +687,21 @@ const CashierPOS: React.FC = () => {
   const [quickAddSaving, setQuickAddSaving] = useState(false);
   const [quickAddError, setQuickAddError] = useState('');
 
+  // Walk-in applicant
+  const [showWalkIn, setShowWalkIn] = useState(false);
+  const [walkInSaving, setWalkInSaving] = useState(false);
+  const [walkInError, setWalkInError] = useState('');
+  const [walkInApplicant, setWalkInApplicant] = useState<any>(null);
+
+  // Bundle mode
+  const [bundles, setBundles] = useState<Bundle[]>([]);
+  const [showBundlePayment, setShowBundlePayment] = useState(false);
+  const [selectedBundle, setSelectedBundle] = useState<Bundle | null>(null);
+  const [bundleAmount, setBundleAmount] = useState('');
+  const [bundlePayMode, setBundlePayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
+  const [bundleProcessing, setBundleProcessing] = useState(false);
+  const [bundleError, setBundleError] = useState('');
+
   // Registration flow
   const [showRegistration, setShowRegistration] = useState(false);
   const [registrationFeeTypes, setRegistrationFeeTypes] = useState<any[]>([]);
@@ -551,6 +719,8 @@ const CashierPOS: React.FC = () => {
   useEffect(() => { studentAPI.getClasses().then(setClasses).catch(console.error); }, []);
   // Load categories
   useEffect(() => { categoryAPI.getAll().then(setCategories).catch(console.error); }, []);
+  // Load bundles
+  useEffect(() => { bundleAPI.getAll().then(setBundles).catch(console.error); }, []);
 
   // Inventory
   useEffect(() => {
@@ -782,9 +952,77 @@ const CashierPOS: React.FC = () => {
       if (details) {
         const isFees = details.transaction.type === 'FEES_CASH_COLLECTION';
         const isRegistration = details.transaction.type === 'REGISTRATION_PAYMENT';
-        printReceipt(buildReceiptHtml(schoolSettings, details.transaction, Number(details.transaction.amount_paid), details.items, isFees, isRegistration));
+        const isBundle = details.transaction.type === 'BUNDLE_PURCHASE' || details.transaction.type === 'ACCEPTANCE_FEE';
+        printReceipt(buildReceiptHtml(schoolSettings, details.transaction, Number(details.transaction.amount_paid), details.items, isFees, isRegistration || isBundle));
       }
     } catch (e) { setErrorMsg('Failed to load receipt: ' + (e as Error).message); }
+  };
+
+  // Walk-in applicant handlers
+  const handleWalkInCreate = async (data: { firstName: string; lastName: string; proposedClass: string }) => {
+    setWalkInSaving(true);
+    setWalkInError('');
+    try {
+      const result = await applicantAPI.create({ firstName: data.firstName, lastName: data.lastName, proposedClass: data.proposedClass });
+      if (result.success) {
+        const applicant = await applicantAPI.getById(result.id);
+        setWalkInApplicant(applicant);
+        setShowWalkIn(false);
+        // Show bundle selection for walk-in
+        const regBundle = bundles.find((b) => b.bundle_type === 'registration' && b.is_active);
+        if (regBundle) {
+          setSelectedBundle(regBundle);
+          setBundleAmount(String(regBundle.base_price));
+          setShowBundlePayment(true);
+        }
+      } else setWalkInError(result.error || 'Failed to create applicant');
+    } catch (e) {
+      setWalkInError((e as Error).message);
+    }
+    setWalkInSaving(false);
+  };
+
+  // Bundle payment handler
+  const handleBundlePayment = async () => {
+    if (!walkInApplicant || !selectedBundle || !activeShift) return;
+    const amount = parseFloat(bundleAmount);
+    if (isNaN(amount) || amount <= 0) { setBundleError('Enter a valid amount'); return; }
+
+    const minFloor = selectedBundle.bundle_type === 'acceptance'
+      ? schoolSettings?.min_acceptance_partial_floor || 5000
+      : schoolSettings?.min_partial_payment_floor || 30000;
+
+    setBundleProcessing(true);
+    setBundleError('');
+    try {
+      const result = await bundlePaymentAPI.processBundlePayment({
+        applicantId: walkInApplicant.id,
+        bundleId: selectedBundle.id,
+        shiftId: activeShift.id,
+        amountPaid: amount,
+        paymentMode: bundlePayMode,
+        minPartialFloor: minFloor,
+      });
+      if (result.success) {
+        setShowBundlePayment(false);
+        const receiptTxn = {
+          transaction_id: result.transactionId,
+          timestamp: new Date().toISOString(),
+          student_name: walkInApplicant.full_name,
+          student_class: walkInApplicant.proposed_class || 'Applicant',
+          payment_mode: bundlePayMode,
+          fee_type_name: selectedBundle.name,
+        };
+        setLastTxn({ isFees: false, isRegistration: true, transaction: receiptTxn, total: amount, items: result.items || [] });
+        setShowReceipt(true);
+        setWalkInApplicant(null);
+        setSelectedBundle(null);
+        inventoryAPI.getAll({ categoryId: activeCat }).then(setInventory);
+      }
+    } catch (e) {
+      setBundleError((e as Error).message);
+    }
+    setBundleProcessing(false);
   };
 
   if (!activeShift) return <ShiftOpenForm userId={user?.id || 0} openShift={openShift} onLogout={logout} />;
@@ -838,8 +1076,11 @@ const CashierPOS: React.FC = () => {
             {/* Student Selector: name search + class filter */}
             <div className="bg-white border-b px-5 py-4 shrink-0">
               <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Select Student</label>
-                <button onClick={() => { setShowQuickAdd(true); setQuickAddError(''); }} className="flex items-center gap-1.5 text-xs font-semibold text-primary-600 hover:text-primary-700"><UserPlus className="w-3.5 h-3.5" /> Quick Add</button>
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Select Customer</label>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => { setShowWalkIn(true); setWalkInError(''); }} className="flex items-center gap-1.5 text-xs font-semibold text-warning-600 hover:text-warning-700"><User className="w-3.5 h-3.5" /> Walk-In Applicant</button>
+                  <button onClick={() => { setShowQuickAdd(true); setQuickAddError(''); }} className="flex items-center gap-1.5 text-xs font-semibold text-primary-600 hover:text-primary-700"><UserPlus className="w-3.5 h-3.5" /> Quick Add</button>
+                </div>
               </div>
               <div ref={studentRef} className="flex gap-2 relative">
                 {/* Class filter */}
@@ -902,6 +1143,7 @@ const CashierPOS: React.FC = () => {
                 <div className="mt-3 flex gap-1 bg-gray-100 p-1 rounded-lg">
                   <button onClick={() => setSaleMode('store')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${saleMode === 'store' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Store Purchase</button>
                   <button onClick={() => setSaleMode('fees')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${saleMode === 'fees' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Collect Fees</button>
+                  <button onClick={() => setSaleMode('bundles')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${saleMode === 'bundles' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Bundles</button>
                 </div>
               )}
             </div>
@@ -1051,6 +1293,76 @@ const CashierPOS: React.FC = () => {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ─ BUNDLES MODE ─────────────────────────────────────────── */}
+            {selectedStudent && saleMode === 'bundles' && (
+              <div className="flex-1 overflow-auto p-4">
+                <div className="max-w-2xl mx-auto space-y-4 mt-2">
+                  <h2 className="font-bold text-lg">Bundle Packages</h2>
+                  <p className="text-sm text-gray-500">Select a bundle for <strong>{selectedStudent.name}</strong></p>
+
+                  {bundles.filter((b) => b.is_active).length === 0 ? (
+                    <div className="bg-gray-50 border border-dashed border-gray-200 rounded-xl p-8 text-center text-gray-400">
+                      <Layers className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                      <p className="font-medium">No bundles available</p>
+                      <p className="text-sm mt-1">Ask admin to create bundle packages</p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3">
+                      {bundles.filter((b) => b.is_active).map((bundle) => (
+                        <button
+                          key={bundle.id}
+                          onClick={() => {
+                            setSelectedBundle(bundle);
+                            setBundleAmount(String(bundle.base_price));
+                            setBundlePayMode('Cash');
+                            setBundleError('');
+                            // For existing students, use their ID as applicant
+                            setWalkInApplicant({
+                              id: null,
+                              full_name: selectedStudent.name,
+                              proposed_class: selectedStudent.student_class,
+                              student_id: selectedStudent.student_id,
+                            });
+                            setShowBundlePayment(true);
+                          }}
+                          className="w-full text-left p-5 rounded-xl border-2 border-gray-200 bg-white hover:border-primary-400 hover:shadow-md transition-all"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded mb-2 ${bundle.bundle_type === 'acceptance' ? 'bg-primary-100 text-primary-700' : 'bg-success-100 text-success-700'}`}>
+                                {bundle.bundle_type === 'acceptance' ? 'Acceptance Fee' : 'Registration'}
+                              </span>
+                              <div className="font-bold text-lg text-gray-900">{bundle.name}</div>
+                              {bundle.description && <div className="text-xs text-gray-500 mt-1">{bundle.description}</div>}
+                            </div>
+                            <div className="text-right shrink-0 ml-4">
+                              <div className="text-2xl font-extrabold text-primary-600">{fmt(bundle.base_price)}</div>
+                              {bundle.items && bundle.items.length > 0 && (
+                                <div className="text-xs text-gray-400 mt-1">{bundle.items.length} items included</div>
+                              )}
+                            </div>
+                          </div>
+                          {bundle.items && bundle.items.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-gray-100">
+                              <div className="text-xs font-semibold text-gray-500 mb-1">Includes:</div>
+                              <div className="flex flex-wrap gap-2">
+                                {bundle.items.map((item) => (
+                                  <span key={item.item_id} className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full">
+                                    {item.item_name}
+                                    {item.quantity > 1 && <span className="font-bold text-gray-500">×{item.quantity}</span>}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -1280,6 +1592,32 @@ const CashierPOS: React.FC = () => {
           onCancel={() => setShowRegistration(false)}
           processing={regProcessing}
           error={regError}
+        />
+      )}
+
+      {/* ── Walk-In Applicant Modal ─────────────────────────────────── */}
+      {showWalkIn && (
+        <WalkInApplicantModal
+          classes={classes}
+          onSave={handleWalkInCreate}
+          onCancel={() => { setShowWalkIn(false); setWalkInError(''); }}
+          saving={walkInSaving}
+          error={walkInError}
+        />
+      )}
+
+      {/* ── Bundle Payment Modal ─────────────────────────────────────── */}
+      {showBundlePayment && selectedBundle && walkInApplicant && (
+        <BundlePaymentModal
+          bundle={selectedBundle}
+          minFloor={selectedBundle.bundle_type === 'acceptance'
+            ? (schoolSettings?.min_acceptance_partial_floor || 5000)
+            : (schoolSettings?.min_partial_payment_floor || 30000)}
+          applicantName={walkInApplicant.full_name}
+          onComplete={(_amount, _mode) => handleBundlePayment()}
+          onCancel={() => { setShowBundlePayment(false); setSelectedBundle(null); setWalkInApplicant(null); setBundleError(''); }}
+          processing={bundleProcessing}
+          error={bundleError}
         />
       )}
     </div>
