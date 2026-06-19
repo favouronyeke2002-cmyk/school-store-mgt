@@ -13,7 +13,9 @@ const FeesManagement: React.FC = () => {
   const [ledger, setLedger] = useState<StudentFee[]>([]);
   const [classes, setClasses] = useState<string[]>([]);
   const [currentSession, setCurrentSession] = useState('2025/2026');
+  const [currentTerm, setCurrentTerm] = useState('1st Term');
   const [sessionFilter, setSessionFilter] = useState('');
+  const [termFilter, setTermFilter] = useState('');
   const [loading, setLoading] = useState(true);
 
   // Create fee type form
@@ -54,7 +56,7 @@ const FeesManagement: React.FC = () => {
   useEffect(() => {
     load();
     studentAPI.getClasses().then(setClasses).catch(console.error);
-    settingsAPI.get().then((s) => { if (s?.academic_session) { setCurrentSession(s.academic_session); setSessionFilter(s.academic_session); } }).catch(console.error);
+    settingsAPI.get().then((s) => { if (s?.academic_session) { setCurrentSession(s.academic_session); setSessionFilter(s.academic_session); } if (s?.current_term) { setCurrentTerm(s.current_term); setTermFilter(s.current_term); } }).catch(console.error);
   }, []);
 
   const load = () => {
@@ -175,7 +177,14 @@ const FeesManagement: React.FC = () => {
           <h1 className="text-2xl font-extrabold text-gray-900">Fees Management</h1>
           <p className="text-sm text-gray-400 mt-0.5">Session: {currentSession}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+            {['', '1st Term', '2nd Term', '3rd Term'].map((t) => (
+              <button key={t} onClick={() => setTermFilter(t)} className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${termFilter === t ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
+                {t === '' ? 'All Terms' : t}
+              </button>
+            ))}
+          </div>
           <select value={sessionFilter} onChange={(e) => setSessionFilter(e.target.value)} className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-400">
             <option value="">All Sessions</option>
             {[...new Set([currentSession, ...feeTypes.map((f) => f.academic_session)])].map((s) => (

@@ -7,7 +7,7 @@ export const settingsAPI = {
     if (error) throw error;
     return data;
   },
-  async save(updates: { school_name?: string; tagline?: string; phone_number?: string; logo_url?: string | null; academic_session?: string; address?: string; min_partial_payment_floor?: number; min_acceptance_partial_floor?: number }) {
+  async save(updates: { school_name?: string; tagline?: string; phone_number?: string; logo_url?: string | null; academic_session?: string; address?: string; min_partial_payment_floor?: number; min_acceptance_partial_floor?: number; current_term?: string; class_list?: string }) {
     const { error } = await supabase.from('school_settings').upsert({ id: 1, ...updates, updated_at: new Date().toISOString() });
     if (error) throw error;
     return { success: true };
@@ -101,8 +101,12 @@ export const studentAPI = {
     let id = data.studentId;
     if (!id) {
       const { data: all } = await supabase.from('students').select('student_id');
-      const maxId = (all || []).reduce((max: number, s: any) => { const n = parseInt(s.student_id.replace('STU-', '')); return n > max ? n : max; }, 0);
-      id = 'STU-' + String(maxId + 1).padStart(4, '0');
+      const maxId = (all || []).reduce((max: number, s: any) => {
+        const raw = s.student_id.replace(/^OIS-|^STU-/, '');
+        const n = parseInt(raw);
+        return !isNaN(n) && n > max ? n : max;
+      }, 0);
+      id = 'OIS-' + String(maxId + 1).padStart(4, '0');
     }
     const { error } = await supabase.from('students').insert({ student_id: id, name: data.name, student_class: data.studentClass, current_fees_owed: data.feesOwed || 0, admission_type: data.admissionType || 'Returning' });
     if (error) return { success: false, error: error.message };

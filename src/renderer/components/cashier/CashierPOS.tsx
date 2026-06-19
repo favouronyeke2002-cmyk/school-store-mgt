@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ShoppingCart, Users, Clock, LogOut, Search, Plus, Minus,
   Trash2, CreditCard, Banknote, AlertTriangle, CheckCircle,
-  Package, User, RefreshCw, X, Tag, ChevronLeft, ChevronRight, Printer, UserPlus, Layers, UserCheck
+  Package, User, RefreshCw, X, Tag, ChevronLeft, ChevronRight, Printer, UserPlus, Layers, UserCheck, Pencil
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useShift } from '../../context/ShiftContext';
@@ -235,30 +235,36 @@ const ShiftResultModal: React.FC<{ expectedCash: number; actualCash: number; dif
 // ─── Quick Add Student Modal ──────────────────────────────────────────────────
 const QuickAddStudentModal: React.FC<{
   classes: string[];
-  onSave: (data: { name: string; studentClass: string; admissionType: 'Returning' | 'New' }) => void;
+  onSave: (data: { name: string; studentClass: string }) => void;
   onCancel: () => void;
   saving: boolean;
   error: string;
 }> = ({ classes, onSave, onCancel, saving, error }) => {
   const [name, setName] = useState('');
   const [studentClass, setStudentClass] = useState(classes[0] || '');
-  const [admissionType, setAdmissionType] = useState<'Returning' | 'New'>('Returning');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !studentClass) return;
-    onSave({ name: name.trim(), studentClass, admissionType });
+    onSave({ name: name.trim(), studentClass });
   };
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-primary-100 rounded-xl flex items-center justify-center"><UserPlus className="w-5 h-5 text-primary-600" /></div>
-            <h2 className="text-lg font-bold">Quick Add Student</h2>
+            <div>
+              <h2 className="text-lg font-bold">Quick Add Returning Student</h2>
+              <p className="text-xs text-gray-400">For students already in the system but missing from roster</p>
+            </div>
           </div>
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="bg-primary-50 border border-primary-200 rounded-xl px-4 py-3 mb-4 text-xs text-primary-700">
+          Standard class fees will be applied to this student automatically upon saving.
         </div>
 
         {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{error}</div>}
@@ -275,20 +281,10 @@ const QuickAddStudentModal: React.FC<{
               {classes.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          <div>
-            <label className="text-sm font-medium text-gray-700 mb-2 block">Admission Type</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setAdmissionType('Returning')} className={`py-3 rounded-xl font-semibold border-2 transition-all text-sm ${admissionType === 'Returning' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-primary-400'}`}>Returning Student</button>
-              <button type="button" onClick={() => setAdmissionType('New')} className={`py-3 rounded-xl font-semibold border-2 transition-all text-sm ${admissionType === 'New' ? 'bg-warning-500 border-warning-500 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-warning-400'}`}>New Student</button>
-            </div>
-            <p className="text-xs text-gray-400 mt-1.5">
-              {admissionType === 'Returning' ? 'Standard class fees will be applied automatically' : 'Registration fee package will be applied — standard fees excluded'}
-            </p>
-          </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
             <button type="submit" disabled={saving || !name.trim() || !studentClass} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">
-              {saving ? 'Saving…' : 'Save'}
+              {saving ? 'Adding…' : 'Quick Add Student'}
             </button>
           </div>
         </form>
@@ -686,6 +682,12 @@ const CashierPOS: React.FC = () => {
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [quickAddSaving, setQuickAddSaving] = useState(false);
   const [quickAddError, setQuickAddError] = useState('');
+  const [quickAddedStudentIds, setQuickAddedStudentIds] = useState<Set<string>>(new Set());
+  const [showQuickEditStudent, setShowQuickEditStudent] = useState(false);
+  const [quickEditName, setQuickEditName] = useState('');
+  const [quickEditClass, setQuickEditClass] = useState('');
+  const [quickEditSaving, setQuickEditSaving] = useState(false);
+  const [quickEditError, setQuickEditError] = useState('');
 
   // Walk-in applicant
   const [showWalkIn, setShowWalkIn] = useState(false);
@@ -864,41 +866,41 @@ const CashierPOS: React.FC = () => {
     }
   };
 
+  // Quick Edit Student handler (only for quick-added students in current shift)
+  const handleQuickEditSave = async () => {
+    if (!selectedStudent) return;
+    if (!quickEditName.trim() || !quickEditClass) { setQuickEditError('Name and class are required.'); return; }
+    setQuickEditSaving(true);
+    setQuickEditError('');
+    try {
+      await studentAPI.update(selectedStudent.student_id, { name: quickEditName.trim(), studentClass: quickEditClass });
+      const refreshed = await studentAPI.getById(selectedStudent.student_id);
+      if (refreshed) selectStudent(refreshed);
+      setShowQuickEditStudent(false);
+    } catch (e) { setQuickEditError((e as Error).message); }
+    setQuickEditSaving(false);
+  };
+
   // Quick Add Student handler
-  const handleQuickAddSave = async (data: { name: string; studentClass: string; admissionType: 'Returning' | 'New' }) => {
+  const handleQuickAddSave = async (data: { name: string; studentClass: string }) => {
     setQuickAddSaving(true);
     setQuickAddError('');
     try {
-      const result = await studentAPI.create({ name: data.name, studentClass: data.studentClass, admissionType: data.admissionType });
+      const result = await studentAPI.create({ name: data.name, studentClass: data.studentClass, admissionType: 'Returning' });
       if (result.success) {
-        const newStudent = await studentAPI.getById(result.studentId);
-        if (newStudent) {
-          if (data.admissionType === 'Returning') {
-            // Apply standard class fees automatically
-            const feeTypes = await feeTypeAPI.getByClass(data.studentClass);
-            for (const ft of feeTypes) {
-              if (ft.fee_category === 'standard') {
-                await feeTypeAPI.assignToStudents(ft.id, Number(ft.amount), data.studentClass, result.studentId, 'standard');
-              }
-            }
-            // Refresh the student to get updated fees_owed
-            const refreshed = await studentAPI.getById(result.studentId);
-            if (refreshed) selectStudent(refreshed);
-            setShowQuickAdd(false);
-          } else {
-            // New student — open registration flow
-            setShowQuickAdd(false);
-            selectStudent(newStudent);
-            // Load registration fee types and clearance items
-            const allFeeTypes = await feeTypeAPI.getAll();
-            const regFees = allFeeTypes.filter((ft: any) => ft.fee_category === 'registration');
-            setRegistrationFeeTypes(regFees);
-            // Load clearance items (Bibles, Uniforms, Textbooks etc.)
-            const allItems = await inventoryAPI.getAll({});
-            setClearanceItems(allItems.filter((i: InventoryItem) => i.stock_quantity > 0));
-            setShowRegistration(true);
+        // Track this ID so cashier can edit it this shift
+        setQuickAddedStudentIds((prev) => new Set([...prev, result.studentId]));
+        // Apply standard class fees automatically
+        const classFeeTypes = await feeTypeAPI.getByClass(data.studentClass);
+        for (const ft of classFeeTypes) {
+          if (ft.fee_category === 'standard') {
+            await feeTypeAPI.assignToStudents(ft.id, Number(ft.amount), data.studentClass, result.studentId, 'standard');
           }
         }
+        // Refresh the student to get updated fees_owed
+        const refreshed = await studentAPI.getById(result.studentId);
+        if (refreshed) selectStudent(refreshed);
+        setShowQuickAdd(false);
       } else {
         setQuickAddError(result.error || 'Failed to create student');
       }
@@ -1078,8 +1080,12 @@ const CashierPOS: React.FC = () => {
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Select Customer</label>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => { setShowWalkIn(true); setWalkInError(''); }} className="flex items-center gap-1.5 text-xs font-semibold text-warning-600 hover:text-warning-700"><User className="w-3.5 h-3.5" /> Walk-In Applicant</button>
-                  <button onClick={() => { setShowQuickAdd(true); setQuickAddError(''); }} className="flex items-center gap-1.5 text-xs font-semibold text-primary-600 hover:text-primary-700"><UserPlus className="w-3.5 h-3.5" /> Quick Add</button>
+                  <button onClick={() => { setShowWalkIn(true); setWalkInError(''); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-warning-50 border border-warning-300 text-warning-700 hover:bg-warning-100 rounded-lg text-xs font-semibold transition-all">
+                    <User className="w-3.5 h-3.5" /> Walk-In Applicant
+                  </button>
+                  <button onClick={() => { setShowQuickAdd(true); setQuickAddError(''); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 border border-primary-300 text-primary-700 hover:bg-primary-100 rounded-lg text-xs font-semibold transition-all">
+                    <UserPlus className="w-3.5 h-3.5" /> Quick Add Student
+                  </button>
                 </div>
               </div>
               <div ref={studentRef} className="flex gap-2 relative">
@@ -1127,6 +1133,19 @@ const CashierPOS: React.FC = () => {
                 )}
               </div>
 
+              {/* Edit name/class for quick-added students only */}
+              {selectedStudent && quickAddedStudentIds.has(selectedStudent.student_id) && (
+                <div className="mt-2 flex items-center gap-2 bg-primary-50 border border-primary-200 rounded-xl px-3 py-2">
+                  <span className="text-xs text-primary-700 font-medium flex-1">Quick-added this shift — name or class incorrect?</span>
+                  <button
+                    onClick={() => { setQuickEditName(selectedStudent.name); setQuickEditClass(selectedStudent.student_class); setQuickEditError(''); setShowQuickEditStudent(true); }}
+                    className="flex items-center gap-1 px-2 py-1 bg-primary-100 hover:bg-primary-200 text-primary-700 rounded-lg text-xs font-semibold"
+                  >
+                    <Pencil className="w-3 h-3" /> Edit
+                  </button>
+                </div>
+              )}
+
               {/* Debt Banner — locked, no X */}
               {selectedStudent && selectedStudent.current_fees_owed > 0 && (
                 <div className="mt-3 flex items-center gap-3 bg-danger-600 text-white rounded-xl px-4 py-3">
@@ -1143,7 +1162,6 @@ const CashierPOS: React.FC = () => {
                 <div className="mt-3 flex gap-1 bg-gray-100 p-1 rounded-lg">
                   <button onClick={() => setSaleMode('store')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${saleMode === 'store' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Store Purchase</button>
                   <button onClick={() => setSaleMode('fees')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${saleMode === 'fees' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Collect Fees</button>
-                  <button onClick={() => setSaleMode('bundles')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${saleMode === 'bundles' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Bundles</button>
                 </div>
               )}
             </div>
@@ -1238,7 +1256,7 @@ const CashierPOS: React.FC = () => {
                             <div className="relative">
                               <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-gray-500">₦</span>
                               <input
-                                type="number" min="0" step="0.01" max={selectedFee.balance}
+                                type="number" min="0" step="1" max={selectedFee.balance}
                                 value={feesAmount}
                                 onChange={(e) => {
                                   const v = parseFloat(e.target.value);
@@ -1549,6 +1567,45 @@ const CashierPOS: React.FC = () => {
           isRegistration={lastTxn.isRegistration}
           onClose={() => { setShowReceipt(false); setLastTxn(null); }}
         />
+      )}
+
+      {/* ── Quick Edit Student Modal (shift-scoped, quick-added only) ── */}
+      {showQuickEditStudent && selectedStudent && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-primary-100 rounded-xl flex items-center justify-center"><Pencil className="w-5 h-5 text-primary-600" /></div>
+                <div>
+                  <h2 className="text-lg font-bold">Edit Quick-Added Student</h2>
+                  <p className="text-xs text-gray-400 font-mono">{selectedStudent.student_id}</p>
+                </div>
+              </div>
+              <button onClick={() => setShowQuickEditStudent(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="bg-primary-50 border border-primary-200 rounded-xl px-4 py-2 mb-4 text-xs text-primary-700">
+              Only available for students added during this shift. Use admin panel for other edits.
+            </div>
+            {quickEditError && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{quickEditError}</div>}
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Full Name *</label>
+                <input type="text" value={quickEditName} onChange={(e) => setQuickEditName(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" autoFocus />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Class *</label>
+                <select value={quickEditClass} onChange={(e) => setQuickEditClass(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
+                  <option value="">Select class…</option>
+                  {classes.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setShowQuickEditStudent(false)} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
+                <button onClick={handleQuickEditSave} disabled={quickEditSaving || !quickEditName.trim() || !quickEditClass} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">{quickEditSaving ? 'Saving…' : 'Save Changes'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Error Modal ────────────────────────────────────────────── */}
