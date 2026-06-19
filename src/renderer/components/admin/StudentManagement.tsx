@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Trash2, Clock, Pencil, AlertTriangle, X, UserPlus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2, Pencil, X, UserPlus, AlertCircle, ToggleLeft, ToggleRight } from 'lucide-react';
 import { studentAPI, feeTypeAPI, settingsAPI } from '../../lib/api';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-interface Student { student_id: string; name: string; student_class: string; current_fees_owed: number; admission_type?: 'Returning' | 'New'; }
+interface Student { student_id: string; name: string; student_class: string; current_fees_owed: number; admission_type?: 'Returning' | 'New'; student_status?: 'Day' | 'Boarding'; }
 interface FeeType { id: number; name: string; amount: number; fee_category: string; class_filter: string | null; academic_session: string; }
 
 const DEFAULT_CLASSES = ['JSS1A', 'JSS1B', 'JSS2A', 'JSS2B', 'JSS3A', 'JSS3B', 'SS1A', 'SS1B', 'SS2A', 'SS2B', 'SS3A', 'SS3B'];
+const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400';
 
 const StudentManagement: React.FC = () => {
   const [students, setStudents] = useState<Student[]>([]);
@@ -17,6 +18,7 @@ const StudentManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [selectedClass, setSelectedClass] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'Day' | 'Boarding'>('all');
 
   const [classes, setClasses] = useState<string[]>(DEFAULT_CLASSES);
   const [feeTypes, setFeeTypes] = useState<FeeType[]>([]);
@@ -28,11 +30,18 @@ const StudentManagement: React.FC = () => {
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [history, setHistory] = useState<any[]>([]);
 
-  const [formData, setFormData] = useState({ studentId: '', name: '', studentClass: '', selectedFeeIds: [] as number[], admissionType: 'Returning' as 'Returning' | 'New' });
+  const [formData, setFormData] = useState({
+    studentId: '', name: '', studentClass: '', selectedFeeIds: [] as number[],
+    admissionType: 'Returning' as 'Returning' | 'New', studentStatus: 'Day' as 'Day' | 'Boarding',
+  });
   const [formError, setFormError] = useState('');
   const [formSaving, setFormSaving] = useState(false);
 
-  const [editData, setEditData] = useState({ name: '', studentClass: '', feesOwed: '' });
+  const [editData, setEditData] = useState({
+    name: '', studentClass: '', studentStatus: 'Day' as 'Day' | 'Boarding',
+    selectedFeeIds: [] as number[],
+    manualAdjOn: false, manualAdjAmount: '', manualAdjReason: '',
+  });
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
 
@@ -60,12 +69,10 @@ const StudentManagement: React.FC = () => {
 
   const totalPages = Math.ceil(total / pageSize);
 
-  const computeFeesOwed = () => {
-    return formData.selectedFeeIds.reduce((sum, id) => {
-      const ft = feeTypes.find((f) => f.id === id);
-      return sum + (ft ? Number(ft.amount) : 0);
-    }, 0);
-  };
+  const computeFeesOwed = () => formData.selectedFeeIds.reduce((sum, id) => {
+    const ft = feeTypes.find((f) => f.id === id);
+    return sum + (ft ? Number(ft.amount) : 0);
+  }, 0);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,6 +86,7 @@ const StudentManagement: React.FC = () => {
       studentClass: formData.studentClass,
       feesOwed,
       admissionType: formData.admissionType,
+      studentStatus: formData.studentStatus,
     });
     if (result.success) {
       for (const feeId of formData.selectedFeeIds) {
@@ -86,7 +94,7 @@ const StudentManagement: React.FC = () => {
         if (ft) await feeTypeAPI.assignToStudents(feeId, Number(ft.amount), undefined, result.studentId, ft.fee_category as 'standard' | 'registration');
       }
       setShowModal(false);
-      setFormData({ studentId: '', name: '', studentClass: '', selectedFeeIds: [], admissionType: 'Returning' });
+      setFormData({ studentId: '', name: '', studentClass: '', selectedFeeIds: [], admissionType: 'Returning', studentStatus: 'Day' });
       load();
     } else setFormError(result.error || 'Failed to create student');
     setFormSaving(false);
@@ -110,7 +118,12 @@ const StudentManagement: React.FC = () => {
 
   const openEditStudent = (s: Student) => {
     setSelectedStudent(s);
-    setEditData({ name: s.name, studentClass: s.student_class, feesOwed: String(s.current_fees_owed) });
+    setEditData({
+      name: s.name, studentClass: s.student_class,
+      studentStatus: (s.student_status as 'Day' | 'Boarding') || 'Day',
+      selectedFeeIds: [],
+      manualAdjOn: false, manualAdjAmount: '', manualAdjReason: '',
+    });
     setEditError('');
     setShowEditStudent(true);
   };
@@ -119,13 +132,29 @@ const StudentManagement: React.FC = () => {
     e.preventDefault();
     if (!selectedStudent) return;
     if (!editData.name.trim() || !editData.studentClass) { setEditError('Name and class are required.'); return; }
-    const fees = parseFloat(editData.feesOwed);
-    if (isNaN(fees) || fees < 0) { setEditError('Invalid fees amount.'); return; }
+    if (editData.manualAdjOn && !editData.manualAdjReason.trim()) { setEditError('Please provide a reason for the manual adjustment.'); return; }
+    if (editData.manualAdjOn && editData.manualAdjAmount === '') { setEditError('Please enter an adjustment amount.'); return; }
     setEditSaving(true);
     setEditError('');
     try {
-      await studentAPI.update(selectedStudent.student_id, { name: editData.name.trim(), studentClass: editData.studentClass });
-      await studentAPI.updateFees(selectedStudent.student_id, fees);
+      await studentAPI.update(selectedStudent.student_id, {
+        name: editData.name.trim(),
+        studentClass: editData.studentClass,
+        studentStatus: editData.studentStatus,
+      });
+      // Assign selected fee templates
+      for (const feeId of editData.selectedFeeIds) {
+        const ft = feeTypes.find((f) => f.id === feeId);
+        if (ft) await feeTypeAPI.assignToStudents(feeId, Number(ft.amount), undefined, selectedStudent.student_id, ft.fee_category as 'standard' | 'registration');
+      }
+      // Manual adjustment: apply balance change
+      if (editData.manualAdjOn && editData.manualAdjAmount !== '') {
+        const adjAmount = parseFloat(editData.manualAdjAmount);
+        if (!isNaN(adjAmount)) {
+          const newBalance = Math.max(0, selectedStudent.current_fees_owed + adjAmount);
+          await studentAPI.updateFees(selectedStudent.student_id, newBalance);
+        }
+      }
       setShowEditStudent(false);
       setSelectedStudent(null);
       load();
@@ -133,10 +162,17 @@ const StudentManagement: React.FC = () => {
     setEditSaving(false);
   };
 
-  const totalFees = students.reduce((sum, s) => sum + s.current_fees_owed, 0);
-
   const toggleFeeSelection = (id: number) => {
     setFormData((prev) => ({
+      ...prev,
+      selectedFeeIds: prev.selectedFeeIds.includes(id)
+        ? prev.selectedFeeIds.filter((x) => x !== id)
+        : [...prev.selectedFeeIds, id],
+    }));
+  };
+
+  const toggleEditFeeSelection = (id: number) => {
+    setEditData((prev) => ({
       ...prev,
       selectedFeeIds: prev.selectedFeeIds.includes(id)
         ? prev.selectedFeeIds.filter((x) => x !== id)
@@ -148,6 +184,17 @@ const StudentManagement: React.FC = () => {
     !ft.class_filter || !formData.studentClass || ft.class_filter === formData.studentClass
   );
 
+  const editFeeTypes = feeTypes.filter((ft) =>
+    !ft.class_filter || !editData.studentClass || ft.class_filter === editData.studentClass
+  );
+
+  const filteredStudents = statusFilter === 'all' ? students
+    : students.filter((s) => (s.student_status || 'Day') === statusFilter);
+
+  const totalFees = students.reduce((sum, s) => sum + s.current_fees_owed, 0);
+
+  const saveDisabled = editSaving || (editData.manualAdjOn && !editData.manualAdjReason.trim());
+
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -156,7 +203,7 @@ const StudentManagement: React.FC = () => {
           <p className="text-gray-500">{total} students · ₦{totalFees.toLocaleString('en-NG', { minimumFractionDigits: 2 })} shown outstanding</p>
         </div>
         <button
-          onClick={() => { setFormData({ studentId: '', name: '', studentClass: '', selectedFeeIds: [], admissionType: 'Returning' }); setFormError(''); setShowModal(true); }}
+          onClick={() => { setFormData({ studentId: '', name: '', studentClass: '', selectedFeeIds: [], admissionType: 'Returning', studentStatus: 'Day' }); setFormError(''); setShowModal(true); }}
           className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-semibold"
         >
           <UserPlus className="w-4 h-4" /> Add Student
@@ -164,23 +211,30 @@ const StudentManagement: React.FC = () => {
       </div>
 
       <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-        <div className="flex gap-4">
-          <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="flex-1 px-3 py-2 border rounded-md" placeholder="Search by name or ID..." />
-          <select value={selectedClass} onChange={(e) => { setSelectedClass(e.target.value); setPage(1); }} className="px-3 py-2 border rounded-md">
+        <div className="flex gap-4 flex-wrap">
+          <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="flex-1 min-w-40 px-3 py-2 border rounded-md text-sm" placeholder="Search by name or ID..." />
+          <select value={selectedClass} onChange={(e) => { setSelectedClass(e.target.value); setPage(1); }} className="px-3 py-2 border rounded-md text-sm">
             <option value="all">All Classes</option>
             {classes.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
+          <div className="flex gap-1">
+            {(['all', 'Day', 'Boarding'] as const).map((s) => (
+              <button key={s} onClick={() => setStatusFilter(s)} className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${statusFilter === s ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                {s === 'all' ? 'All' : s}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        <table className="w-full">
+        <table className="w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Student ID</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Name</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Class</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Type</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Type / Status</th>
               <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Fees Owed</th>
               <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Actions</th>
             </tr>
@@ -188,14 +242,19 @@ const StudentManagement: React.FC = () => {
           <tbody>
             {loading ? (
               <tr><td colSpan={6} className="text-center py-12 text-gray-400">Loading...</td></tr>
-            ) : students.length === 0 ? (
+            ) : filteredStudents.length === 0 ? (
               <tr><td colSpan={6} className="text-center py-12 text-gray-400">No students found</td></tr>
-            ) : students.map((s) => (
+            ) : filteredStudents.map((s) => (
               <tr key={s.student_id} className="border-t hover:bg-gray-50">
                 <td className="px-4 py-3 font-mono text-sm">{s.student_id}</td>
                 <td className="px-4 py-3 font-medium">{s.name}</td>
                 <td className="px-4 py-3"><span className="px-2 py-1 bg-primary-100 text-primary-800 rounded text-xs">{s.student_class}</span></td>
-                <td className="px-4 py-3"><span className={`px-2 py-1 rounded text-xs ${(s.admission_type || 'Returning') === 'Returning' ? 'bg-gray-100 text-gray-700' : 'bg-warning-100 text-warning-700'}`}>{s.admission_type || 'Returning'}</span></td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className={`px-2 py-0.5 rounded text-xs ${(s.admission_type || 'Returning') === 'Returning' ? 'bg-gray-100 text-gray-700' : 'bg-warning-100 text-warning-700'}`}>{s.admission_type || 'Returning'}</span>
+                    <span className={`px-2 py-0.5 rounded text-xs ${(s.student_status || 'Day') === 'Boarding' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600'}`}>{s.student_status || 'Day'}</span>
+                  </div>
+                </td>
                 <td className={`px-4 py-3 text-right font-semibold ${s.current_fees_owed > 0 ? 'text-danger-600' : 'text-success-600'}`}>{fmt(s.current_fees_owed)}</td>
                 <td className="px-4 py-3 text-center">
                   <button onClick={() => viewHistory(s)} className="px-2 py-1 text-sm bg-gray-100 rounded mr-1 hover:bg-gray-200">History</button>
@@ -228,15 +287,15 @@ const StudentManagement: React.FC = () => {
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Student ID <span className="text-gray-400 font-normal">(optional)</span></label>
-                <input type="text" value={formData.studentId} onChange={(e) => setFormData({ ...formData, studentId: e.target.value })} className="w-full px-3 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" placeholder="Auto-generated as OIS-XXXX if empty" />
+                <input type="text" value={formData.studentId} onChange={(e) => setFormData({ ...formData, studentId: e.target.value })} className={inputCls} placeholder="Auto-generated as OIS-XXXX if empty" />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Full Name <span className="text-danger-500">*</span></label>
-                <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="w-full px-3 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required autoFocus />
+                <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className={inputCls} required autoFocus />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Class <span className="text-danger-500">*</span></label>
-                <select value={formData.studentClass} onChange={(e) => setFormData({ ...formData, studentClass: e.target.value, selectedFeeIds: [] })} className="w-full px-3 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required>
+                <select value={formData.studentClass} onChange={(e) => setFormData({ ...formData, studentClass: e.target.value, selectedFeeIds: [] })} className={inputCls} required>
                   <option value="">Select Class</option>
                   {classes.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -249,8 +308,15 @@ const StudentManagement: React.FC = () => {
                 </div>
               </div>
               <div>
+                <label className="block text-sm font-medium mb-1">Student Status</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setFormData({ ...formData, studentStatus: 'Day' })} className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${formData.studentStatus === 'Day' ? 'bg-gray-700 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`}>Day</button>
+                  <button type="button" onClick={() => setFormData({ ...formData, studentStatus: 'Boarding' })} className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${formData.studentStatus === 'Boarding' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-indigo-400'}`}>Boarding</button>
+                </div>
+              </div>
+              <div>
                 <label className="block text-sm font-medium mb-1">Initial Fees to Apply</label>
-                <p className="text-xs text-gray-400 mb-2">Select fee templates to apply to this student. Leave empty to add no fees.</p>
+                <p className="text-xs text-gray-400 mb-2">Select fee templates to apply to this student.</p>
                 {feeTypes.length === 0 ? (
                   <p className="text-xs text-gray-400 italic">No fee types found. Create fee types in Fees Management first.</p>
                 ) : filteredFeeTypes.length === 0 ? (
@@ -272,9 +338,7 @@ const StudentManagement: React.FC = () => {
                   </div>
                 )}
                 {formData.selectedFeeIds.length > 0 && (
-                  <div className="mt-2 text-sm font-semibold text-primary-700">
-                    Total fees to apply: {fmt(computeFeesOwed())}
-                  </div>
+                  <div className="mt-2 text-sm font-semibold text-primary-700">Total fees to apply: {fmt(computeFeesOwed())}</div>
                 )}
               </div>
               <div className="flex gap-3 pt-2">
@@ -289,36 +353,100 @@ const StudentManagement: React.FC = () => {
       {/* Edit Student Modal */}
       {showEditStudent && selectedStudent && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
-            <div className="flex items-center justify-between mb-5">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 max-h-[90vh] overflow-auto">
+            <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">Edit Student</h2>
               <button onClick={() => setShowEditStudent(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
-            <div className="bg-gray-50 rounded-xl px-4 py-3 mb-5 text-sm text-gray-500 font-mono">{selectedStudent.student_id}</div>
+            <div className="bg-gray-50 rounded-xl px-4 py-3 mb-4 text-sm text-gray-500 font-mono">{selectedStudent.student_id}</div>
             {editError && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{editError}</div>}
             <form onSubmit={handleEditStudent} className="space-y-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Full Name <span className="text-danger-500">*</span></label>
-                <input type="text" value={editData.name} onChange={(e) => setEditData({ ...editData, name: e.target.value })} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required autoFocus />
+                <input type="text" value={editData.name} onChange={(e) => setEditData({ ...editData, name: e.target.value })} className={inputCls} required autoFocus />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Class <span className="text-danger-500">*</span></label>
-                <select value={editData.studentClass} onChange={(e) => setEditData({ ...editData, studentClass: e.target.value })} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required>
+                <select value={editData.studentClass} onChange={(e) => setEditData({ ...editData, studentClass: e.target.value, selectedFeeIds: [] })} className={inputCls} required>
                   <option value="">Select Class</option>
                   {classes.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">Balance Due (₦)</label>
-                <p className="text-xs text-gray-400 mb-1">Direct override of the outstanding balance amount.</p>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-gray-500">₦</span>
-                  <input type="number" min="0" step="0.01" value={editData.feesOwed} onChange={(e) => setEditData({ ...editData, feesOwed: e.target.value })} className="w-full pl-8 pr-3 py-3 border border-gray-200 rounded-xl text-xl font-bold focus:outline-none focus:ring-2 focus:ring-primary-400" />
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Student Status</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setEditData({ ...editData, studentStatus: 'Day' })} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${editData.studentStatus === 'Day' ? 'bg-gray-700 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`}>Day</button>
+                  <button type="button" onClick={() => setEditData({ ...editData, studentStatus: 'Boarding' })} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${editData.studentStatus === 'Boarding' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-indigo-400'}`}>Boarding</button>
                 </div>
               </div>
+
+              {/* Balance Due — read-only */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Balance Due (₦)</label>
+                <div className="px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-xl font-bold text-gray-800 flex items-center justify-between">
+                  <span>{fmt(selectedStudent.current_fees_owed)}</span>
+                  <span className="text-xs text-gray-400 font-normal">read-only</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Use manual adjustment below to change this balance.</p>
+              </div>
+
+              {/* Fee Template Checklist */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Apply Additional Fee Templates</label>
+                <p className="text-xs text-gray-400 mb-2">Check templates to assign new fees to this student.</p>
+                {editFeeTypes.length === 0 ? (
+                  <p className="text-xs text-gray-400 italic">No fees available for this class.</p>
+                ) : (
+                  <div className="space-y-2 max-h-36 overflow-auto border border-gray-200 rounded-lg p-2">
+                    {editFeeTypes.map((ft) => (
+                      <label key={ft.id} className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer border transition-all ${editData.selectedFeeIds.includes(ft.id) ? 'border-primary-400 bg-primary-50' : 'border-gray-100 hover:bg-gray-50'}`}>
+                        <div className="flex items-center gap-2">
+                          <input type="checkbox" checked={editData.selectedFeeIds.includes(ft.id)} onChange={() => toggleEditFeeSelection(ft.id)} className="rounded" />
+                          <span className="text-sm font-medium text-gray-800">{ft.name}</span>
+                        </div>
+                        <span className="text-sm font-bold text-gray-700">{fmt(Number(ft.amount))}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Manual Balance Adjustment */}
+              <div className="border border-gray-200 rounded-xl p-4">
+                <button
+                  type="button"
+                  onClick={() => setEditData({ ...editData, manualAdjOn: !editData.manualAdjOn, manualAdjAmount: '', manualAdjReason: '' })}
+                  className="flex items-center gap-2 text-sm font-semibold text-gray-700 w-full"
+                >
+                  {editData.manualAdjOn
+                    ? <ToggleRight className="w-5 h-5 text-primary-600" />
+                    : <ToggleLeft className="w-5 h-5 text-gray-400" />}
+                  Manual Balance Adjustment
+                </button>
+                {editData.manualAdjOn && (
+                  <div className="mt-3 space-y-3">
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 mb-1 block">Adjustment Amount (₦) — use negative to reduce</label>
+                      <input type="number" step="0.01" value={editData.manualAdjAmount} onChange={(e) => setEditData({ ...editData, manualAdjAmount: e.target.value })} placeholder="e.g. -5000 or 2000" className={inputCls} />
+                      {editData.manualAdjAmount !== '' && !isNaN(parseFloat(editData.manualAdjAmount)) && (
+                        <p className="text-xs text-warning-700 mt-1">
+                          New balance: {fmt(Math.max(0, selectedStudent.current_fees_owed + parseFloat(editData.manualAdjAmount)))}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 mb-1 block">Reason <span className="text-danger-500">*</span></label>
+                      <textarea value={editData.manualAdjReason} onChange={(e) => setEditData({ ...editData, manualAdjReason: e.target.value })} placeholder="Required — e.g. Scholarship deduction, Overpayment correction…" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 resize-none" rows={2} required={editData.manualAdjOn} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowEditStudent(false)} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-                <button type="submit" disabled={editSaving} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">{editSaving ? 'Saving…' : 'Save Changes'}</button>
+                <button type="submit" disabled={saveDisabled} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">
+                  {editSaving ? 'Saving…' : 'Save Changes'}
+                </button>
               </div>
             </form>
           </div>
@@ -347,7 +475,7 @@ const StudentManagement: React.FC = () => {
             <div className="flex justify-between items-center mb-4">
               <div>
                 <h2 className="text-xl font-bold">Transaction History</h2>
-                <p className="text-gray-500">{selectedStudent.name} - {selectedStudent.student_id}</p>
+                <p className="text-gray-500">{selectedStudent.name} — {selectedStudent.student_id}</p>
               </div>
               <button onClick={() => setShowHistory(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>

@@ -1,15 +1,36 @@
 import { supabase } from './supabase';
 
 // ─── SCHOOL SETTINGS ──────────────────────────────────────────────────────────
+const LS_TERM = 'pos_current_term';
+const LS_CLASSES = 'pos_class_list';
+const DEFAULT_CLASS_LIST = '["JSS1A","JSS1B","JSS2A","JSS2B","JSS3A","JSS3B","SS1A","SS1B","SS2A","SS2B","SS3A","SS3B"]';
+
 export const settingsAPI = {
   async get() {
     const { data, error } = await supabase.from('school_settings').select('*').eq('id', 1).maybeSingle();
     if (error) throw error;
-    return data;
+    const result: any = data ? { ...data } : {};
+    // Merge localStorage fallbacks for columns that may not exist in schema yet
+    if (!result.current_term) result.current_term = localStorage.getItem(LS_TERM) || '1st Term';
+    if (!result.class_list) result.class_list = localStorage.getItem(LS_CLASSES) || DEFAULT_CLASS_LIST;
+    return result;
   },
   async save(updates: { school_name?: string; tagline?: string; phone_number?: string; logo_url?: string | null; academic_session?: string; address?: string; min_partial_payment_floor?: number; min_acceptance_partial_floor?: number; current_term?: string; class_list?: string }) {
-    const { error } = await supabase.from('school_settings').upsert({ id: 1, ...updates, updated_at: new Date().toISOString() });
+    const { current_term, class_list, ...baseUpdates } = updates;
+    // Save base fields (always exist in schema)
+    const { error } = await supabase.from('school_settings').upsert({ id: 1, ...baseUpdates, updated_at: new Date().toISOString() });
     if (error) throw error;
+    // Save new fields — fallback to localStorage if schema column missing
+    if (current_term !== undefined) {
+      localStorage.setItem(LS_TERM, current_term);
+      const { error: e } = await supabase.from('school_settings').upsert({ id: 1, current_term });
+      if (e) console.warn('current_term column not yet in schema — stored locally');
+    }
+    if (class_list !== undefined) {
+      localStorage.setItem(LS_CLASSES, class_list);
+      const { error: e } = await supabase.from('school_settings').upsert({ id: 1, class_list });
+      if (e) console.warn('class_list column not yet in schema — stored locally');
+    }
     return { success: true };
   },
 };
@@ -97,7 +118,7 @@ export const studentAPI = {
     if (error) throw error;
     return data;
   },
-  async create(data: { studentId?: string; name: string; studentClass: string; feesOwed?: number; admissionType?: 'Returning' | 'New' }) {
+  async create(data: { studentId?: string; name: string; studentClass: string; feesOwed?: number; admissionType?: 'Returning' | 'New'; studentStatus?: 'Day' | 'Boarding' }) {
     let id = data.studentId;
     if (!id) {
       const { data: all } = await supabase.from('students').select('student_id');
@@ -108,13 +129,24 @@ export const studentAPI = {
       }, 0);
       id = 'OIS-' + String(maxId + 1).padStart(4, '0');
     }
-    const { error } = await supabase.from('students').insert({ student_id: id, name: data.name, student_class: data.studentClass, current_fees_owed: data.feesOwed || 0, admission_type: data.admissionType || 'Returning' });
-    if (error) return { success: false, error: error.message };
+    // Try with student_status first, fall back without if column missing
+    const base = { student_id: id, name: data.name, student_class: data.studentClass, current_fees_owed: data.feesOwed || 0, admission_type: data.admissionType || 'Returning' };
+    const withStatus = { ...base, student_status: data.studentStatus || 'Day' };
+    const { error: e1 } = await supabase.from('students').insert(withStatus);
+    if (e1) {
+      const { error: e2 } = await supabase.from('students').insert(base);
+      if (e2) return { success: false, error: e2.message };
+    }
     return { success: true, studentId: id };
   },
-  async update(id: string, data: { name: string; studentClass: string; admissionType?: 'Returning' | 'New' }) {
-    const { error } = await supabase.from('students').update({ name: data.name, student_class: data.studentClass, admission_type: data.admissionType, updated_at: new Date().toISOString() }).eq('student_id', id);
-    if (error) throw error;
+  async update(id: string, data: { name: string; studentClass: string; admissionType?: 'Returning' | 'New'; studentStatus?: 'Day' | 'Boarding' }) {
+    const base = { name: data.name, student_class: data.studentClass, admission_type: data.admissionType, updated_at: new Date().toISOString() };
+    const withStatus = { ...base, student_status: data.studentStatus };
+    const { error: e1 } = await supabase.from('students').update(data.studentStatus !== undefined ? withStatus : base).eq('student_id', id);
+    if (e1) {
+      const { error: e2 } = await supabase.from('students').update(base).eq('student_id', id);
+      if (e2) throw e2;
+    }
     return { success: true };
   },
   async updateFees(id: string, fees: number) {
@@ -202,6 +234,14 @@ export const inventoryAPI = {
     await supabase.from('stock_adjustments').insert({ item_id: id, quantity_change: quantity, reason });
     return { success: true };
   },
+  async setStock(id: number, newQty: number) {
+    const { data: item } = await supabase.from('inventory').select('stock_quantity').eq('item_id', id).single();
+    if (!item) throw new Error('Item not found');
+    const diff = newQty - item.stock_quantity;
+    await supabase.from('inventory').update({ stock_quantity: Math.max(0, newQty) }).eq('item_id', id);
+    await supabase.from('stock_adjustments').insert({ item_id: id, quantity_change: diff, reason: 'Admin stock override' }).catch(() => {});
+    return { success: true };
+  },
   async bulkImport(items: any[]) {
     const rows = items.map((i) => ({ item_name: i.item_name, barcode: i.barcode || null, cost_price: Number(i.cost_price) || 0, selling_price: Number(i.selling_price) || 0, stock_quantity: Number(i.stock_quantity) || 0 }));
     const { error } = await supabase.from('inventory').upsert(rows, { onConflict: 'barcode' });
@@ -226,14 +266,22 @@ export const feeTypeAPI = {
     if (error) throw error;
     return data || [];
   },
-  async create(data: { name: string; description?: string; academicSession: string; amount: number; classFilter?: string; feeCategory?: 'standard' | 'registration' }) {
-    const { data: ft, error } = await supabase.from('fee_types').insert({ name: data.name, description: data.description || null, academic_session: data.academicSession, amount: data.amount, class_filter: data.classFilter || null, fee_category: data.feeCategory || 'standard' }).select('id').single();
-    if (error) return { success: false, error: error.message };
-    return { success: true, id: ft.id };
+  async create(data: { name: string; description?: string; academicSession: string; amount: number; classFilter?: string; feeCategory?: 'standard' | 'registration'; applicableTo?: string }) {
+    const base = { name: data.name, description: data.description || null, academic_session: data.academicSession, amount: data.amount, class_filter: data.classFilter || null, fee_category: data.feeCategory || 'standard' };
+    const withApplicable = { ...base, applicable_to: data.applicableTo || 'All Students' };
+    let res = await supabase.from('fee_types').insert(withApplicable).select('id').single();
+    if (res.error) res = await supabase.from('fee_types').insert(base).select('id').single();
+    if (res.error) return { success: false, error: res.error.message };
+    return { success: true, id: (res.data as any).id };
   },
-  async update(id: number, data: { name: string; description?: string; amount: number; classFilter?: string; feeCategory?: 'standard' | 'registration' }) {
-    const { error } = await supabase.from('fee_types').update({ name: data.name, description: data.description || null, amount: data.amount, class_filter: data.classFilter || null, fee_category: data.feeCategory || 'standard' }).eq('id', id);
-    if (error) throw error;
+  async update(id: number, data: { name: string; description?: string; amount: number; classFilter?: string; feeCategory?: 'standard' | 'registration'; applicableTo?: string }) {
+    const base = { name: data.name, description: data.description || null, amount: data.amount, class_filter: data.classFilter || null, fee_category: data.feeCategory || 'standard' };
+    const withApplicable = { ...base, applicable_to: data.applicableTo || 'All Students' };
+    const { error: e1 } = await supabase.from('fee_types').update(withApplicable).eq('id', id);
+    if (e1) {
+      const { error: e2 } = await supabase.from('fee_types').update(base).eq('id', id);
+      if (e2) throw e2;
+    }
     return { success: true };
   },
   async delete(id: number) {
@@ -569,10 +617,13 @@ export const applicantAPI = {
       enrolled_student_class: data.students?.student_class || null,
     };
   },
-  async create(data: { firstName: string; lastName: string; proposedClass?: string; phone?: string; notes?: string }) {
-    const { data: applicant, error } = await supabase.from('applicants').insert({ first_name: data.firstName, last_name: data.lastName, proposed_class: data.proposedClass || null, phone: data.phone || null, notes: data.notes || null }).select('id').single();
-    if (error) return { success: false, error: error.message };
-    return { success: true, id: applicant.id };
+  async create(data: { firstName: string; lastName: string; proposedClass?: string; phone?: string; notes?: string; studentStatus?: string }) {
+    const base = { first_name: data.firstName, last_name: data.lastName, proposed_class: data.proposedClass || null, phone: data.phone || null, notes: data.notes || null };
+    const withStatus = { ...base, student_status: data.studentStatus || 'Day' };
+    let res = await supabase.from('applicants').insert(withStatus).select('id').single();
+    if (res.error) res = await supabase.from('applicants').insert(base).select('id').single();
+    if (res.error) return { success: false, error: res.error.message };
+    return { success: true, id: (res.data as any).id };
   },
   async markEligible(id: number) {
     const { error } = await supabase.from('applicants').update({ status: 'eligible', eligible_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', id);

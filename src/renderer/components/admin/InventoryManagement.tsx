@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Package, X, Tag, AlertCircle } from 'lucide-react';
+import { Plus, Pencil, X, Tag, AlertCircle } from 'lucide-react';
 import { inventoryAPI, categoryAPI } from '../../lib/api';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -8,6 +8,9 @@ interface Item { item_id: number; item_name: string; cost_price: number; selling
 interface Category { id: number; name: string; color: string; }
 type FormData = { itemName: string; costPrice: string; sellingPrice: string; stockQuantity: string; barcode: string; categoryId: string; };
 const emptyForm: FormData = { itemName: '', costPrice: '', sellingPrice: '', stockQuantity: '', barcode: '', categoryId: '' };
+
+const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400';
+const labelCls = 'text-sm font-medium text-gray-700 mb-1 block';
 
 const InventoryManagement: React.FC = () => {
   const [inventory, setInventory] = useState<Item[]>([]);
@@ -22,22 +25,20 @@ const InventoryManagement: React.FC = () => {
   const [showAdjust, setShowAdjust] = useState(false);
   const [showCatMgr, setShowCatMgr] = useState(false);
   const [selected, setSelected] = useState<Item | null>(null);
-  const [form, setForm] = useState<FormData>(emptyForm);
+
+  // Separate form states so edits are independent
+  const [addForm, setAddForm] = useState<FormData>(emptyForm);
+  const [editForm, setEditForm] = useState<FormData>(emptyForm);
+  const [addError, setAddError] = useState('');
+
+  // Adjust stock state — absolute new quantity
+  const [adjNewQty, setAdjNewQty] = useState('');
+  const [adjError, setAdjError] = useState('');
 
   // Category manager state
   const [catForm, setCatForm] = useState({ name: '', color: '#3b82f6' });
   const [editCat, setEditCat] = useState<Category | null>(null);
-
-  // Adjust stock state
-  const [adjQty, setAdjQty] = useState('');
-  const [adjReason, setAdjReason] = useState('');
-  const [adjError, setAdjError] = useState('');
-
-  // Error modal
   const [errorMsg, setErrorMsg] = useState('');
-
-  // Create error
-  const [addError, setAddError] = useState('');
 
   const reload = () => {
     setLoading(true);
@@ -52,15 +53,22 @@ const InventoryManagement: React.FC = () => {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setAddError('');
-    const result = await inventoryAPI.create({ itemName: form.itemName, costPrice: parseFloat(form.costPrice), sellingPrice: parseFloat(form.sellingPrice), stockQuantity: parseInt(form.stockQuantity) || 0, barcode: form.barcode || undefined, categoryId: form.categoryId ? Number(form.categoryId) : null });
-    if (result.success) { setShowAdd(false); setForm(emptyForm); setAddError(''); reload(); }
+    const result = await inventoryAPI.create({
+      itemName: addForm.itemName, costPrice: parseFloat(addForm.costPrice), sellingPrice: parseFloat(addForm.sellingPrice),
+      stockQuantity: parseInt(addForm.stockQuantity) || 0, barcode: addForm.barcode || undefined,
+      categoryId: addForm.categoryId ? Number(addForm.categoryId) : null,
+    });
+    if (result.success) { setShowAdd(false); setAddForm(emptyForm); reload(); }
     else setAddError(result.error || 'Failed to create item');
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selected) return;
-    await inventoryAPI.update(selected.item_id, { itemName: form.itemName, costPrice: parseFloat(form.costPrice), sellingPrice: parseFloat(form.sellingPrice), barcode: form.barcode || undefined, categoryId: form.categoryId ? Number(form.categoryId) : null });
+    await inventoryAPI.update(selected.item_id, {
+      itemName: editForm.itemName, costPrice: parseFloat(editForm.costPrice), sellingPrice: parseFloat(editForm.sellingPrice),
+      barcode: editForm.barcode || undefined, categoryId: editForm.categoryId ? Number(editForm.categoryId) : null,
+    });
     setShowEdit(false);
     reload();
   };
@@ -68,20 +76,18 @@ const InventoryManagement: React.FC = () => {
   const handleAdjust = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selected) return;
-    const qty = parseInt(adjQty);
-    if (isNaN(qty) || qty === 0) { setAdjError('Enter a non-zero quantity'); return; }
-    if (!adjReason.trim()) { setAdjError('Please enter a reason'); return; }
+    const qty = parseInt(adjNewQty);
+    if (isNaN(qty) || qty < 0) { setAdjError('Enter a valid stock total (≥ 0)'); return; }
     setAdjError('');
-    await inventoryAPI.adjustStock(selected.item_id, qty, adjReason);
+    await inventoryAPI.setStock(selected.item_id, qty);
     setShowAdjust(false);
-    setAdjQty('');
-    setAdjReason('');
+    setAdjNewQty('');
     reload();
   };
 
   const openEdit = (item: Item) => {
     setSelected(item);
-    setForm({ itemName: item.item_name, costPrice: String(item.cost_price), sellingPrice: String(item.selling_price), stockQuantity: String(item.stock_quantity), barcode: item.barcode || '', categoryId: item.category_id ? String(item.category_id) : '' });
+    setEditForm({ itemName: item.item_name, costPrice: String(item.cost_price), sellingPrice: String(item.selling_price), stockQuantity: String(item.stock_quantity), barcode: item.barcode || '', categoryId: item.category_id ? String(item.category_id) : '' });
     setShowEdit(true);
   };
 
@@ -100,53 +106,8 @@ const InventoryManagement: React.FC = () => {
 
   const totalValue = inventory.reduce((s, i) => s + i.stock_quantity * i.selling_price, 0);
 
-  const FormFields: React.FC<{ onSubmit: (e: React.FormEvent) => void; submitLabel: string; onCancel: () => void; error?: string }> = ({ onSubmit, submitLabel, onCancel, error }) => (
-    <form onSubmit={onSubmit} className="space-y-4">
-      {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2">{error}</div>}
-      <div>
-        <label className="text-sm font-medium text-gray-700 mb-1 block">Item Name *</label>
-        <input type="text" value={form.itemName} onChange={(e) => setForm((p) => ({ ...p, itemName: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required />
-      </div>
-      <div>
-        <label className="text-sm font-medium text-gray-700 mb-1 block">Category</label>
-        <select value={form.categoryId} onChange={(e) => setForm((p) => ({ ...p, categoryId: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
-          <option value="">No Category</option>
-          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-      </div>
-      <div>
-        <label className="text-sm font-medium text-gray-700 mb-1 block">Barcode (optional)</label>
-        <input type="text" value={form.barcode} onChange={(e) => setForm((p) => ({ ...p, barcode: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-sm font-medium text-gray-700 mb-1 block">Cost Price *</label>
-          <input type="number" min="0" step="0.01" value={form.costPrice} onChange={(e) => setForm((p) => ({ ...p, costPrice: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required />
-        </div>
-        <div>
-          <label className="text-sm font-medium text-gray-700 mb-1 block">Selling Price *</label>
-          <input type="number" min="0" step="0.01" value={form.sellingPrice} onChange={(e) => setForm((p) => ({ ...p, sellingPrice: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required />
-        </div>
-      </div>
-      <div>
-        <label className="text-sm font-medium text-gray-700 mb-1 block">Initial Stock</label>
-        <input type="number" min="0" value={form.stockQuantity} onChange={(e) => setForm((p) => ({ ...p, stockQuantity: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" />
-      </div>
-      {form.costPrice && form.sellingPrice && (
-        <div className="bg-gray-50 rounded-lg px-3 py-2 text-sm">
-          Profit per unit: <strong className="text-success-600">{fmt(parseFloat(form.sellingPrice || '0') - parseFloat(form.costPrice || '0'))}</strong>
-        </div>
-      )}
-      <div className="flex gap-3 pt-2">
-        <button type="button" onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-        <button type="submit" className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700">{submitLabel}</button>
-      </div>
-    </form>
-  );
-
   return (
     <div>
-      {/* Error Modal */}
       {errorMsg && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6 text-center">
@@ -158,7 +119,6 @@ const InventoryManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-2xl font-extrabold text-gray-900">Inventory</h1>
@@ -168,13 +128,12 @@ const InventoryManagement: React.FC = () => {
           <button onClick={() => setShowCatMgr(true)} className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200">
             <Tag className="w-4 h-4" /> Categories
           </button>
-          <button onClick={() => { setForm(emptyForm); setAddError(''); setShowAdd(true); }} className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700">
+          <button onClick={() => { setAddForm(emptyForm); setAddError(''); setShowAdd(true); }} className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700">
             <Plus className="w-4 h-4" /> Add Item
           </button>
         </div>
       </div>
 
-      {/* Stats row */}
       <div className="grid grid-cols-4 gap-4 mb-5">
         {[
           { label: 'SKUs', value: inventory.length },
@@ -189,7 +148,6 @@ const InventoryManagement: React.FC = () => {
         ))}
       </div>
 
-      {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-5 flex items-center gap-3 flex-wrap">
         <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 min-w-48 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" placeholder="Search items or barcode…" />
         <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
@@ -202,7 +160,6 @@ const InventoryManagement: React.FC = () => {
         </label>
       </div>
 
-      {/* Table */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
@@ -232,7 +189,7 @@ const InventoryManagement: React.FC = () => {
                 <td className="px-4 py-3 text-right text-success-600 font-medium">{fmt(item.selling_price - item.cost_price)}</td>
                 <td className="px-4 py-3 text-center">
                   <button onClick={() => openEdit(item)} className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg mr-1 transition-colors"><Pencil className="w-4 h-4" /></button>
-                  <button onClick={() => { setSelected(item); setAdjQty(''); setAdjReason(''); setAdjError(''); setShowAdjust(true); }} className="px-2 py-1 text-xs bg-warning-100 text-warning-700 rounded-lg hover:bg-warning-200 font-medium">Stock</button>
+                  <button onClick={() => { setSelected(item); setAdjNewQty(String(item.stock_quantity)); setAdjError(''); setShowAdjust(true); }} className="px-2 py-1 text-xs bg-warning-100 text-warning-700 rounded-lg hover:bg-warning-200 font-medium">Stock</button>
                 </td>
               </tr>
             ))}
@@ -240,52 +197,133 @@ const InventoryManagement: React.FC = () => {
         </table>
       </div>
 
-      {/* Add Modal */}
+      {/* Add Item Modal — inline form (no inner component = no focus loss) */}
       {showAdd && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between mb-5"><h2 className="text-lg font-bold">Add New Item</h2><button onClick={() => setShowAdd(false)}><X className="w-5 h-5 text-gray-400" /></button></div>
-            <FormFields onSubmit={handleCreate} submitLabel="Add Item" onCancel={() => setShowAdd(false)} error={addError} />
+            {addError && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{addError}</div>}
+            <form onSubmit={handleCreate} className="space-y-4">
+              <div>
+                <label className={labelCls}>Item Name *</label>
+                <input type="text" className={inputCls} required autoFocus value={addForm.itemName} onChange={(e) => setAddForm((p) => ({ ...p, itemName: e.target.value }))} />
+              </div>
+              <div>
+                <label className={labelCls}>Category</label>
+                <select className={inputCls} value={addForm.categoryId} onChange={(e) => setAddForm((p) => ({ ...p, categoryId: e.target.value }))}>
+                  <option value="">No Category</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Barcode (optional)</label>
+                <input type="text" className={inputCls} value={addForm.barcode} onChange={(e) => setAddForm((p) => ({ ...p, barcode: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Cost Price *</label>
+                  <input type="number" min="0" step="0.01" className={inputCls} required value={addForm.costPrice} onChange={(e) => setAddForm((p) => ({ ...p, costPrice: e.target.value }))} />
+                </div>
+                <div>
+                  <label className={labelCls}>Selling Price *</label>
+                  <input type="number" min="0" step="0.01" className={inputCls} required value={addForm.sellingPrice} onChange={(e) => setAddForm((p) => ({ ...p, sellingPrice: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <label className={labelCls}>Initial Stock</label>
+                <input type="number" min="0" className={inputCls} value={addForm.stockQuantity} onChange={(e) => setAddForm((p) => ({ ...p, stockQuantity: e.target.value }))} />
+              </div>
+              {addForm.costPrice && addForm.sellingPrice && (
+                <div className="bg-gray-50 rounded-lg px-3 py-2 text-sm">
+                  Profit per unit: <strong className="text-success-600">{fmt(parseFloat(addForm.sellingPrice || '0') - parseFloat(addForm.costPrice || '0'))}</strong>
+                </div>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setShowAdd(false)} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
+                <button type="submit" className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700">Add Item</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* Edit Modal */}
+      {/* Edit Item Modal — NO Initial Stock field */}
       {showEdit && selected && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between mb-5"><h2 className="text-lg font-bold">Edit: {selected.item_name}</h2><button onClick={() => setShowEdit(false)}><X className="w-5 h-5 text-gray-400" /></button></div>
-            <FormFields onSubmit={handleUpdate} submitLabel="Update Item" onCancel={() => setShowEdit(false)} />
+            <form onSubmit={handleUpdate} className="space-y-4">
+              <div>
+                <label className={labelCls}>Item Name *</label>
+                <input type="text" className={inputCls} required autoFocus value={editForm.itemName} onChange={(e) => setEditForm((p) => ({ ...p, itemName: e.target.value }))} />
+              </div>
+              <div>
+                <label className={labelCls}>Category</label>
+                <select className={inputCls} value={editForm.categoryId} onChange={(e) => setEditForm((p) => ({ ...p, categoryId: e.target.value }))}>
+                  <option value="">No Category</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Barcode (optional)</label>
+                <input type="text" className={inputCls} value={editForm.barcode} onChange={(e) => setEditForm((p) => ({ ...p, barcode: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Cost Price *</label>
+                  <input type="number" min="0" step="0.01" className={inputCls} required value={editForm.costPrice} onChange={(e) => setEditForm((p) => ({ ...p, costPrice: e.target.value }))} />
+                </div>
+                <div>
+                  <label className={labelCls}>Selling Price *</label>
+                  <input type="number" min="0" step="0.01" className={inputCls} required value={editForm.sellingPrice} onChange={(e) => setEditForm((p) => ({ ...p, sellingPrice: e.target.value }))} />
+                </div>
+              </div>
+              {editForm.costPrice && editForm.sellingPrice && (
+                <div className="bg-gray-50 rounded-lg px-3 py-2 text-sm">
+                  Profit per unit: <strong className="text-success-600">{fmt(parseFloat(editForm.sellingPrice || '0') - parseFloat(editForm.costPrice || '0'))}</strong>
+                </div>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setShowEdit(false)} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
+                <button type="submit" className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700">Update Item</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* Adjust Stock Modal */}
+      {/* Adjust Stock Modal — absolute new total */}
       {showAdjust && selected && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6">
-            <div className="flex items-center justify-between mb-4"><h2 className="text-lg font-bold">Adjust Stock</h2><button onClick={() => setShowAdjust(false)}><X className="w-5 h-5 text-gray-400" /></button></div>
+            <div className="flex items-center justify-between mb-4"><h2 className="text-lg font-bold">Set Stock</h2><button onClick={() => setShowAdjust(false)}><X className="w-5 h-5 text-gray-400" /></button></div>
             <div className="bg-gray-50 rounded-xl p-4 text-center mb-4">
               <div className="font-bold text-gray-900">{selected.item_name}</div>
-              <div className="text-3xl font-extrabold mt-1">{selected.stock_quantity}</div>
+              <div className="text-4xl font-extrabold mt-1 text-gray-800">{selected.stock_quantity}</div>
               <div className="text-xs text-gray-400">current units</div>
             </div>
             {adjError && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-3">{adjError}</div>}
             <form onSubmit={handleAdjust} className="space-y-3">
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">Quantity Change (use - for removals)</label>
-                <input type="number" value={adjQty} onChange={(e) => { setAdjQty(e.target.value); setAdjError(''); }} placeholder="e.g. +50 or -5" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required />
-                {adjQty && !isNaN(parseInt(adjQty)) && (
-                  <div className="mt-1 text-sm">New stock will be: <strong>{selected.stock_quantity + parseInt(adjQty)}</strong></div>
+                <label className={labelCls}>New Stock Total</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={adjNewQty}
+                  onChange={(e) => { setAdjNewQty(e.target.value); setAdjError(''); }}
+                  className="w-full px-3 py-3 border-2 border-gray-200 rounded-xl text-2xl font-bold text-center focus:outline-none focus:border-primary-400"
+                  autoFocus
+                  required
+                />
+                {adjNewQty !== '' && !isNaN(parseInt(adjNewQty)) && (
+                  <div className={`mt-1 text-sm text-center ${parseInt(adjNewQty) !== selected.stock_quantity ? 'text-warning-700 font-semibold' : 'text-gray-400'}`}>
+                    Change: {parseInt(adjNewQty) - selected.stock_quantity >= 0 ? '+' : ''}{parseInt(adjNewQty) - selected.stock_quantity} units
+                  </div>
                 )}
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">Reason *</label>
-                <input type="text" value={adjReason} onChange={(e) => { setAdjReason(e.target.value); setAdjError(''); }} placeholder="e.g. Received new stock, Damaged items" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required />
               </div>
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setShowAdjust(false)} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-                <button type="submit" className="flex-1 py-2.5 bg-warning-500 text-white rounded-xl text-sm font-semibold hover:bg-warning-600">Apply</button>
+                <button type="submit" className="flex-1 py-2.5 bg-warning-500 text-white rounded-xl text-sm font-semibold hover:bg-warning-600">Set Stock</button>
               </div>
             </form>
           </div>

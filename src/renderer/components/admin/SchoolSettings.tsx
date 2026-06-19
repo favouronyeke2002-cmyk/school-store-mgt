@@ -219,41 +219,17 @@ const SchoolSettings: React.FC = () => {
             <GraduationCap className="w-5 h-5 text-primary-600" />
             <h2 className="font-bold text-gray-900">Class Management</h2>
           </div>
-          <p className="text-xs text-gray-400 mb-5">Define school classes and their arms (e.g. JSS1 with arms JSS1A, JSS1B). These classes are used across the system.</p>
-
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <div>
-              <label className="text-xs font-medium text-gray-600 mb-1 block">Add New Class / Arm</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newClassName}
-                  onChange={(e) => setNewClassName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addClass())}
-                  className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-                  placeholder="e.g. JSS1A"
-                />
-                <button type="button" onClick={addClass} className="px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-semibold"><Plus className="w-4 h-4" /></button>
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-600 mb-1 block">Add Arm to Existing Base</label>
-              <div className="flex gap-2">
-                <select value={selectedBase} onChange={(e) => setSelectedBase(e.target.value)} className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
-                  <option value="">Base class…</option>
-                  {baseClasses.map((b) => <option key={b} value={b}>{b}</option>)}
-                </select>
-                <input
-                  type="text"
-                  value={newArmName}
-                  onChange={(e) => setNewArmName(e.target.value)}
-                  className="w-14 px-2 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-                  placeholder="C"
-                  maxLength={2}
-                />
-                <button type="button" onClick={addArm} className="px-3 py-2 bg-success-600 text-white rounded-lg hover:bg-success-700 text-sm font-semibold"><Plus className="w-4 h-4" /></button>
-              </div>
-            </div>
+          <p className="text-xs text-gray-400 mb-4">Type a class name (e.g. JSS1A, SS2B) and press "+" to add it. These classes appear across the system.</p>
+          <div className="flex gap-2 mb-4">
+            <input
+              type="text"
+              value={newClassName}
+              onChange={(e) => setNewClassName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addClass())}
+              className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+              placeholder="e.g. JSS1A, SS3B…"
+            />
+            <button type="button" onClick={addClass} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-semibold flex items-center gap-1"><Plus className="w-4 h-4" /> Add</button>
           </div>
 
           <div className="flex flex-wrap gap-2">

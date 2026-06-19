@@ -296,7 +296,7 @@ const QuickAddStudentModal: React.FC<{
 // ─── Walk-In Applicant Modal ──────────────────────────────────────────────────
 const WalkInApplicantModal: React.FC<{
   classes: string[];
-  onSave: (data: { firstName: string; lastName: string; proposedClass: string }) => void;
+  onSave: (data: { firstName: string; lastName: string; proposedClass: string; studentStatus: 'Day' | 'Boarding' }) => void;
   onCancel: () => void;
   saving: boolean;
   error: string;
@@ -304,11 +304,12 @@ const WalkInApplicantModal: React.FC<{
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [proposedClass, setProposedClass] = useState(classes[0] || '');
+  const [studentStatus, setStudentStatus] = useState<'Day' | 'Boarding'>('Day');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstName.trim() || !lastName.trim()) return;
-    onSave({ firstName: firstName.trim(), lastName: lastName.trim(), proposedClass });
+    onSave({ firstName: firstName.trim(), lastName: lastName.trim(), proposedClass, studentStatus });
   };
 
   return (
@@ -342,7 +343,14 @@ const WalkInApplicantModal: React.FC<{
               {classes.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          <p className="text-xs text-gray-400">Applicant will be created and you can process registration bundle payment. They will appear in Pending Admissions for enrollment.</p>
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-1 block">Student Status</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setStudentStatus('Day')} className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${studentStatus === 'Day' ? 'bg-gray-700 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`}>Day</button>
+              <button type="button" onClick={() => setStudentStatus('Boarding')} className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${studentStatus === 'Boarding' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-indigo-400'}`}>Boarding</button>
+            </div>
+          </div>
+          <p className="text-xs text-gray-400">Applicant will be created. Choose next action (form, acceptance fee, or registration bundle) from the menu that appears.</p>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
             <button type="submit" disabled={saving || !firstName.trim() || !lastName.trim()} className="flex-1 py-2.5 bg-warning-500 text-white rounded-xl text-sm font-semibold hover:bg-warning-600 disabled:opacity-50">
@@ -961,27 +969,43 @@ const CashierPOS: React.FC = () => {
   };
 
   // Walk-in applicant handlers
-  const handleWalkInCreate = async (data: { firstName: string; lastName: string; proposedClass: string }) => {
+  const handleWalkInCreate = async (data: { firstName: string; lastName: string; proposedClass: string; studentStatus: 'Day' | 'Boarding' }) => {
     setWalkInSaving(true);
     setWalkInError('');
     try {
-      const result = await applicantAPI.create({ firstName: data.firstName, lastName: data.lastName, proposedClass: data.proposedClass });
+      const result = await applicantAPI.create({ firstName: data.firstName, lastName: data.lastName, proposedClass: data.proposedClass, studentStatus: data.studentStatus });
       if (result.success) {
         const applicant = await applicantAPI.getById(result.id);
         setWalkInApplicant(applicant);
         setShowWalkIn(false);
-        // Show bundle selection for walk-in
-        const regBundle = bundles.find((b) => b.bundle_type === 'registration' && b.is_active);
-        if (regBundle) {
-          setSelectedBundle(regBundle);
-          setBundleAmount(String(regBundle.base_price));
-          setShowBundlePayment(true);
-        }
+        // Action menu will now appear — no auto popup
       } else setWalkInError(result.error || 'Failed to create applicant');
     } catch (e) {
       setWalkInError((e as Error).message);
     }
     setWalkInSaving(false);
+  };
+
+  const handleWalkInBundleAction = (bundleType: 'acceptance' | 'registration' | 'form') => {
+    if (!walkInApplicant) return;
+    if (bundleType === 'form') {
+      // ₦3,000 application form payment
+      const formBundle = bundles.find((b) => b.bundle_type === 'form' && b.is_active)
+        || bundles.find((b) => b.is_active);
+      if (formBundle) {
+        setSelectedBundle(formBundle);
+        setBundleAmount(String(formBundle.base_price || 3000));
+      } else {
+        setSelectedBundle({ id: -1, name: 'Application Form', bundle_type: 'form', base_price: 3000, description: '', is_active: true } as any);
+        setBundleAmount('3000');
+      }
+    } else {
+      const bundle = bundles.find((b) => b.bundle_type === bundleType && b.is_active);
+      if (!bundle) { alert(`No active ${bundleType} bundle found. Please set one up in Bundle Management.`); return; }
+      setSelectedBundle(bundle);
+      setBundleAmount(String(bundle.base_price));
+    }
+    setShowBundlePayment(true);
   };
 
   // Bundle payment handler
@@ -1132,6 +1156,37 @@ const CashierPOS: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* Walk-In Applicant Action Menu */}
+              {walkInApplicant && !showBundlePayment && (
+                <div className="mt-3 bg-warning-50 border border-warning-300 rounded-xl px-4 py-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 bg-warning-200 rounded-lg flex items-center justify-center"><User className="w-4 h-4 text-warning-700" /></div>
+                      <div>
+                        <div className="text-sm font-bold text-warning-900">{walkInApplicant.full_name}</div>
+                        <div className="text-xs text-warning-600">{walkInApplicant.proposed_class || 'Walk-In Applicant'} · #{walkInApplicant.id}</div>
+                      </div>
+                    </div>
+                    <button onClick={() => setWalkInApplicant(null)} className="text-warning-400 hover:text-warning-600"><X className="w-4 h-4" /></button>
+                  </div>
+                  <p className="text-xs text-warning-700 mb-3">Applicant created. Choose a payment action:</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button onClick={() => handleWalkInBundleAction('form')} className="flex flex-col items-center gap-1 py-2.5 px-2 bg-white border border-warning-200 rounded-lg hover:bg-warning-100 text-warning-800 transition-all">
+                      <span className="text-base font-extrabold">₦3k</span>
+                      <span className="text-xs font-semibold">Form</span>
+                    </button>
+                    <button onClick={() => handleWalkInBundleAction('acceptance')} className="flex flex-col items-center gap-1 py-2.5 px-2 bg-white border border-warning-200 rounded-lg hover:bg-warning-100 text-warning-800 transition-all">
+                      <span className="text-base font-extrabold">₦</span>
+                      <span className="text-xs font-semibold">Acceptance</span>
+                    </button>
+                    <button onClick={() => handleWalkInBundleAction('registration')} className="flex flex-col items-center gap-1 py-2.5 px-2 bg-white border border-warning-200 rounded-lg hover:bg-warning-100 text-warning-800 transition-all">
+                      <span className="text-base font-extrabold">₦₦</span>
+                      <span className="text-xs font-semibold">Registration</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Edit name/class for quick-added students only */}
               {selectedStudent && quickAddedStudentIds.has(selectedStudent.student_id) && (

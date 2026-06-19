@@ -4,7 +4,7 @@ import { feeTypeAPI, studentFeeAPI, studentAPI, settingsAPI } from '../../lib/ap
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-interface FeeType { id: number; name: string; description: string | null; academic_session: string; amount: number; class_filter: string | null; fee_category: string; }
+interface FeeType { id: number; name: string; description: string | null; academic_session: string; amount: number; class_filter: string | null; fee_category: string; applicable_to?: string; }
 interface StudentFee { id: number; student_id: string; student_name: string; student_class: string; admission_type: string; fee_name: string; fee_category: string; academic_session: string; amount_due: number; amount_paid: number; balance: number; }
 
 const FeesManagement: React.FC = () => {
@@ -20,14 +20,14 @@ const FeesManagement: React.FC = () => {
 
   // Create fee type form
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard' as 'standard' | 'registration' });
+  const [form, setForm] = useState({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard' as 'standard' | 'registration', applicableTo: 'All Students' });
   const [formSaving, setFormSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
   // Edit fee type
   const [showEdit, setShowEdit] = useState(false);
   const [editTarget, setEditTarget] = useState<FeeType | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard' as 'standard' | 'registration' });
+  const [editForm, setEditForm] = useState({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard' as 'standard' | 'registration', applicableTo: 'All Students' });
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
 
@@ -82,13 +82,14 @@ const FeesManagement: React.FC = () => {
       amount: parseFloat(form.amount),
       classFilter: form.classFilter || undefined,
       feeCategory: form.feeCategory,
+      applicableTo: form.applicableTo,
     });
     if (result.success) {
       // Auto-assign: if class filter set, assign to that class; if no filter, assign to all returning students
       if (result.id) {
         await feeTypeAPI.assignToStudents(result.id, parseFloat(form.amount), form.classFilter || undefined, undefined, form.feeCategory);
       }
-      setForm({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard' });
+      setForm({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard', applicableTo: 'All Students' });
       setShowCreate(false);
       load();
     } else {
@@ -99,7 +100,7 @@ const FeesManagement: React.FC = () => {
 
   const openEdit = (ft: FeeType) => {
     setEditTarget(ft);
-    setEditForm({ name: ft.name, description: ft.description || '', amount: String(ft.amount), classFilter: ft.class_filter || '', feeCategory: (ft.fee_category as 'standard' | 'registration') || 'standard' });
+    setEditForm({ name: ft.name, description: ft.description || '', amount: String(ft.amount), classFilter: ft.class_filter || '', feeCategory: (ft.fee_category as 'standard' | 'registration') || 'standard', applicableTo: ft.applicable_to || 'All Students' });
     setEditError('');
     setShowEdit(true);
   };
@@ -117,6 +118,7 @@ const FeesManagement: React.FC = () => {
         amount: parseFloat(editForm.amount),
         classFilter: editForm.classFilter || undefined,
         feeCategory: editForm.feeCategory,
+        applicableTo: editForm.applicableTo,
       });
       setShowEdit(false);
       setEditTarget(null);
@@ -368,6 +370,14 @@ const FeesManagement: React.FC = () => {
                   <button type="button" onClick={() => setForm((p) => ({ ...p, feeCategory: 'registration' }))} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${form.feeCategory === 'registration' ? 'bg-warning-500 border-warning-500 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-warning-400'}`}>Registration</button>
                 </div>
               </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block">Applicable To</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['All Students', 'Day', 'Boarding'].map((opt) => (
+                    <button key={opt} type="button" onClick={() => setForm((p) => ({ ...p, applicableTo: opt }))} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${form.applicableTo === opt ? 'bg-gray-700 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`}>{opt}</button>
+                  ))}
+                </div>
+              </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowCreate(false)} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
                 <button type="submit" disabled={formSaving} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">
@@ -413,6 +423,14 @@ const FeesManagement: React.FC = () => {
                 <div className="grid grid-cols-2 gap-2">
                   <button type="button" onClick={() => setEditForm((p) => ({ ...p, feeCategory: 'standard' }))} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${editForm.feeCategory === 'standard' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600'}`}>Standard</button>
                   <button type="button" onClick={() => setEditForm((p) => ({ ...p, feeCategory: 'registration' }))} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${editForm.feeCategory === 'registration' ? 'bg-warning-500 border-warning-500 text-white' : 'bg-white border-gray-200 text-gray-600'}`}>Registration</button>
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block">Applicable To</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['All Students', 'Day', 'Boarding'].map((opt) => (
+                    <button key={opt} type="button" onClick={() => setEditForm((p) => ({ ...p, applicableTo: opt }))} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${editForm.applicableTo === opt ? 'bg-gray-700 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`}>{opt}</button>
+                  ))}
                 </div>
               </div>
               <div className="flex gap-3 pt-2">
