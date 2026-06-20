@@ -35,6 +35,9 @@ const SchoolSettings: React.FC = () => {
   const [newClassName, setNewClassName] = useState('');
   const [newArmName, setNewArmName] = useState('');
   const [selectedBase, setSelectedBase] = useState('');
+  const [classToDelete, setClassToDelete] = useState<string | null>(null);
+  const [classDeleteStudentCount, setClassDeleteStudentCount] = useState(0);
+  const [classDeleteChecking, setClassDeleteChecking] = useState(false);
 
   useEffect(() => {
     settingsAPI.get().then((data) => {
@@ -83,8 +86,22 @@ const SchoolSettings: React.FC = () => {
     setNewArmName('');
   };
 
-  const removeClass = (cls: string) => {
-    setClassList((prev) => prev.filter((c) => c !== cls));
+  const requestRemoveClass = async (cls: string) => {
+    setClassDeleteChecking(true);
+    setClassToDelete(cls);
+    try {
+      const { studentAPI: sAPI } = await import('../../lib/api');
+      const result = await sAPI.getAll({ class: cls, pageSize: 1 });
+      setClassDeleteStudentCount(result.total);
+    } catch {
+      setClassDeleteStudentCount(0);
+    }
+    setClassDeleteChecking(false);
+  };
+
+  const confirmRemoveClass = () => {
+    if (classToDelete) setClassList((prev) => prev.filter((c) => c !== classToDelete));
+    setClassToDelete(null);
   };
 
   const baseClasses = [...new Set(classList.map((c) => c.replace(/[A-Z]$/, '')))].filter(Boolean);
@@ -236,11 +253,38 @@ const SchoolSettings: React.FC = () => {
             {classList.sort().map((cls) => (
               <div key={cls} className="flex items-center gap-1 bg-primary-50 text-primary-800 border border-primary-200 rounded-lg px-3 py-1.5 text-sm font-medium">
                 {cls}
-                <button type="button" onClick={() => removeClass(cls)} className="ml-1 text-primary-400 hover:text-danger-600 transition-colors"><X className="w-3.5 h-3.5" /></button>
+                <button type="button" onClick={() => requestRemoveClass(cls)} className="ml-1 text-primary-400 hover:text-danger-600 transition-colors" title={`Remove ${cls}`}><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
             ))}
             {classList.length === 0 && <p className="text-sm text-gray-400 italic">No classes defined. Add classes above.</p>}
           </div>
+
+          {/* Class Delete Warning Dialog */}
+          {classToDelete && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6">
+                <div className="flex items-start gap-3 mb-4">
+                  <div className="w-10 h-10 bg-danger-100 rounded-xl flex items-center justify-center shrink-0"><Trash2 className="w-5 h-5 text-danger-600" /></div>
+                  <div>
+                    <h3 className="font-bold text-gray-900">Remove Class: {classToDelete}</h3>
+                    {classDeleteChecking ? (
+                      <p className="text-sm text-gray-500 mt-1">Checking for assigned students…</p>
+                    ) : classDeleteStudentCount > 0 ? (
+                      <p className="text-sm text-danger-600 mt-1 font-medium">⚠ {classDeleteStudentCount} student{classDeleteStudentCount !== 1 ? 's are' : ' is'} currently assigned to this class. Removing it will NOT remove the students, but they will lose their class assignment display until re-assigned.</p>
+                    ) : (
+                      <p className="text-sm text-gray-500 mt-1">No students are currently assigned to this class. Safe to remove.</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setClassToDelete(null)} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
+                  <button type="button" disabled={classDeleteChecking} onClick={confirmRemoveClass} className="flex-1 py-2.5 bg-danger-600 text-white rounded-xl text-sm font-semibold hover:bg-danger-700 disabled:opacity-50">
+                    {classDeleteStudentCount > 0 ? 'Remove Anyway' : 'Remove Class'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Partial Payment Floors */}

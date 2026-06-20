@@ -83,20 +83,35 @@ export const shiftAPI = {
     if (error) throw error;
     return (data || []).map((s: any) => ({ ...s, username: s.pos_users?.username }));
   },
+  async getExpectedCash(shiftId: number): Promise<number> {
+    const { data: shift } = await supabase.from('shifts').select('opening_cash').eq('id', shiftId).single();
+    const { data: cashTxns } = await supabase.from('transactions').select('amount_paid').eq('shift_id', shiftId).eq('payment_mode', 'Cash');
+    const totalCash = (cashTxns || []).reduce((s: number, t: any) => s + Number(t.amount_paid), 0);
+    return Number(shift?.opening_cash || 0) + totalCash;
+  },
 };
 
 // ─── STUDENTS ─────────────────────────────────────────────────────────────────
 export const studentAPI = {
-  async getAll(filters?: { search?: string; class?: string; page?: number; pageSize?: number }) {
+  async getAll(filters?: { search?: string; class?: string; studentStatus?: string; page?: number; pageSize?: number }) {
     const pageSize = filters?.pageSize || 15;
     const page = filters?.page || 1;
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
-    let query = supabase.from('students').select('*', { count: 'exact' }).order('name').range(from, to);
-    if (filters?.search) query = query.ilike('name', `%${filters.search}%`);
-    if (filters?.class && filters.class !== 'all') query = query.eq('student_class', filters.class);
-    const { data, error, count } = await query;
+    const buildQuery = (withStatus: boolean) => {
+      let q = supabase.from('students').select('*', { count: 'exact' }).order('name').range(from, to);
+      if (filters?.search) q = q.ilike('name', `%${filters.search}%`);
+      if (filters?.class && filters.class !== 'all') q = q.eq('student_class', filters.class);
+      if (withStatus && filters?.studentStatus && filters.studentStatus !== 'all') q = q.eq('student_status', filters.studentStatus);
+      return q;
+    };
+
+    let { data, error, count } = await buildQuery(true);
+    if (error && (error.message || '').includes('student_status')) {
+      // Column may not exist yet — retry without status filter
+      ({ data, error, count } = await buildQuery(false));
+    }
     if (error) throw error;
     return { students: data || [], total: count || 0, page, pageSize };
   },
@@ -290,7 +305,7 @@ export const feeTypeAPI = {
     return { success: true };
   },
   // Assign a fee type to students; for 'standard' fees, exclude 'New' admission students
-  async assignToStudents(feeTypeId: number, amount: number, classFilter?: string, specificStudentId?: string, feeCategory: 'standard' | 'registration' = 'standard') {
+  async assignToStudents(feeTypeId: number, amount: number, classFilter?: string, specificStudentId?: string, feeCategory: 'standard' | 'registration' = 'standard', applicableTo?: string) {
     let query = supabase.from('students').select('student_id, current_fees_owed');
 
     if (specificStudentId) {
@@ -299,6 +314,9 @@ export const feeTypeAPI = {
       if (classFilter) query = query.eq('student_class', classFilter);
       // Standard fees do NOT apply to 'New' students
       if (feeCategory === 'standard') query = query.eq('admission_type', 'Returning');
+      // Filter by student status if applicable_to is set
+      if (applicableTo === 'Day') query = query.eq('student_status', 'Day');
+      else if (applicableTo === 'Boarding') query = query.eq('student_status', 'Boarding');
     }
 
     const { data: students } = await query;
@@ -329,6 +347,20 @@ export const studentFeeAPI = {
     const { data, error } = await supabase.from('student_fees').select('*, students(name, student_class, admission_type), fee_types(name, academic_session, fee_category)').order('created_at', { ascending: false });
     if (error) throw error;
     return (data || []).map((sf: any) => ({ ...sf, student_name: sf.students?.name, student_class: sf.students?.student_class, admission_type: sf.students?.admission_type, fee_name: sf.fee_types?.name, academic_session: sf.fee_types?.academic_session, fee_category: sf.fee_types?.fee_category, balance: Number(sf.amount_due) - Number(sf.amount_paid) })).filter((sf: any) => !filters?.session || sf.academic_session === filters.session);
+  },
+  async getLedger(session?: string) {
+    const { data, error } = await supabase.from('student_fees').select('student_id, amount_due, amount_paid, students(name, student_class, student_status), fee_types(academic_session)');
+    if (error) throw error;
+    const map = new Map<string, any>();
+    for (const sf of data || []) {
+      if (session && sf.fee_types?.academic_session && sf.fee_types.academic_session !== session) continue;
+      const id = sf.student_id;
+      if (!map.has(id)) map.set(id, { student_id: id, name: (sf.students as any)?.name || 'Unknown', student_class: (sf.students as any)?.student_class || '', student_status: (sf.students as any)?.student_status || 'Day', total_billed: 0, total_paid: 0 });
+      const entry = map.get(id)!;
+      entry.total_billed += Number(sf.amount_due);
+      entry.total_paid += Number(sf.amount_paid);
+    }
+    return Array.from(map.values()).map((e) => ({ ...e, outstanding: e.total_billed - e.total_paid })).sort((a, b) => a.name.localeCompare(b.name));
   },
   async recordPayment(studentFeeId: number, amount: number, studentId: string, shiftId: number, paymentMode: string) {
     const { data: sf } = await supabase.from('student_fees').select('amount_due, amount_paid, fee_type_id').eq('id', studentFeeId).single();
@@ -536,6 +568,7 @@ export const bundleAPI = {
     if (error) throw error;
     return (data || []).map((b: any) => ({
       ...b,
+      applicable_to: b.applicable_to || 'All Students',
       items: (b.bundle_items || []).map((bi: any) => ({
         id: bi.id,
         item_id: bi.inventory?.item_id,
@@ -551,6 +584,7 @@ export const bundleAPI = {
     if (error) throw error;
     return {
       ...data,
+      applicable_to: data.applicable_to || 'All Students',
       items: (data.bundle_items || []).map((bi: any) => ({
         id: bi.id,
         item_id: bi.inventory?.item_id,
@@ -561,16 +595,23 @@ export const bundleAPI = {
       })),
     };
   },
-  async create(data: { name: string; description?: string; basePrice: number; bundleType: 'acceptance' | 'registration' | 'custom'; items: { itemId: number; quantity: number }[] }) {
-    const { data: bundle, error } = await supabase.from('bundles').insert({ name: data.name, description: data.description || null, base_price: data.basePrice, bundle_type: data.bundleType }).select('id').single();
-    if (error) return { success: false, error: error.message };
+  async create(data: { name: string; description?: string; basePrice: number; bundleType: 'acceptance' | 'registration' | 'custom'; applicableTo?: string; items: { itemId: number; quantity: number }[] }) {
+    const base = { name: data.name, description: data.description || null, base_price: data.basePrice, bundle_type: data.bundleType };
+    const withStatus = { ...base, applicable_to: data.applicableTo || 'All Students' };
+    let res = await supabase.from('bundles').insert(withStatus).select('id').single();
+    if (res.error) res = await supabase.from('bundles').insert(base).select('id').single();
+    if (res.error) return { success: false, error: res.error.message };
+    const bundle = res.data as any;
     const itemRows = data.items.map((i) => ({ bundle_id: bundle.id, item_id: i.itemId, quantity: i.quantity }));
     const { error: itemError } = await supabase.from('bundle_items').insert(itemRows);
     if (itemError) return { success: false, error: itemError.message };
     return { success: true, id: bundle.id };
   },
-  async update(id: number, data: { name: string; description?: string; basePrice: number; bundleType: 'acceptance' | 'registration' | 'custom'; isActive?: boolean; items: { itemId: number; quantity: number }[] }) {
-    const { error } = await supabase.from('bundles').update({ name: data.name, description: data.description || null, base_price: data.basePrice, bundle_type: data.bundleType, is_active: data.isActive ?? true }).eq('id', id);
+  async update(id: number, data: { name: string; description?: string; basePrice: number; bundleType: 'acceptance' | 'registration' | 'custom'; applicableTo?: string; isActive?: boolean; items: { itemId: number; quantity: number }[] }) {
+    const base = { name: data.name, description: data.description || null, base_price: data.basePrice, bundle_type: data.bundleType, is_active: data.isActive ?? true };
+    const { error } = await supabase.from('bundles').update({ ...base, applicable_to: data.applicableTo || 'All Students' }).eq('id', id).then(
+      async (r) => r.error ? supabase.from('bundles').update(base).eq('id', id) : r
+    );
     if (error) return { success: false, error: error.message };
     // Delete existing items and re-insert
     await supabase.from('bundle_items').delete().eq('bundle_id', id);
@@ -747,6 +788,33 @@ export const bundlePaymentAPI = {
       balance: amountDue - newTotalPaid,
       isFullPayment: newTotalPaid >= amountDue,
     };
+  },
+
+  // Process a flat ₦3,000 admission form payment for an applicant (decrements "Admission Form" inventory)
+  async processFormPayment(params: { applicantId: number; shiftId: number; paymentMode: 'Cash' | 'POS_Transfer' }) {
+    const { applicantId, shiftId, paymentMode } = params;
+    const FORM_PRICE = 3000;
+
+    const { data: txn, error: txnError } = await supabase.from('transactions').insert({
+      applicant_id: applicantId, shift_id: shiftId, type: 'BUNDLE_PURCHASE',
+      amount_paid: FORM_PRICE, payment_mode: paymentMode, notes: 'Admission Form Purchase',
+    }).select('transaction_id').single();
+    if (txnError) throw txnError;
+
+    // Find an "Admission Form" inventory item and decrement by 1
+    const { data: formItems } = await supabase.from('inventory').select('item_id, stock_quantity, item_name').ilike('item_name', '%admission form%').limit(1);
+    const formItem = formItems?.[0] as any;
+    const items: any[] = [];
+    if (formItem) {
+      await supabase.from('inventory').update({ stock_quantity: Math.max(0, formItem.stock_quantity - 1) }).eq('item_id', formItem.item_id);
+      await supabase.from('transaction_items').insert({ transaction_id: txn.transaction_id, item_id: formItem.item_id, quantity: 1, unit_price: FORM_PRICE, total_price: FORM_PRICE });
+      items.push({ item_name: formItem.item_name, quantity: 1, total_price: FORM_PRICE });
+    } else {
+      items.push({ item_name: 'Admission Application Form', quantity: 1, total_price: FORM_PRICE });
+    }
+
+    await applicantAPI.markEligible(applicantId);
+    return { success: true, transactionId: txn.transaction_id, total: FORM_PRICE, items };
   },
 
   // Process school fees payment for a student with partial payment floor

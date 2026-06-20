@@ -135,7 +135,9 @@ const FeesManagement: React.FC = () => {
     setAssigning(true);
     setAssignError('');
     setAssignResult('');
-    const result = await feeTypeAPI.assignToStudents(assignTarget.id, assignTarget.amount, assignClass || undefined, assignSpecific || undefined, assignTarget.fee_category as 'standard' | 'registration');
+    const applicableTo = assignTarget.applicable_to === 'Day' || assignTarget.applicable_to === 'Day Only' ? 'Day'
+      : assignTarget.applicable_to === 'Boarding' || assignTarget.applicable_to === 'Boarding Only' ? 'Boarding' : undefined;
+    const result = await feeTypeAPI.assignToStudents(assignTarget.id, assignTarget.amount, assignClass || undefined, assignSpecific || undefined, assignTarget.fee_category as 'standard' | 'registration', applicableTo);
     if (result.success) {
       setAssignResult(`Assigned to ${result.count} student(s).`);
       load();
@@ -213,14 +215,22 @@ const FeesManagement: React.FC = () => {
       ) : tab === 'types' ? (
         /* ── Fee Types ──────────────────────────────────────────────── */
         <div className="space-y-3">
-          {feeTypes.filter((f) => !sessionFilter || f.academic_session === sessionFilter).length === 0 ? (
+          {feeTypes.filter((f) => {
+            if (sessionFilter && f.academic_session !== sessionFilter) return false;
+            if (termFilter) { const key = termFilter.split(' ')[0].toLowerCase(); if (!(f.name + ' ' + (f.description || '')).toLowerCase().includes(key)) return false; }
+            return true;
+          }).length === 0 ? (
             <div className="bg-white rounded-xl border border-dashed border-gray-200 p-12 text-center text-gray-400">
               <Tag className="w-12 h-12 mx-auto mb-3 opacity-30" />
               <p className="font-medium">No fee types yet</p>
               <p className="text-sm mt-1">Create a fee type like "1st Term Fees" or "PTA Levy" to get started</p>
               <button onClick={() => setShowCreate(true)} className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700">Create First Fee Type</button>
             </div>
-          ) : feeTypes.filter((f) => !sessionFilter || f.academic_session === sessionFilter).map((ft) => {
+          ) : feeTypes.filter((f) => {
+            if (sessionFilter && f.academic_session !== sessionFilter) return false;
+            if (termFilter) { const key = termFilter.split(' ')[0].toLowerCase(); if (!(f.name + ' ' + (f.description || '')).toLowerCase().includes(key)) return false; }
+            return true;
+          }).map((ft) => {
             const assignments = ledger.filter((sf) => sf.fee_name === ft.name && sf.academic_session === ft.academic_session);
             const collected = assignments.reduce((s, sf) => s + sf.amount_paid, 0);
             const outstanding = assignments.reduce((s, sf) => s + sf.balance, 0);

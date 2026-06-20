@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useShift } from '../../context/ShiftContext';
-import { studentAPI, inventoryAPI, transactionAPI, studentFeeAPI, categoryAPI, settingsAPI, feeTypeAPI, bundleAPI, applicantAPI, bundlePaymentAPI } from '../../lib/api';
+import { studentAPI, inventoryAPI, transactionAPI, studentFeeAPI, categoryAPI, settingsAPI, feeTypeAPI, bundleAPI, applicantAPI, bundlePaymentAPI, shiftAPI } from '../../lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Student { student_id: string; name: string; student_class: string; current_fees_owed: number; admission_type?: 'Returning' | 'New'; }
@@ -14,7 +14,7 @@ interface InventoryItem { item_id: number; item_name: string; cost_price: number
 interface CartItem { item_id: number; item_name: string; selling_price: number; quantity: number; }
 interface StudentFee { id: number; fee_name: string; fee_description: string; academic_session: string; amount_due: number; amount_paid: number; balance: number; fee_category: string; }
 interface Category { id: number; name: string; color: string; }
-interface Bundle { id: number; name: string; description: string | null; base_price: number; bundle_type: 'acceptance' | 'registration' | 'custom'; is_active: boolean; items: { item_id: number; item_name: string; selling_price: number; quantity: number }[]; }
+interface Bundle { id: number; name: string; description: string | null; base_price: number; bundle_type: 'acceptance' | 'registration' | 'custom'; is_active: boolean; applicable_to?: string; items: { item_id: number; item_name: string; selling_price: number; quantity: number }[]; }
 type SideTab = 'sale' | 'history' | 'students';
 type SaleMode = 'store' | 'fees' | 'bundles';
 
@@ -38,14 +38,15 @@ function buildReceiptHtml(settings: any, txn: any, total: number, items: any[], 
   const tagline = settings?.tagline || '';
   const address = settings?.address || '';
   const phone = settings?.phone_number || '';
-  const session = settings?.academic_session || '';
+  const sessionParts = [settings?.academic_session, settings?.current_term].filter(Boolean);
+  const session = sessionParts.join(' · ');
   const logo = settings?.logo_url || '';
 
   const itemsHtml = items.map((i: any) =>
     `<div class="row"><span>${i.item_name} ×${i.quantity}</span><span>${fmt(i.total_price)}</span></div>`
   ).join('');
 
-  const typeLabel = isRegistration ? 'Registration Package' : isFees ? (txn.fee_type_name || 'School Fees') : 'Store Purchase';
+  const typeLabel = isRegistration ? (txn.fee_type_name || 'Registration Package') : isFees ? (txn.fee_type_name || 'School Fees') : 'Store Purchase';
 
   return `<!DOCTYPE html><html><head><title>Receipt</title>
   <style>
@@ -235,18 +236,19 @@ const ShiftResultModal: React.FC<{ expectedCash: number; actualCash: number; dif
 // ─── Quick Add Student Modal ──────────────────────────────────────────────────
 const QuickAddStudentModal: React.FC<{
   classes: string[];
-  onSave: (data: { name: string; studentClass: string }) => void;
+  onSave: (data: { name: string; studentClass: string; studentStatus: 'Day' | 'Boarding' }) => void;
   onCancel: () => void;
   saving: boolean;
   error: string;
 }> = ({ classes, onSave, onCancel, saving, error }) => {
   const [name, setName] = useState('');
   const [studentClass, setStudentClass] = useState(classes[0] || '');
+  const [studentStatus, setStudentStatus] = useState<'Day' | 'Boarding'>('Day');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !studentClass) return;
-    onSave({ name: name.trim(), studentClass });
+    onSave({ name: name.trim(), studentClass, studentStatus });
   };
 
   return (
@@ -280,6 +282,13 @@ const QuickAddStudentModal: React.FC<{
               {classes.length === 0 && <option value="">No classes available</option>}
               {classes.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-1 block">Student Type *</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setStudentStatus('Day')} className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${studentStatus === 'Day' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-primary-400'}`}>Day Student</button>
+              <button type="button" onClick={() => setStudentStatus('Boarding')} className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${studentStatus === 'Boarding' ? 'bg-purple-600 border-purple-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-purple-400'}`}>Boarding Student</button>
+            </div>
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
@@ -634,6 +643,101 @@ const StudentQuickList: React.FC<{ onSelect: (s: Student) => void }> = ({ onSele
   );
 };
 
+// ─── Walk-In Locked Form Payment Modal ───────────────────────────────────────
+const WalkInFormModal: React.FC<{
+  applicantName: string;
+  onConfirm: (mode: 'Cash' | 'POS_Transfer') => void;
+  onCancel: () => void;
+  processing: boolean;
+  error: string;
+}> = ({ applicantName, onConfirm, onCancel, processing, error }) => {
+  const [payMode, setPayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-900">Admission Form Purchase</h2>
+          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="bg-warning-50 border border-warning-200 rounded-xl px-4 py-2.5 mb-4">
+          <p className="text-sm font-semibold text-warning-800">{applicantName}</p>
+        </div>
+        {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{error}</div>}
+        <div className="bg-gray-50 rounded-xl p-4 mb-4 space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-700">Admission Application Form</span>
+            <span className="text-gray-500">× 1</span>
+          </div>
+          <div className="flex items-center justify-between border-t pt-2">
+            <span className="font-bold text-gray-900">Total (Locked)</span>
+            <span className="text-xl font-extrabold text-primary-600">₦3,000.00</span>
+          </div>
+          <p className="text-xs text-gray-400">1 unit will be deducted from Admission Form inventory</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 mb-5">
+          <button type="button" onClick={() => setPayMode('Cash')} className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${payMode === 'Cash' ? 'bg-success-600 border-success-600 text-white' : 'bg-white border-gray-200 text-gray-600'}`}>Cash</button>
+          <button type="button" onClick={() => setPayMode('POS_Transfer')} className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${payMode === 'POS_Transfer' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600'}`}>POS / Transfer</button>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
+          <button onClick={() => onConfirm(payMode)} disabled={processing} className="flex-1 py-2.5 bg-warning-500 text-white rounded-xl text-sm font-semibold hover:bg-warning-600 disabled:opacity-50">{processing ? 'Processing…' : 'Confirm ₦3,000'}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Walk-In Locked Bundle Payment Modal (Acceptance / Registration) ──────────
+const WalkInBundleModal: React.FC<{
+  title: string;
+  applicantName: string;
+  bundle: Bundle;
+  onConfirm: (mode: 'Cash' | 'POS_Transfer') => void;
+  onCancel: () => void;
+  processing: boolean;
+  error: string;
+}> = ({ title, applicantName, bundle, onConfirm, onCancel, processing, error }) => {
+  const [payMode, setPayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-900">{title}</h2>
+          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="bg-warning-50 border border-warning-200 rounded-xl px-4 py-2.5 mb-4">
+          <p className="text-sm font-semibold text-warning-800">{applicantName}</p>
+          {bundle.applicable_to && bundle.applicable_to !== 'All Students' && (
+            <p className="text-xs text-warning-600 mt-0.5">{bundle.applicable_to}</p>
+          )}
+        </div>
+        {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{error}</div>}
+        <div className="bg-gray-50 rounded-xl p-4 mb-4 space-y-2">
+          {bundle.items.map((item) => (
+            <div key={item.item_id} className="flex justify-between text-sm">
+              <span className="text-gray-700">{item.item_name} × {item.quantity}</span>
+              <span className="text-gray-500">{fmt(item.selling_price * item.quantity)}</span>
+            </div>
+          ))}
+          <div className="flex items-center justify-between border-t pt-2 mt-1">
+            <span className="font-bold text-gray-900">Total (Locked)</span>
+            <span className="text-xl font-extrabold text-primary-600">{fmt(bundle.base_price)}</span>
+          </div>
+          <p className="text-xs text-warning-600 bg-warning-50 rounded px-2 py-1">Amount is fixed — cannot be modified at cashier level</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 mb-5">
+          <button type="button" onClick={() => setPayMode('Cash')} className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${payMode === 'Cash' ? 'bg-success-600 border-success-600 text-white' : 'bg-white border-gray-200 text-gray-600'}`}>Cash</button>
+          <button type="button" onClick={() => setPayMode('POS_Transfer')} className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${payMode === 'POS_Transfer' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600'}`}>POS / Transfer</button>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
+          <button onClick={() => onConfirm(payMode)} disabled={processing} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">{processing ? 'Processing…' : `Confirm ${fmt(bundle.base_price)}`}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Main CashierPOS ─────────────────────────────────────────────────────────
 const CashierPOS: React.FC = () => {
   const { user, logout } = useAuth();
@@ -711,6 +815,15 @@ const CashierPOS: React.FC = () => {
   const [bundlePayMode, setBundlePayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
   const [bundleProcessing, setBundleProcessing] = useState(false);
   const [bundleError, setBundleError] = useState('');
+
+  // Walk-in locked payment modals
+  const [showWalkInForm, setShowWalkInForm] = useState(false);
+  const [showWalkInAcceptance, setShowWalkInAcceptance] = useState(false);
+  const [walkInAcceptanceBundle, setWalkInAcceptanceBundle] = useState<Bundle | null>(null);
+  const [showWalkInRegistration, setShowWalkInRegistration] = useState(false);
+  const [walkInRegistrationBundle, setWalkInRegistrationBundle] = useState<Bundle | null>(null);
+  const [walkInModalProcessing, setWalkInModalProcessing] = useState(false);
+  const [walkInModalError, setWalkInModalError] = useState('');
 
   // Registration flow
   const [showRegistration, setShowRegistration] = useState(false);
@@ -858,12 +971,15 @@ const CashierPOS: React.FC = () => {
     setLoading(false);
   };
 
-  const handleShiftCloseRequest = () => {
-    // Compute expected cash from shift history
-    const shiftCash = historyTxns.filter((t) => t.payment_mode === 'Cash').reduce((s, t) => s + Number(t.amount_paid), 0);
-    const expectedCash = Number(activeShift?.opening_cash || 0) + shiftCash;
-    setShiftCloseResult({ expectedCash, actualCash: 0, difference: 0 });
-    setShiftCloseStep('input');
+  const handleShiftCloseRequest = async () => {
+    if (!activeShift) return;
+    try {
+      const expectedCash = await shiftAPI.getExpectedCash(activeShift.id);
+      setShiftCloseResult({ expectedCash, actualCash: 0, difference: 0 });
+      setShiftCloseStep('input');
+    } catch (e) {
+      setErrorMsg('Failed to calculate expected cash: ' + (e as Error).message);
+    }
   };
 
   const handleShiftCloseConfirm = async (closingCash: number) => {
@@ -890,11 +1006,11 @@ const CashierPOS: React.FC = () => {
   };
 
   // Quick Add Student handler
-  const handleQuickAddSave = async (data: { name: string; studentClass: string }) => {
+  const handleQuickAddSave = async (data: { name: string; studentClass: string; studentStatus: 'Day' | 'Boarding' }) => {
     setQuickAddSaving(true);
     setQuickAddError('');
     try {
-      const result = await studentAPI.create({ name: data.name, studentClass: data.studentClass, admissionType: 'Returning' });
+      const result = await studentAPI.create({ name: data.name, studentClass: data.studentClass, admissionType: 'Returning', studentStatus: data.studentStatus });
       if (result.success) {
         // Track this ID so cashier can edit it this shift
         setQuickAddedStudentIds((prev) => new Set([...prev, result.studentId]));
@@ -988,24 +1104,87 @@ const CashierPOS: React.FC = () => {
 
   const handleWalkInBundleAction = (bundleType: 'acceptance' | 'registration' | 'form') => {
     if (!walkInApplicant) return;
+    setWalkInModalError('');
     if (bundleType === 'form') {
-      // ₦3,000 application form payment
-      const formBundle = bundles.find((b) => b.bundle_type === 'form' && b.is_active)
-        || bundles.find((b) => b.is_active);
-      if (formBundle) {
-        setSelectedBundle(formBundle);
-        setBundleAmount(String(formBundle.base_price || 3000));
-      } else {
-        setSelectedBundle({ id: -1, name: 'Application Form', bundle_type: 'form', base_price: 3000, description: '', is_active: true } as any);
-        setBundleAmount('3000');
-      }
+      setShowWalkInForm(true);
+    } else if (bundleType === 'acceptance') {
+      const bundle = bundles.find((b) => b.bundle_type === 'acceptance' && b.is_active);
+      if (!bundle) { setErrorMsg('No active Acceptance Fee bundle found. Please create one in Bundle Management.'); return; }
+      setWalkInAcceptanceBundle(bundle);
+      setShowWalkInAcceptance(true);
     } else {
-      const bundle = bundles.find((b) => b.bundle_type === bundleType && b.is_active);
-      if (!bundle) { alert(`No active ${bundleType} bundle found. Please set one up in Bundle Management.`); return; }
-      setSelectedBundle(bundle);
-      setBundleAmount(String(bundle.base_price));
+      // Registration — pick bundle matching applicant's student_status
+      const status = walkInApplicant.student_status || 'Day';
+      const statusMatch = status === 'Boarding' ? 'Boarding Only' : 'Day Only';
+      const bundle = bundles.find((b) => b.bundle_type === 'registration' && b.is_active && b.applicable_to === statusMatch)
+        || bundles.find((b) => b.bundle_type === 'registration' && b.is_active && (!b.applicable_to || b.applicable_to === 'All Students'))
+        || bundles.find((b) => b.bundle_type === 'registration' && b.is_active);
+      if (!bundle) { setErrorMsg('No active Registration bundle found. Please create one in Bundle Management.'); return; }
+      setWalkInRegistrationBundle(bundle);
+      setShowWalkInRegistration(true);
     }
-    setShowBundlePayment(true);
+  };
+
+  const handleWalkInFormConfirm = async (mode: 'Cash' | 'POS_Transfer') => {
+    if (!walkInApplicant || !activeShift) return;
+    setWalkInModalProcessing(true);
+    setWalkInModalError('');
+    try {
+      const result = await bundlePaymentAPI.processFormPayment({ applicantId: walkInApplicant.id, shiftId: activeShift.id, paymentMode: mode });
+      if (result.success) {
+        setShowWalkInForm(false);
+        const receiptTxn = { transaction_id: result.transactionId, timestamp: new Date().toISOString(), student_name: walkInApplicant.full_name, student_class: walkInApplicant.proposed_class || 'Applicant', payment_mode: mode, fee_type_name: 'Admission Form' };
+        setLastTxn({ isFees: false, isRegistration: false, transaction: receiptTxn, total: 3000, items: result.items || [{ item_name: 'Admission Application Form', quantity: 1, total_price: 3000 }] });
+        setShowReceipt(true);
+        setWalkInApplicant(null);
+        inventoryAPI.getAll({ categoryId: activeCat }).then(setInventory);
+      }
+    } catch (e) { setWalkInModalError((e as Error).message); }
+    setWalkInModalProcessing(false);
+  };
+
+  const handleWalkInAcceptanceConfirm = async (mode: 'Cash' | 'POS_Transfer') => {
+    if (!walkInApplicant || !walkInAcceptanceBundle || !activeShift) return;
+    setWalkInModalProcessing(true);
+    setWalkInModalError('');
+    try {
+      const result = await bundlePaymentAPI.processBundlePayment({
+        applicantId: walkInApplicant.id, bundleId: walkInAcceptanceBundle.id, shiftId: activeShift.id,
+        amountPaid: walkInAcceptanceBundle.base_price, paymentMode: mode,
+        minPartialFloor: schoolSettings?.min_acceptance_partial_floor || 5000,
+      });
+      if (result.success) {
+        setShowWalkInAcceptance(false);
+        const receiptTxn = { transaction_id: result.transactionId, timestamp: new Date().toISOString(), student_name: walkInApplicant.full_name, student_class: walkInApplicant.proposed_class || 'Applicant', payment_mode: mode, fee_type_name: walkInAcceptanceBundle.name };
+        setLastTxn({ isFees: false, isRegistration: true, transaction: receiptTxn, total: walkInAcceptanceBundle.base_price, items: result.items || [] });
+        setShowReceipt(true);
+        setWalkInApplicant(null); setWalkInAcceptanceBundle(null);
+        inventoryAPI.getAll({ categoryId: activeCat }).then(setInventory);
+      }
+    } catch (e) { setWalkInModalError((e as Error).message); }
+    setWalkInModalProcessing(false);
+  };
+
+  const handleWalkInRegistrationConfirm = async (mode: 'Cash' | 'POS_Transfer') => {
+    if (!walkInApplicant || !walkInRegistrationBundle || !activeShift) return;
+    setWalkInModalProcessing(true);
+    setWalkInModalError('');
+    try {
+      const result = await bundlePaymentAPI.processBundlePayment({
+        applicantId: walkInApplicant.id, bundleId: walkInRegistrationBundle.id, shiftId: activeShift.id,
+        amountPaid: walkInRegistrationBundle.base_price, paymentMode: mode,
+        minPartialFloor: schoolSettings?.min_partial_payment_floor || 30000,
+      });
+      if (result.success) {
+        setShowWalkInRegistration(false);
+        const receiptTxn = { transaction_id: result.transactionId, timestamp: new Date().toISOString(), student_name: walkInApplicant.full_name, student_class: walkInApplicant.proposed_class || 'Applicant', payment_mode: mode, fee_type_name: walkInRegistrationBundle.name };
+        setLastTxn({ isFees: false, isRegistration: true, transaction: receiptTxn, total: walkInRegistrationBundle.base_price, items: result.items || [] });
+        setShowReceipt(true);
+        setWalkInApplicant(null); setWalkInRegistrationBundle(null);
+        inventoryAPI.getAll({ categoryId: activeCat }).then(setInventory);
+      }
+    } catch (e) { setWalkInModalError((e as Error).message); }
+    setWalkInModalProcessing(false);
   };
 
   // Bundle payment handler
@@ -1104,7 +1283,7 @@ const CashierPOS: React.FC = () => {
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Select Customer</label>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => { setShowWalkIn(true); setWalkInError(''); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-warning-50 border border-warning-300 text-warning-700 hover:bg-warning-100 rounded-lg text-xs font-semibold transition-all">
+                  <button onClick={() => { setSelectedStudent(null); setStudentSearch(''); setCart([]); setFeesAmount(''); setSelectedFee(null); setWalkInApplicant(null); setWalkInModalError(''); setShowWalkIn(true); setWalkInError(''); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-warning-50 border border-warning-300 text-warning-700 hover:bg-warning-100 rounded-lg text-xs font-semibold transition-all">
                     <User className="w-3.5 h-3.5" /> Walk-In Applicant
                   </button>
                   <button onClick={() => { setShowQuickAdd(true); setQuickAddError(''); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 border border-primary-300 text-primary-700 hover:bg-primary-100 rounded-lg text-xs font-semibold transition-all">
@@ -1730,6 +1909,43 @@ const CashierPOS: React.FC = () => {
           onCancel={() => { setShowBundlePayment(false); setSelectedBundle(null); setWalkInApplicant(null); setBundleError(''); }}
           processing={bundleProcessing}
           error={bundleError}
+        />
+      )}
+
+      {/* ── Walk-In Locked Form Payment Modal ───────────────────────── */}
+      {showWalkInForm && walkInApplicant && (
+        <WalkInFormModal
+          applicantName={walkInApplicant.full_name}
+          onConfirm={handleWalkInFormConfirm}
+          onCancel={() => { setShowWalkInForm(false); setWalkInModalError(''); }}
+          processing={walkInModalProcessing}
+          error={walkInModalError}
+        />
+      )}
+
+      {/* ── Walk-In Locked Acceptance Modal ─────────────────────────── */}
+      {showWalkInAcceptance && walkInApplicant && walkInAcceptanceBundle && (
+        <WalkInBundleModal
+          title="Acceptance Fee Payment"
+          applicantName={walkInApplicant.full_name}
+          bundle={walkInAcceptanceBundle}
+          onConfirm={handleWalkInAcceptanceConfirm}
+          onCancel={() => { setShowWalkInAcceptance(false); setWalkInAcceptanceBundle(null); setWalkInModalError(''); }}
+          processing={walkInModalProcessing}
+          error={walkInModalError}
+        />
+      )}
+
+      {/* ── Walk-In Locked Registration Modal ───────────────────────── */}
+      {showWalkInRegistration && walkInApplicant && walkInRegistrationBundle && (
+        <WalkInBundleModal
+          title="Registration Fee Payment"
+          applicantName={walkInApplicant.full_name}
+          bundle={walkInRegistrationBundle}
+          onConfirm={handleWalkInRegistrationConfirm}
+          onCancel={() => { setShowWalkInRegistration(false); setWalkInRegistrationBundle(null); setWalkInModalError(''); }}
+          processing={walkInModalProcessing}
+          error={walkInModalError}
         />
       )}
     </div>

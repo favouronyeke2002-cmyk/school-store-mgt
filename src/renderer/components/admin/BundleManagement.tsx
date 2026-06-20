@@ -5,7 +5,7 @@ import { bundleAPI, inventoryAPI } from '../../lib/api';
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 interface BundleItem { id: number; item_id: number; item_name: string; selling_price: number; stock_quantity: number; quantity: number; }
-interface Bundle { id: number; name: string; description: string | null; base_price: number; bundle_type: 'acceptance' | 'registration' | 'custom'; is_active: boolean; items: BundleItem[]; }
+interface Bundle { id: number; name: string; description: string | null; base_price: number; bundle_type: 'acceptance' | 'registration' | 'custom'; is_active: boolean; applicable_to: string; items: BundleItem[]; }
 interface InventoryItem { item_id: number; item_name: string; selling_price: number; stock_quantity: number; }
 
 const BundleManagement: React.FC = () => {
@@ -24,7 +24,7 @@ const BundleManagement: React.FC = () => {
   const [error, setError] = useState('');
 
   // Form state
-  const emptyForm = { name: '', description: '', basePrice: '', bundleType: 'registration' as 'acceptance' | 'registration' | 'custom', items: [] as { itemId: number; quantity: number }[] };
+  const emptyForm = { name: '', description: '', basePrice: '', bundleType: 'registration' as 'acceptance' | 'registration' | 'custom', applicableTo: 'All Students', items: [] as { itemId: number; quantity: number }[] };
   const [form, setForm] = useState(emptyForm);
 
   const load = async () => {
@@ -52,6 +52,7 @@ const BundleManagement: React.FC = () => {
       description: b.description || '',
       basePrice: String(b.base_price),
       bundleType: b.bundle_type,
+      applicableTo: b.applicable_to || 'All Students',
       items: b.items.map((i) => ({ itemId: i.item_id, quantity: i.quantity })),
     });
     setError('');
@@ -71,6 +72,7 @@ const BundleManagement: React.FC = () => {
       description: form.description || undefined,
       basePrice: parseFloat(form.basePrice),
       bundleType: form.bundleType,
+      applicableTo: form.applicableTo,
       items: form.items,
     });
     if (result.success) {
@@ -94,6 +96,7 @@ const BundleManagement: React.FC = () => {
       description: form.description || undefined,
       basePrice: parseFloat(form.basePrice),
       bundleType: form.bundleType,
+      applicableTo: form.applicableTo,
       items: form.items,
     });
     if (result.success) {
@@ -159,6 +162,16 @@ const BundleManagement: React.FC = () => {
               <option value="custom">Custom Bundle</option>
             </select>
           </div>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium text-gray-700 mb-1 block">Applicable Student Status</label>
+          <select value={form.applicableTo} onChange={(e) => setForm((p) => ({ ...p, applicableTo: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
+            <option value="All Students">All Students</option>
+            <option value="Day Only">Day Students Only</option>
+            <option value="Boarding Only">Boarding Students Only</option>
+          </select>
+          <p className="text-xs text-gray-400 mt-1">For Registration bundles, this controls which student type is offered this package in the Walk-In flow.</p>
         </div>
 
         <div>
