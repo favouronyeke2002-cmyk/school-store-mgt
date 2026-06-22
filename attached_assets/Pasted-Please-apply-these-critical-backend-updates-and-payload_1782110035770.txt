@@ -1,0 +1,25 @@
+Please apply these critical backend updates and payload synchronization fixes across the Bundle and Fee modules:
+
+### 1. Fix Bundle Status Persistence (image_581323.png)
+- Fix the state resetting bug inside the 'Edit: Registration Fee Bundle' modal. When 'Applicable Student Status' is changed to Day or Boarding, ensure the frontend update handler actively maps and writes this string value to the database. Prevent it from defaulting back to 'All Students' upon saving.
+
+### 2. Clean and Filter 'Manage Fees' Modal (image_586639.png)
+- Update the 'Manage Fees' template query logic. When an admin clicks 'Manage Fees' for an individual student from the ledger rows, filter the displayed fee checklist to ONLY show unique fee types matching the current active term selected in the top bar filters (e.g., '1st Term'). 
+- Group or deduplicate template records so identical fee tags (like repeating 'Hostel Fees' or test names) do not list multiple times.
+
+### 3. Resolve 'Create Fee Type' Hanging/Empty Table Bug (screencapture-d2e85a12-7949-475c-ba0b-0099d30f9c07...)
+- Fix the database exception causing the 'Create Fee Type' form submission to hang on 'Creating...'. Inspect the insert handler to ensure all payload keys match your Supabase columns. 
+- Ensure that upon a successful database insert transaction, the API returns a proper resolution, dismisses the modal popup instantly, and triggers a real-time table state refresh to replace the 'No fee types yet' empty container illustration.
+
+### 4. Implement Controlled Cashier-End Reductions
+- Allow cashiers to apply structural reductions or manual discount adjustments directly inside the payment/POS billing checkout interface. 
+- However, safeguard this by ensuring any discount amount applied modifies the transaction total only, leaving the underlying baseline master fee template records locked against global distortion.
+Please update the 'Manage Fees' modal component (opened from the Student Ledger rows) to allow removing assigned fees:
+
+1. Inside the modal, create two distinct sections:
+   - Section 1: 'Assigned Fees'. List all fees currently attached to this specific student for the active term, with a clear '🗑️ Remove' button next to each item.
+   - Section 2: 'Available Templates'. Show the checkboxes to assign new unassigned fee templates.
+
+2. Configure the 'Remove' action:
+   - Clicking 'Remove' must delete the record linking this specific fee to this student from the database.
+   - Immediately after deletion, trigger a backend recalculation to subtract that fee's value from the student's 'Current Term Bill' and 'Net Balance Due' in the ledger table so the UI reflects the change instantly.

@@ -500,13 +500,6 @@ const FeesManagement: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">Fee Category</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => setForm((p) => ({ ...p, feeCategory: 'standard' }))} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${form.feeCategory === 'standard' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-primary-400'}`}>Standard</button>
-                  <button type="button" onClick={() => setForm((p) => ({ ...p, feeCategory: 'registration' }))} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${form.feeCategory === 'registration' ? 'bg-warning-500 border-warning-500 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-warning-400'}`}>Registration</button>
-                </div>
-              </div>
-              <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Residency <span className="text-gray-400 font-normal">(applicable to)</span></label>
                 <div className="grid grid-cols-3 gap-2">
                   {['All Students', 'Day', 'Boarding'].map((opt) => (
