@@ -1122,8 +1122,7 @@ const CashierPOS: React.FC = () => {
     } else {
       // Registration — pick bundle matching applicant's student_status
       const status = walkInApplicant.student_status || 'Day';
-      const statusMatch = status === 'Boarding' ? 'Boarding Only' : 'Day Only';
-      const bundle = bundles.find((b) => b.bundle_type === 'registration' && b.is_active && b.applicable_to === statusMatch)
+      const bundle = bundles.find((b) => b.bundle_type === 'registration' && b.is_active && b.applicable_to === status)
         || bundles.find((b) => b.bundle_type === 'registration' && b.is_active && (!b.applicable_to || b.applicable_to === 'All Students'))
         || bundles.find((b) => b.bundle_type === 'registration' && b.is_active);
       if (!bundle) { setErrorMsg('No active Registration bundle found. Please create one in Bundle Management.'); return; }
