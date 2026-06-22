@@ -1121,8 +1121,10 @@ const CashierPOS: React.FC = () => {
       setShowWalkInAcceptance(true);
     } else {
       // Registration — pick bundle matching applicant's student_status
+      // Bundle applicable_to uses 'Day Only'/'Boarding Only'; student_status uses 'Day'/'Boarding'
       const status = walkInApplicant.student_status || 'Day';
-      const bundle = bundles.find((b) => b.bundle_type === 'registration' && b.is_active && b.applicable_to === status)
+      const statusMatch = status === 'Boarding' ? 'Boarding Only' : 'Day Only';
+      const bundle = bundles.find((b) => b.bundle_type === 'registration' && b.is_active && b.applicable_to === statusMatch)
         || bundles.find((b) => b.bundle_type === 'registration' && b.is_active && (!b.applicable_to || b.applicable_to === 'All Students'))
         || bundles.find((b) => b.bundle_type === 'registration' && b.is_active);
       if (!bundle) { setErrorMsg('No active Registration bundle found. Please create one in Bundle Management.'); return; }
