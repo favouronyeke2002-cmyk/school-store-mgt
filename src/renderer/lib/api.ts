@@ -11,7 +11,7 @@ export const settingsAPI = {
     if (error) throw error;
     const result: any = data ? { ...data } : {};
     // Merge localStorage fallbacks for columns that may not exist in schema yet
-    if (!result.current_term) result.current_term = localStorage.getItem(LS_TERM) || '1st Term';
+    if (!result.current_term) result.current_term = localStorage.getItem(LS_TERM) || 'First Term';
     if (!result.class_list) result.class_list = localStorage.getItem(LS_CLASSES) || DEFAULT_CLASS_LIST;
     return result;
   },
@@ -219,14 +219,20 @@ export const categoryAPI = {
 
 // ─── INVENTORY ────────────────────────────────────────────────────────────────
 export const inventoryAPI = {
-  async getAll(filters?: { search?: string; lowStock?: boolean; categoryId?: number | null }) {
-    let query = supabase.from('inventory').select('*, inventory_categories(name, color)').order('item_name');
-    if (filters?.search) query = query.or(`item_name.ilike.%${filters.search}%,barcode.ilike.%${filters.search}%`);
-    if (filters?.lowStock) query = query.lte('stock_quantity', 10);
-    if (filters?.categoryId) query = query.eq('category_id', filters.categoryId);
-    const { data, error } = await query;
+  async getAll(filters?: { search?: string; lowStock?: boolean; categoryId?: number | null; activeOnly?: boolean; archivedOnly?: boolean }) {
+    const buildQuery = (withActive: boolean) => {
+      let q = supabase.from('inventory').select('*, inventory_categories(name, color)').order('item_name');
+      if (filters?.search) q = q.or(`item_name.ilike.%${filters.search}%,barcode.ilike.%${filters.search}%`);
+      if (filters?.lowStock) q = q.lte('stock_quantity', 10);
+      if (filters?.categoryId) q = q.eq('category_id', filters.categoryId);
+      if (withActive && filters?.activeOnly) q = q.eq('is_active', true);
+      if (withActive && filters?.archivedOnly) q = q.eq('is_active', false);
+      return q;
+    };
+    let { data, error } = await buildQuery(true);
+    if (error && error.message?.includes('is_active')) ({ data, error } = await buildQuery(false));
     if (error) throw error;
-    return (data || []).map((i: any) => ({ ...i, category_name: i.inventory_categories?.name || null, category_color: i.inventory_categories?.color || null }));
+    return (data || []).map((i: any) => ({ ...i, is_active: i.is_active !== false, category_name: i.inventory_categories?.name || null, category_color: i.inventory_categories?.color || null }));
   },
   async getById(id: number) {
     const { data, error } = await supabase.from('inventory').select('*').eq('item_id', id).maybeSingle();
@@ -268,6 +274,22 @@ export const inventoryAPI = {
     const { error } = await supabase.from('inventory').upsert(rows, { onConflict: 'barcode' });
     if (error) return { success: false, error: error.message };
     return { success: true, count: rows.length };
+  },
+  async smartDelete(id: number): Promise<{ deleted: boolean; archived: boolean; error?: string }> {
+    try {
+      const { data: history } = await supabase.from('transaction_items').select('id').eq('item_id', id).limit(1);
+      if (history && history.length > 0) {
+        const { error } = await supabase.from('inventory').update({ is_active: false }).eq('item_id', id);
+        if (error) return { deleted: false, archived: false, error: error.message };
+        return { deleted: false, archived: true };
+      } else {
+        const { error } = await supabase.from('inventory').delete().eq('item_id', id);
+        if (error) return { deleted: false, archived: false, error: error.message };
+        return { deleted: true, archived: false };
+      }
+    } catch (e) {
+      return { deleted: false, archived: false, error: (e as Error).message };
+    }
   },
 };
 

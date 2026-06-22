@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, X, Tag, AlertCircle } from 'lucide-react';
+import { Plus, Pencil, X, Tag, AlertCircle, Trash2, Archive } from 'lucide-react';
 import { inventoryAPI, categoryAPI } from '../../lib/api';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-interface Item { item_id: number; item_name: string; cost_price: number; selling_price: number; stock_quantity: number; barcode: string | null; category_id: number | null; category_name: string | null; category_color: string | null; }
+interface Item { item_id: number; item_name: string; cost_price: number; selling_price: number; stock_quantity: number; barcode: string | null; category_id: number | null; category_name: string | null; category_color: string | null; is_active: boolean; }
 interface Category { id: number; name: string; color: string; }
 type FormData = { itemName: string; costPrice: string; sellingPrice: string; stockQuantity: string; barcode: string; categoryId: string; };
 const emptyForm: FormData = { itemName: '', costPrice: '', sellingPrice: '', stockQuantity: '', barcode: '', categoryId: '' };
@@ -19,6 +19,7 @@ const InventoryManagement: React.FC = () => {
   const [search, setSearch] = useState('');
   const [lowStock, setLowStock] = useState(false);
   const [catFilter, setCatFilter] = useState<string>('all');
+  const [showArchived, setShowArchived] = useState(false);
 
   const [showAdd, setShowAdd] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -26,29 +27,35 @@ const InventoryManagement: React.FC = () => {
   const [showCatMgr, setShowCatMgr] = useState(false);
   const [selected, setSelected] = useState<Item | null>(null);
 
-  // Separate form states so edits are independent
   const [addForm, setAddForm] = useState<FormData>(emptyForm);
   const [editForm, setEditForm] = useState<FormData>(emptyForm);
   const [addError, setAddError] = useState('');
 
-  // Adjust stock state — absolute new quantity
   const [adjNewQty, setAdjNewQty] = useState('');
   const [adjError, setAdjError] = useState('');
 
-  // Category manager state
   const [catForm, setCatForm] = useState({ name: '', color: '#3b82f6' });
   const [editCat, setEditCat] = useState<Category | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
 
+  const [deleteConfirm, setDeleteConfirm] = useState<Item | null>(null);
+  const [deleteProcessing, setDeleteProcessing] = useState(false);
+  const [archiveToast, setArchiveToast] = useState('');
+
   const reload = () => {
     setLoading(true);
     Promise.all([
-      inventoryAPI.getAll({ search, lowStock, categoryId: catFilter !== 'all' ? Number(catFilter) : null }),
+      inventoryAPI.getAll({
+        search,
+        lowStock,
+        categoryId: catFilter !== 'all' ? Number(catFilter) : null,
+        ...(showArchived ? { archivedOnly: true } : { activeOnly: true }),
+      }),
       categoryAPI.getAll(),
     ]).then(([inv, cats]) => { setInventory(inv); setCategories(cats); }).catch(console.error).finally(() => setLoading(false));
   };
 
-  useEffect(() => { reload(); }, [search, lowStock, catFilter]);
+  useEffect(() => { reload(); }, [search, lowStock, catFilter, showArchived]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,6 +92,20 @@ const InventoryManagement: React.FC = () => {
     reload();
   };
 
+  const handleSmartDelete = async () => {
+    if (!deleteConfirm) return;
+    setDeleteProcessing(true);
+    const result = await inventoryAPI.smartDelete(deleteConfirm.item_id);
+    setDeleteProcessing(false);
+    setDeleteConfirm(null);
+    if (result.error) { setErrorMsg(result.error); return; }
+    if (result.archived) {
+      setArchiveToast(`"${deleteConfirm.item_name}" has been archived and hidden from the POS terminal. Its transaction history is preserved.`);
+      setTimeout(() => setArchiveToast(''), 7000);
+    }
+    reload();
+  };
+
   const openEdit = (item: Item) => {
     setSelected(item);
     setEditForm({ itemName: item.item_name, costPrice: String(item.cost_price), sellingPrice: String(item.selling_price), stockQuantity: String(item.stock_quantity), barcode: item.barcode || '', categoryId: item.category_id ? String(item.category_id) : '' });
@@ -104,10 +125,25 @@ const InventoryManagement: React.FC = () => {
     categoryAPI.getAll().then(setCategories);
   };
 
+  const activeInventory = inventory.filter((i) => i.is_active !== false);
   const totalValue = inventory.reduce((s, i) => s + i.stock_quantity * i.selling_price, 0);
 
   return (
     <div>
+      {/* Archive Toast */}
+      {archiveToast && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 max-w-lg w-full mx-4">
+          <div className="bg-warning-900 text-white rounded-xl shadow-2xl px-5 py-4 flex items-start gap-3">
+            <Archive className="w-5 h-5 mt-0.5 shrink-0 text-warning-300" />
+            <div className="flex-1">
+              <div className="font-semibold text-sm mb-0.5">Item Archived — Not Deleted</div>
+              <div className="text-warning-200 text-xs leading-relaxed">{archiveToast}</div>
+            </div>
+            <button onClick={() => setArchiveToast('')} className="text-warning-400 hover:text-white ml-2"><X className="w-4 h-4" /></button>
+          </div>
+        </div>
+      )}
+
       {errorMsg && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6 text-center">
@@ -115,6 +151,22 @@ const InventoryManagement: React.FC = () => {
             <h2 className="text-lg font-bold mb-2">Error</h2>
             <p className="text-gray-600 text-sm mb-5">{errorMsg}</p>
             <button onClick={() => setErrorMsg('')} className="w-full py-2.5 bg-gray-100 rounded-xl text-gray-700 hover:bg-gray-200 font-medium">OK</button>
+          </div>
+        </div>
+      )}
+
+      {/* Smart Delete Confirm Dialog */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6 text-center">
+            <div className="w-14 h-14 bg-danger-100 rounded-full flex items-center justify-center mx-auto mb-4"><Trash2 className="w-7 h-7 text-danger-600" /></div>
+            <h2 className="text-lg font-bold mb-1">Delete Item?</h2>
+            <p className="text-gray-500 text-sm mb-1"><strong>{deleteConfirm.item_name}</strong></p>
+            <p className="text-gray-400 text-xs mb-5">If this item has no sales history it will be permanently deleted. If it has transaction history it will be archived and hidden from the POS instead.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteConfirm(null)} disabled={deleteProcessing} className="flex-1 py-2.5 bg-gray-100 rounded-xl font-medium hover:bg-gray-200 disabled:opacity-50">Cancel</button>
+              <button onClick={handleSmartDelete} disabled={deleteProcessing} className="flex-1 py-2.5 bg-danger-600 text-white rounded-xl font-bold hover:bg-danger-700 disabled:opacity-50">{deleteProcessing ? 'Processing…' : 'Delete / Archive'}</button>
+            </div>
           </div>
         </div>
       )}
@@ -158,6 +210,13 @@ const InventoryManagement: React.FC = () => {
           <input type="checkbox" checked={lowStock} onChange={(e) => setLowStock(e.target.checked)} className="rounded" />
           Low stock only
         </label>
+        <button
+          onClick={() => setShowArchived((v) => !v)}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-all ${showArchived ? 'bg-warning-100 border-warning-400 text-warning-800' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'}`}
+        >
+          <Archive className="w-3.5 h-3.5" />
+          {showArchived ? 'Showing Archived' : 'Show Archived'}
+        </button>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -173,10 +232,13 @@ const InventoryManagement: React.FC = () => {
             {loading ? (
               <tr><td colSpan={8} className="text-center py-12 text-gray-400">Loading…</td></tr>
             ) : inventory.length === 0 ? (
-              <tr><td colSpan={8} className="text-center py-12 text-gray-400">No items found</td></tr>
+              <tr><td colSpan={8} className="text-center py-12 text-gray-400">{showArchived ? 'No archived items' : 'No items found'}</td></tr>
             ) : inventory.map((item) => (
-              <tr key={item.item_id} className={`border-t hover:bg-gray-50 ${item.stock_quantity <= 10 && item.stock_quantity > 0 ? 'bg-warning-50' : item.stock_quantity <= 0 ? 'bg-danger-50' : ''}`}>
-                <td className="px-4 py-3 font-medium text-gray-900">{item.item_name}</td>
+              <tr key={item.item_id} className={`border-t transition-colors ${item.is_active === false ? 'bg-gray-50 opacity-60' : item.stock_quantity <= 0 ? 'bg-danger-50' : item.stock_quantity <= 10 ? 'bg-warning-50' : 'hover:bg-gray-50'}`}>
+                <td className="px-4 py-3 font-medium text-gray-900">
+                  {item.item_name}
+                  {item.is_active === false && <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 bg-gray-200 text-gray-500 rounded uppercase tracking-wide">Archived</span>}
+                </td>
                 <td className="px-4 py-3">
                   {item.category_name ? (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold text-white" style={{ background: item.category_color || '#6b7280' }}>{item.category_name}</span>
@@ -188,8 +250,13 @@ const InventoryManagement: React.FC = () => {
                 <td className={`px-4 py-3 text-right font-bold ${item.stock_quantity <= 0 ? 'text-danger-600' : item.stock_quantity <= 10 ? 'text-warning-600' : 'text-gray-900'}`}>{item.stock_quantity}</td>
                 <td className="px-4 py-3 text-right text-success-600 font-medium">{fmt(item.selling_price - item.cost_price)}</td>
                 <td className="px-4 py-3 text-center">
-                  <button onClick={() => openEdit(item)} className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg mr-1 transition-colors"><Pencil className="w-4 h-4" /></button>
-                  <button onClick={() => { setSelected(item); setAdjNewQty(String(item.stock_quantity)); setAdjError(''); setShowAdjust(true); }} className="px-2 py-1 text-xs bg-warning-100 text-warning-700 rounded-lg hover:bg-warning-200 font-medium">Stock</button>
+                  {item.is_active !== false && (
+                    <>
+                      <button onClick={() => openEdit(item)} className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg mr-1 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
+                      <button onClick={() => { setSelected(item); setAdjNewQty(String(item.stock_quantity)); setAdjError(''); setShowAdjust(true); }} className="px-2 py-1 text-xs bg-warning-100 text-warning-700 rounded-lg hover:bg-warning-200 font-medium mr-1">Stock</button>
+                    </>
+                  )}
+                  <button onClick={() => setDeleteConfirm(item)} className="p-1.5 text-gray-300 hover:text-danger-600 hover:bg-danger-50 rounded-lg transition-colors" title={item.is_active === false ? 'Permanently Delete' : 'Delete / Archive'}><Trash2 className="w-4 h-4" /></button>
                 </td>
               </tr>
             ))}
@@ -197,7 +264,7 @@ const InventoryManagement: React.FC = () => {
         </table>
       </div>
 
-      {/* Add Item Modal — inline form (no inner component = no focus loss) */}
+      {/* Add Item Modal */}
       {showAdd && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 max-h-[90vh] overflow-auto">
@@ -247,7 +314,7 @@ const InventoryManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Edit Item Modal — NO Initial Stock field */}
+      {/* Edit Item Modal */}
       {showEdit && selected && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 max-h-[90vh] overflow-auto">
@@ -292,7 +359,7 @@ const InventoryManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Adjust Stock Modal — absolute new total */}
+      {/* Adjust Stock Modal */}
       {showAdjust && selected && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6">

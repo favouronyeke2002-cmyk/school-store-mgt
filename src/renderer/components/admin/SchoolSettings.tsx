@@ -15,7 +15,7 @@ interface Settings {
   class_list: string;
 }
 
-const TERMS = ['1st Term', '2nd Term', '3rd Term'];
+const TERMS = ['First Term', 'Second Term', 'Third Term'];
 
 const DEFAULT_CLASSES = ['JSS1A', 'JSS1B', 'JSS2A', 'JSS2B', 'JSS3A', 'JSS3B', 'SS1A', 'SS1B', 'SS2A', 'SS2B', 'SS3A', 'SS3B'];
 
@@ -23,7 +23,7 @@ const SchoolSettings: React.FC = () => {
   const [settings, setSettings] = useState<Settings>({
     school_name: '', tagline: '', phone_number: '', logo_url: null, academic_session: '',
     address: '', min_partial_payment_floor: 30000, min_acceptance_partial_floor: 5000,
-    current_term: '1st Term', class_list: JSON.stringify(DEFAULT_CLASSES),
+    current_term: 'First Term', class_list: JSON.stringify(DEFAULT_CLASSES),
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -44,7 +44,7 @@ const SchoolSettings: React.FC = () => {
   useEffect(() => {
     settingsAPI.get().then((data) => {
       if (data) {
-        setSettings({ ...data, current_term: data.current_term || '1st Term', class_list: data.class_list || JSON.stringify(DEFAULT_CLASSES) });
+        setSettings({ ...data, current_term: data.current_term || 'First Term', class_list: data.class_list || JSON.stringify(DEFAULT_CLASSES) });
         setLogoPreview(data.logo_url || null);
         try {
           const parsed = JSON.parse(data.class_list || JSON.stringify(DEFAULT_CLASSES));
@@ -187,7 +187,7 @@ const SchoolSettings: React.FC = () => {
             <div className="font-bold text-sm">{settings.school_name || 'School Name'}</div>
             <div className="text-gray-500 text-xs mt-0.5">{settings.tagline || 'School Motto'}</div>
             <div className="border-t border-dashed border-gray-300 my-2" />
-            <div className="text-gray-500">{settings.academic_session || '2025/2026'} · {settings.current_term || '1st Term'}</div>
+            <div className="text-gray-500">{settings.academic_session || '2025/2026'} · {settings.current_term || 'First Term'}</div>
             <div className="border-t border-dashed border-gray-300 my-2" />
             <div className="text-gray-400">
               <div>Item Name .......... ₦0.00</div>

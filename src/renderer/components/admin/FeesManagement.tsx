@@ -13,7 +13,7 @@ const FeesManagement: React.FC = () => {
   const [ledger, setLedger] = useState<StudentFee[]>([]);
   const [classes, setClasses] = useState<string[]>([]);
   const [currentSession, setCurrentSession] = useState('2025/2026');
-  const [currentTerm, setCurrentTerm] = useState('1st Term');
+  const [currentTerm, setCurrentTerm] = useState('First Term');
   const [sessionFilter, setSessionFilter] = useState('');
   const [termFilter, setTermFilter] = useState('');
   const [loading, setLoading] = useState(true);
@@ -275,7 +275,7 @@ const FeesManagement: React.FC = () => {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
-            {['', '1st Term', '2nd Term', '3rd Term'].map((t) => (
+            {['', 'First Term', 'Second Term', 'Third Term'].map((t) => (
               <button key={t} onClick={() => setTermFilter(t)} className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${termFilter === t ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
                 {t === '' ? 'All Terms' : t}
               </button>

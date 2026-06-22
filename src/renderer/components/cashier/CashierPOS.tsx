@@ -3,7 +3,7 @@ import {
   ShoppingCart, Users, Clock, LogOut, Search, Plus, Minus,
   Trash2, CreditCard, Banknote, AlertTriangle, CheckCircle,
   Package, User, RefreshCw, X, Tag, ChevronLeft, ChevronRight, Printer, UserPlus, Layers, UserCheck, Pencil,
-  FileText, GraduationCap, PowerOff, Wallet
+  FileText, PowerOff
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useShift } from '../../context/ShiftContext';
@@ -948,7 +948,7 @@ const CashierPOS: React.FC = () => {
 
   // Inventory
   useEffect(() => {
-    inventoryAPI.getAll({ search: itemSearch, categoryId: activeCat }).then(setInventory).catch(console.error);
+    inventoryAPI.getAll({ search: itemSearch, categoryId: activeCat, activeOnly: true }).then(setInventory).catch(console.error);
   }, [itemSearch, activeCat]);
 
   // Student search suggestions (paginated)
@@ -1032,7 +1032,7 @@ const CashierPOS: React.FC = () => {
         setShowCheckout(false);
         setShowReceipt(true);
         setCart([]);
-        inventoryAPI.getAll({ categoryId: activeCat }).then(setInventory);
+        inventoryAPI.getAll({ categoryId: activeCat, activeOnly: true }).then(setInventory);
       } else setErrorMsg('Transaction failed: ' + (result as any).error);
     } catch (e) { setErrorMsg('Error: ' + (e as Error).message); }
     setLoading(false);
@@ -1169,7 +1169,7 @@ const CashierPOS: React.FC = () => {
         // Refresh student data
         const refreshed = await studentAPI.getById(selectedStudent.student_id);
         if (refreshed) setSelectedStudent(refreshed);
-        inventoryAPI.getAll({ categoryId: activeCat }).then(setInventory);
+        inventoryAPI.getAll({ categoryId: activeCat, activeOnly: true }).then(setInventory);
       } else {
         setRegError('Registration failed');
       }
@@ -1246,7 +1246,7 @@ const CashierPOS: React.FC = () => {
         setLastTxn({ isFees: false, isRegistration: false, transaction: receiptTxn, total: 3000, items: result.items || [{ item_name: 'Admission Application Form', quantity: 1, total_price: 3000 }] });
         setShowReceipt(true);
         setWalkInApplicant(null);
-        inventoryAPI.getAll({ categoryId: activeCat }).then(setInventory);
+        inventoryAPI.getAll({ categoryId: activeCat, activeOnly: true }).then(setInventory);
       }
     } catch (e) { setWalkInModalError((e as Error).message); }
     setWalkInModalProcessing(false);
@@ -1268,7 +1268,7 @@ const CashierPOS: React.FC = () => {
         setLastTxn({ isFees: false, isRegistration: true, transaction: receiptTxn, total: walkInAcceptanceBundle.base_price, items: result.items || [] });
         setShowReceipt(true);
         setWalkInApplicant(null); setWalkInAcceptanceBundle(null);
-        inventoryAPI.getAll({ categoryId: activeCat }).then(setInventory);
+        inventoryAPI.getAll({ categoryId: activeCat, activeOnly: true }).then(setInventory);
       }
     } catch (e) { setWalkInModalError((e as Error).message); }
     setWalkInModalProcessing(false);
@@ -1290,7 +1290,7 @@ const CashierPOS: React.FC = () => {
         setLastTxn({ isFees: false, isRegistration: true, transaction: receiptTxn, total: walkInRegistrationBundle.base_price, items: result.items || [] });
         setShowReceipt(true);
         setWalkInApplicant(null); setWalkInRegistrationBundle(null);
-        inventoryAPI.getAll({ categoryId: activeCat }).then(setInventory);
+        inventoryAPI.getAll({ categoryId: activeCat, activeOnly: true }).then(setInventory);
       }
     } catch (e) { setWalkInModalError((e as Error).message); }
     setWalkInModalProcessing(false);
@@ -1331,7 +1331,7 @@ const CashierPOS: React.FC = () => {
         setShowReceipt(true);
         setWalkInApplicant(null);
         setSelectedBundle(null);
-        inventoryAPI.getAll({ categoryId: activeCat }).then(setInventory);
+        inventoryAPI.getAll({ categoryId: activeCat, activeOnly: true }).then(setInventory);
       }
     } catch (e) {
       setBundleError((e as Error).message);
@@ -1365,7 +1365,7 @@ const CashierPOS: React.FC = () => {
         {([
           { id: 'sale', icon: <ShoppingCart className="w-5 h-5" />, label: 'New Sale' },
           { id: 'history', icon: <FileText className="w-5 h-5" />, label: 'Shift Log' },
-          { id: 'students', icon: <GraduationCap className="w-5 h-5" />, label: 'Students' },
+          { id: 'students', icon: <User className="w-5 h-5" />, label: 'Students' },
         ] as const).map((item) => (
           <button key={item.id} title={item.label} onClick={() => setTab(item.id)} className={`w-10 h-10 rounded-lg flex items-center justify-center mb-2 transition-all ${tab === item.id ? 'bg-primary-600 text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-white'}`}>
             {item.icon}
