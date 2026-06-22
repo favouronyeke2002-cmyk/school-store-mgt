@@ -101,6 +101,7 @@ const FeesManagement: React.FC = () => {
       });
       if (result.success) {
         setShowCreate(false);
+        setTermFilter('');
         setForm({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard', applicableTo: 'All Students' });
         load();
         if (result.id) {
