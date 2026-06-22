@@ -683,20 +683,21 @@ const StudentQuickList: React.FC<{ onSelect: (s: Student) => void }> = ({ onSele
   const [cls, setCls] = useState('all');
   const [classes, setClasses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [debtorsOnly, setDebtorsOnly] = useState(false);
   const pageSize = 12;
 
   useEffect(() => { studentAPI.getClasses().then(setClasses).catch(console.error); }, []);
   useEffect(() => {
     setLoading(true);
-    studentAPI.getAll({ search, class: cls, page, pageSize }).then((d) => { setStudents(d.students); setTotal(d.total); }).catch(console.error).finally(() => setLoading(false));
-  }, [search, cls, page]);
+    studentAPI.getAll({ search, class: cls, page, pageSize, hasBalance: debtorsOnly || undefined }).then((d) => { setStudents(d.students); setTotal(d.total); }).catch(console.error).finally(() => setLoading(false));
+  }, [search, cls, page, debtorsOnly]);
 
   const totalPages = Math.ceil(total / pageSize);
 
   return (
     <div>
-      <div className="flex gap-2 mb-4">
-        <div className="flex-1 relative">
+      <div className="flex gap-2 mb-4 flex-wrap">
+        <div className="flex-1 relative min-w-0">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="w-full pl-9 pr-3 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" placeholder="Search by name…" />
         </div>
@@ -704,6 +705,13 @@ const StudentQuickList: React.FC<{ onSelect: (s: Student) => void }> = ({ onSele
           <option value="all">All Classes</option>
           {classes.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
+        <button
+          type="button"
+          onClick={() => { setDebtorsOnly((v) => !v); setPage(1); }}
+          className={`shrink-0 px-3 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${debtorsOnly ? 'bg-danger-600 border-danger-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-danger-400 hover:text-danger-600'}`}
+        >
+          Balance Due Only
+        </button>
       </div>
       {loading ? <div className="text-center py-8 text-gray-400">Loading…</div> : (
         <>

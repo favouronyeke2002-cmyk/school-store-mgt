@@ -93,7 +93,7 @@ export const shiftAPI = {
 
 // ─── STUDENTS ─────────────────────────────────────────────────────────────────
 export const studentAPI = {
-  async getAll(filters?: { search?: string; class?: string; studentStatus?: string; page?: number; pageSize?: number }) {
+  async getAll(filters?: { search?: string; class?: string; studentStatus?: string; page?: number; pageSize?: number; hasBalance?: boolean }) {
     const pageSize = filters?.pageSize || 15;
     const page = filters?.page || 1;
     const from = (page - 1) * pageSize;
@@ -104,6 +104,7 @@ export const studentAPI = {
       if (filters?.search) q = q.ilike('name', `%${filters.search}%`);
       if (filters?.class && filters.class !== 'all') q = q.eq('student_class', filters.class);
       if (withStatus && filters?.studentStatus && filters.studentStatus !== 'all') q = q.eq('student_status', filters.studentStatus);
+      if (filters?.hasBalance) q = q.gt('current_fees_owed', 0);
       return q;
     };
 
