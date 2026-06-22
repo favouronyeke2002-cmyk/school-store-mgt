@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, X, Package, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, Package, ChevronDown, ChevronUp } from 'lucide-react';
 import { bundleAPI, inventoryAPI } from '../../lib/api';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -8,13 +8,163 @@ interface BundleItem { id: number; item_id: number; item_name: string; selling_p
 interface Bundle { id: number; name: string; description: string | null; base_price: number; bundle_type: 'acceptance' | 'registration' | 'custom'; is_active: boolean; applicable_to: string; items: BundleItem[]; }
 interface InventoryItem { item_id: number; item_name: string; selling_price: number; stock_quantity: number; }
 
+type BundleFormState = {
+  name: string;
+  description: string;
+  basePrice: string;
+  bundleType: 'acceptance' | 'registration' | 'custom';
+  applicableTo: string;
+  items: { itemId: number; quantity: number }[];
+};
+
+interface BundleFormProps {
+  form: BundleFormState;
+  setForm: React.Dispatch<React.SetStateAction<BundleFormState>>;
+  error: string;
+  saving: boolean;
+  inventory: InventoryItem[];
+  onSubmit: (e: React.FormEvent) => void;
+  onCancel: () => void;
+}
+
+const BundleForm: React.FC<BundleFormProps> = ({ form, setForm, error, saving, inventory, onSubmit, onCancel }) => {
+  const getItemPrice = (itemId: number) => inventory.find((i) => i.item_id === itemId)?.selling_price || 0;
+  const getItemName = (itemId: number) => inventory.find((i) => i.item_id === itemId)?.item_name || 'Unknown';
+  const addItem = (itemId: number) => {
+    if (!form.items.some((i) => i.itemId === itemId)) setForm((p) => ({ ...p, items: [...p.items, { itemId, quantity: 1 }] }));
+  };
+  const removeItem = (itemId: number) => setForm((p) => ({ ...p, items: p.items.filter((i) => i.itemId !== itemId) }));
+  const updateQty = (itemId: number, qty: number) => setForm((p) => ({ ...p, items: p.items.map((i) => i.itemId === itemId ? { ...i, quantity: Math.max(1, qty) } : i) }));
+
+  const availableItems = inventory.filter((i) => !form.items.some((fi) => fi.itemId === i.item_id));
+  const totalItemsValue = form.items.reduce((s, i) => s + getItemPrice(i.itemId) * i.quantity, 0);
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-4">
+      {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2">{error}</div>}
+
+      <div>
+        <label className="text-sm font-medium text-gray-700 mb-1 block">Bundle Name *</label>
+        <input
+          type="text"
+          value={form.name}
+          onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+          className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+          placeholder="e.g. Registration Fee Bundle"
+          required
+        />
+      </div>
+
+      <div>
+        <label className="text-sm font-medium text-gray-700 mb-1 block">Description</label>
+        <input
+          type="text"
+          value={form.description}
+          onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
+          className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+          placeholder="Optional description"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-sm font-medium text-gray-700 mb-1 block">Base Price (Lump Sum) *</label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={form.basePrice}
+            onChange={(e) => setForm((p) => ({ ...p, basePrice: e.target.value }))}
+            className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+            required
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium text-gray-700 mb-1 block">Bundle Type</label>
+          <select
+            value={form.bundleType}
+            onChange={(e) => setForm((p) => ({ ...p, bundleType: e.target.value as any }))}
+            className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+          >
+            <option value="acceptance">Acceptance Fee</option>
+            <option value="registration">Registration Fee</option>
+            <option value="custom">Custom Bundle</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label className="text-sm font-medium text-gray-700 mb-1 block">Applicable Student Status</label>
+        <select
+          value={form.applicableTo}
+          onChange={(e) => setForm((p) => ({ ...p, applicableTo: e.target.value }))}
+          className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+        >
+          <option value="All Students">All Students</option>
+          <option value="Day Only">Day Students Only</option>
+          <option value="Boarding Only">Boarding Students Only</option>
+        </select>
+        <p className="text-xs text-gray-400 mt-1">For Registration bundles, this controls which student type is offered this package in the Walk-In flow.</p>
+      </div>
+
+      <div>
+        <label className="text-sm font-medium text-gray-700 mb-2 block">Bundle Items *</label>
+        <div className="space-y-2 mb-3">
+          {form.items.map((item) => {
+            const price = getItemPrice(item.itemId);
+            const name = getItemName(item.itemId);
+            return (
+              <div key={item.itemId} className="flex items-center gap-2 bg-gray-50 rounded-lg p-2">
+                <div className="flex-1">
+                  <div className="text-sm font-medium">{name}</div>
+                  <div className="text-xs text-gray-400">{fmt(price)} each</div>
+                </div>
+                <input
+                  type="number"
+                  min="1"
+                  value={item.quantity}
+                  onChange={(e) => updateQty(item.itemId, parseInt(e.target.value) || 1)}
+                  className="w-16 px-2 py-1 border rounded text-sm text-center"
+                />
+                <button type="button" onClick={() => removeItem(item.itemId)} className="text-danger-500 hover:text-danger-700"><X className="w-4 h-4" /></button>
+              </div>
+            );
+          })}
+        </div>
+        {availableItems.length > 0 && (
+          <select
+            onChange={(e) => { if (e.target.value) addItem(Number(e.target.value)); e.target.value = ''; }}
+            className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+          >
+            <option value="">+ Add Item</option>
+            {availableItems.map((i) => <option key={i.item_id} value={i.item_id}>{i.item_name} ({fmt(i.selling_price)})</option>)}
+          </select>
+        )}
+      </div>
+
+      <div className="bg-gray-50 rounded-lg p-3 text-sm">
+        <div className="flex justify-between mb-1"><span>Items Total Value:</span><span>{fmt(totalItemsValue)}</span></div>
+        <div className="flex justify-between font-bold"><span>Lump Sum Price:</span><span className="text-primary-600">{fmt(parseFloat(form.basePrice) || 0)}</span></div>
+      </div>
+
+      <div className="flex gap-3 pt-2">
+        <button type="button" onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
+        <button type="submit" disabled={saving} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">{saving ? 'Saving…' : 'Save Bundle'}</button>
+      </div>
+    </form>
+  );
+};
+
+const emptyForm: BundleFormState = {
+  name: '', description: '', basePrice: '', bundleType: 'registration', applicableTo: 'All Students', items: [],
+};
+
 const BundleManagement: React.FC = () => {
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedBundle, setExpandedBundle] = useState<number | null>(null);
 
-  // Modal state
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
@@ -23,9 +173,7 @@ const BundleManagement: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // Form state
-  const emptyForm = { name: '', description: '', basePrice: '', bundleType: 'registration' as 'acceptance' | 'registration' | 'custom', applicableTo: 'All Students', items: [] as { itemId: number; quantity: number }[] };
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState<BundleFormState>(emptyForm);
 
   const load = async () => {
     setLoading(true);
@@ -114,105 +262,6 @@ const BundleManagement: React.FC = () => {
     load();
   };
 
-  const addItemToForm = (itemId: number) => {
-    const exists = form.items.find((i) => i.itemId === itemId);
-    if (exists) return;
-    setForm((p) => ({ ...p, items: [...p.items, { itemId, quantity: 1 }] }));
-  };
-
-  const removeItemFromForm = (itemId: number) => {
-    setForm((p) => ({ ...p, items: p.items.filter((i) => i.itemId !== itemId) }));
-  };
-
-  const updateItemQty = (itemId: number, qty: number) => {
-    setForm((p) => ({ ...p, items: p.items.map((i) => i.itemId === itemId ? { ...i, quantity: Math.max(1, qty) } : i) }));
-  };
-
-  const getItemName = (itemId: number) => inventory.find((i) => i.item_id === itemId)?.item_name || 'Unknown';
-  const getItemPrice = (itemId: number) => inventory.find((i) => i.item_id === itemId)?.selling_price || 0;
-
-  const BundleForm: React.FC<{ onSubmit: (e: React.FormEvent) => void; onCancel: () => void }> = ({ onSubmit, onCancel }) => {
-    const availableItems = inventory.filter((i) => !form.items.some((fi) => fi.itemId === i.item_id));
-    const totalItemsValue = form.items.reduce((s, i) => s + getItemPrice(i.itemId) * i.quantity, 0);
-
-    return (
-      <form onSubmit={onSubmit} className="space-y-4">
-        {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2">{error}</div>}
-
-        <div>
-          <label className="text-sm font-medium text-gray-700 mb-1 block">Bundle Name *</label>
-          <input type="text" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" placeholder="e.g. Registration Fee Bundle" required />
-        </div>
-
-        <div>
-          <label className="text-sm font-medium text-gray-700 mb-1 block">Description</label>
-          <input type="text" value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" placeholder="Optional description" />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-sm font-medium text-gray-700 mb-1 block">Base Price (Lump Sum) *</label>
-            <input type="number" min="0" step="0.01" value={form.basePrice} onChange={(e) => setForm((p) => ({ ...p, basePrice: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-gray-700 mb-1 block">Bundle Type</label>
-            <select value={form.bundleType} onChange={(e) => setForm((p) => ({ ...p, bundleType: e.target.value as any }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
-              <option value="acceptance">Acceptance Fee</option>
-              <option value="registration">Registration Fee</option>
-              <option value="custom">Custom Bundle</option>
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label className="text-sm font-medium text-gray-700 mb-1 block">Applicable Student Status</label>
-          <select value={form.applicableTo} onChange={(e) => setForm((p) => ({ ...p, applicableTo: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
-            <option value="All Students">All Students</option>
-            <option value="Day Only">Day Students Only</option>
-            <option value="Boarding Only">Boarding Students Only</option>
-          </select>
-          <p className="text-xs text-gray-400 mt-1">For Registration bundles, this controls which student type is offered this package in the Walk-In flow.</p>
-        </div>
-
-        <div>
-          <label className="text-sm font-medium text-gray-700 mb-2 block">Bundle Items *</label>
-          <div className="space-y-2 mb-3">
-            {form.items.map((item) => {
-              const price = getItemPrice(item.itemId);
-              const name = getItemName(item.itemId);
-              return (
-                <div key={item.itemId} className="flex items-center gap-2 bg-gray-50 rounded-lg p-2">
-                  <div className="flex-1">
-                    <div className="text-sm font-medium">{name}</div>
-                    <div className="text-xs text-gray-400">{fmt(price)} each</div>
-                  </div>
-                  <input type="number" min="1" value={item.quantity} onChange={(e) => updateItemQty(item.itemId, parseInt(e.target.value) || 1)} className="w-16 px-2 py-1 border rounded text-sm text-center" />
-                  <button type="button" onClick={() => removeItemFromForm(item.itemId)} className="text-danger-500 hover:text-danger-700"><X className="w-4 h-4" /></button>
-                </div>
-              );
-            })}
-          </div>
-          {availableItems.length > 0 && (
-            <select onChange={(e) => { if (e.target.value) addItemToForm(Number(e.target.value)); e.target.value = ''; }} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
-              <option value="">+ Add Item</option>
-              {availableItems.map((i) => <option key={i.item_id} value={i.item_id}>{i.item_name} ({fmt(i.selling_price)})</option>)}
-            </select>
-          )}
-        </div>
-
-        <div className="bg-gray-50 rounded-lg p-3 text-sm">
-          <div className="flex justify-between mb-1"><span>Items Total Value:</span><span>{fmt(totalItemsValue)}</span></div>
-          <div className="flex justify-between font-bold"><span>Lump Sum Price:</span><span className="text-primary-600">{fmt(parseFloat(form.basePrice) || 0)}</span></div>
-        </div>
-
-        <div className="flex gap-3 pt-2">
-          <button type="button" onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-          <button type="submit" disabled={saving} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">{saving ? 'Saving…' : 'Save Bundle'}</button>
-        </div>
-      </form>
-    );
-  };
-
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
@@ -248,6 +297,9 @@ const BundleManagement: React.FC = () => {
                         <h3 className="font-bold text-gray-900">{b.name}</h3>
                         <span className={`text-xs px-2 py-0.5 rounded-full ${b.bundle_type === 'acceptance' ? 'bg-warning-100 text-warning-700' : b.bundle_type === 'registration' ? 'bg-success-100 text-success-700' : 'bg-gray-100 text-gray-600'}`}>{b.bundle_type}</span>
                         {!b.is_active && <span className="text-xs bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full">Inactive</span>}
+                        {b.applicable_to && b.applicable_to !== 'All Students' && (
+                          <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{b.applicable_to}</span>
+                        )}
                       </div>
                       {b.description && <p className="text-sm text-gray-500 mb-2">{b.description}</p>}
                       <div className="flex items-center gap-4 text-sm">
@@ -296,7 +348,7 @@ const BundleManagement: React.FC = () => {
               <h2 className="text-lg font-bold">Create Bundle</h2>
               <button onClick={() => setShowCreate(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
-            <BundleForm onSubmit={handleCreate} onCancel={() => setShowCreate(false)} />
+            <BundleForm form={form} setForm={setForm} error={error} saving={saving} inventory={inventory} onSubmit={handleCreate} onCancel={() => setShowCreate(false)} />
           </div>
         </div>
       )}
@@ -309,7 +361,7 @@ const BundleManagement: React.FC = () => {
               <h2 className="text-lg font-bold">Edit: {editTarget.name}</h2>
               <button onClick={() => setShowEdit(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
-            <BundleForm onSubmit={handleEdit} onCancel={() => setShowEdit(false)} />
+            <BundleForm form={form} setForm={setForm} error={error} saving={saving} inventory={inventory} onSubmit={handleEdit} onCancel={() => setShowEdit(false)} />
           </div>
         </div>
       )}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Upload, Image, AlertCircle, X, Plus, Trash2, GraduationCap } from 'lucide-react';
+import { Save, Upload, Image, AlertCircle, X, Plus, Trash2, GraduationCap, Pencil, CheckCircle } from 'lucide-react';
 import { settingsAPI } from '../../lib/api';
 
 interface Settings {
@@ -38,6 +38,8 @@ const SchoolSettings: React.FC = () => {
   const [classToDelete, setClassToDelete] = useState<string | null>(null);
   const [classDeleteStudentCount, setClassDeleteStudentCount] = useState(0);
   const [classDeleteChecking, setClassDeleteChecking] = useState(false);
+  const [editingClass, setEditingClass] = useState<string | null>(null);
+  const [editClassValue, setEditClassValue] = useState('');
 
   useEffect(() => {
     settingsAPI.get().then((data) => {
@@ -102,6 +104,17 @@ const SchoolSettings: React.FC = () => {
   const confirmRemoveClass = () => {
     if (classToDelete) setClassList((prev) => prev.filter((c) => c !== classToDelete));
     setClassToDelete(null);
+  };
+
+  const startEditClass = (cls: string) => { setEditingClass(cls); setEditClassValue(cls); };
+
+  const commitEditClass = () => {
+    if (!editingClass) return;
+    const newName = editClassValue.trim().toUpperCase();
+    if (!newName || newName === editingClass) { setEditingClass(null); return; }
+    if (classList.includes(newName)) { setErrorMsg('A class with that name already exists.'); setEditingClass(null); return; }
+    setClassList((prev) => prev.map((c) => c === editingClass ? newName : c).sort());
+    setEditingClass(null);
   };
 
   const baseClasses = [...new Set(classList.map((c) => c.replace(/[A-Z]$/, '')))].filter(Boolean);
@@ -251,9 +264,26 @@ const SchoolSettings: React.FC = () => {
 
           <div className="flex flex-wrap gap-2">
             {classList.sort().map((cls) => (
-              <div key={cls} className="flex items-center gap-1 bg-primary-50 text-primary-800 border border-primary-200 rounded-lg px-3 py-1.5 text-sm font-medium">
-                {cls}
-                <button type="button" onClick={() => requestRemoveClass(cls)} className="ml-1 text-primary-400 hover:text-danger-600 transition-colors" title={`Remove ${cls}`}><Trash2 className="w-3.5 h-3.5" /></button>
+              <div key={cls} className="flex items-center gap-1 bg-primary-50 text-primary-800 border border-primary-200 rounded-lg px-2 py-1 text-sm font-medium">
+                {editingClass === cls ? (
+                  <>
+                    <input
+                      autoFocus
+                      value={editClassValue}
+                      onChange={(e) => setEditClassValue(e.target.value.toUpperCase())}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitEditClass(); } if (e.key === 'Escape') setEditingClass(null); }}
+                      onBlur={commitEditClass}
+                      className="w-20 px-1 py-0.5 border border-primary-400 rounded text-xs font-mono bg-white text-gray-900 focus:outline-none"
+                    />
+                    <button type="button" onMouseDown={(e) => { e.preventDefault(); commitEditClass(); }} className="text-success-600 hover:text-success-700 ml-0.5" title="Save"><CheckCircle className="w-3.5 h-3.5" /></button>
+                  </>
+                ) : (
+                  <>
+                    <span className="px-1">{cls}</span>
+                    <button type="button" onClick={() => startEditClass(cls)} className="text-primary-400 hover:text-primary-700 transition-colors" title={`Rename ${cls}`}><Pencil className="w-3 h-3" /></button>
+                    <button type="button" onClick={() => requestRemoveClass(cls)} className="text-primary-300 hover:text-danger-600 transition-colors" title={`Remove ${cls}`}><Trash2 className="w-3 h-3" /></button>
+                  </>
+                )}
               </div>
             ))}
             {classList.length === 0 && <p className="text-sm text-gray-400 italic">No classes defined. Add classes above.</p>}

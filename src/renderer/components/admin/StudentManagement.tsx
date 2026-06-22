@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Trash2, Pencil, X, UserPlus, AlertCircle, ToggleLeft, ToggleRight, BookOpen } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2, Pencil, X, UserPlus, AlertCircle, ToggleLeft, ToggleRight, ExternalLink, CheckCircle } from 'lucide-react';
 import { studentAPI, feeTypeAPI, settingsAPI, studentFeeAPI } from '../../lib/api';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -45,13 +45,8 @@ const StudentManagement: React.FC = () => {
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
 
-  // Ledger tab
-  const [activeTab, setActiveTab] = useState<'roster' | 'ledger'>('roster');
-  const [ledgerData, setLedgerData] = useState<any[]>([]);
-  const [ledgerLoading, setLedgerLoading] = useState(false);
-  const [ledgerSession, setLedgerSession] = useState('');
-  const [ledgerSearch, setLedgerSearch] = useState('');
-  const [ledgerStatusFilter, setLedgerStatusFilter] = useState<'all' | 'outstanding' | 'paid'>('all');
+  const [editStudentFees, setEditStudentFees] = useState<any[]>([]);
+  const [editFeesLoading, setEditFeesLoading] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -71,20 +66,9 @@ const StudentManagement: React.FC = () => {
           if (Array.isArray(parsed) && parsed.length > 0) setClasses(parsed.sort());
         } catch { /* use default */ }
       }
-      if (s?.academic_session) setLedgerSession(s.academic_session);
     }).catch(console.error);
     feeTypeAPI.getAll().then((ft) => setFeeTypes(ft as FeeType[])).catch(console.error);
   }, []);
-
-  const loadLedger = () => {
-    setLedgerLoading(true);
-    studentFeeAPI.getLedger(ledgerSession || undefined)
-      .then(setLedgerData)
-      .catch(console.error)
-      .finally(() => setLedgerLoading(false));
-  };
-
-  useEffect(() => { if (activeTab === 'ledger') loadLedger(); }, [activeTab, ledgerSession]);
 
   const totalPages = Math.ceil(total / pageSize);
 
@@ -144,7 +128,13 @@ const StudentManagement: React.FC = () => {
       manualAdjOn: false, manualAdjAmount: '', manualAdjReason: '',
     });
     setEditError('');
+    setEditStudentFees([]);
     setShowEditStudent(true);
+    setEditFeesLoading(true);
+    studentFeeAPI.getForStudent(s.student_id)
+      .then(setEditStudentFees)
+      .catch(console.error)
+      .finally(() => setEditFeesLoading(false));
   };
 
   const handleEditStudent = async (e: React.FormEvent) => {
@@ -228,13 +218,7 @@ const StudentManagement: React.FC = () => {
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg mb-4 w-fit">
-        <button onClick={() => setActiveTab('roster')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === 'roster' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Student Roster</button>
-        <button onClick={() => setActiveTab('ledger')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all flex items-center gap-1 ${activeTab === 'ledger' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}><BookOpen className="w-3.5 h-3.5" /> Fee Ledger</button>
-      </div>
-
-      {activeTab === 'roster' ? (<>
+      {(<>
       <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
         <div className="flex gap-4 flex-wrap">
           <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="flex-1 min-w-40 px-3 py-2 border rounded-md text-sm" placeholder="Search by name or ID..." />
@@ -299,68 +283,7 @@ const StudentManagement: React.FC = () => {
           <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="p-2 rounded-lg bg-white border hover:bg-gray-50 disabled:opacity-30"><ChevronRight className="w-4 h-4" /></button>
         </div>
       )}
-      </>) : (
-        /* ── Fee Ledger Tab ── */
-        <div>
-          <div className="flex gap-3 mb-4 flex-wrap">
-            <input type="text" value={ledgerSearch} onChange={(e) => setLedgerSearch(e.target.value)} placeholder="Search student or fee…" className="flex-1 min-w-40 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" />
-            <input type="text" value={ledgerSession} onChange={(e) => setLedgerSession(e.target.value)} placeholder="e.g. 2024/2025" className="w-40 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" />
-            <div className="flex gap-1">
-              {(['all', 'outstanding', 'paid'] as const).map((s) => (
-                <button key={s} onClick={() => setLedgerStatusFilter(s)} className={`px-3 py-2 rounded-md text-sm font-medium transition-colors capitalize ${ledgerStatusFilter === s ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{s}</button>
-              ))}
-            </div>
-            <button onClick={loadLedger} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-300">Refresh</button>
-          </div>
-
-          {(() => {
-            const filtered = ledgerData.filter((r) => {
-              if (ledgerStatusFilter === 'outstanding' && r.balance <= 0) return false;
-              if (ledgerStatusFilter === 'paid' && r.balance > 0) return false;
-              if (ledgerSearch) { const q = ledgerSearch.toLowerCase(); return (r.student_name || '').toLowerCase().includes(q) || (r.student_id || '').toLowerCase().includes(q) || (r.fee_name || '').toLowerCase().includes(q); }
-              return true;
-            });
-            const totalOuts = filtered.filter((r) => r.balance > 0).reduce((s, r) => s + Number(r.balance), 0);
-            return (<>
-              {totalOuts > 0 && (
-                <div className="bg-danger-50 border border-danger-200 rounded-lg px-4 py-2 mb-4 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-danger-500 shrink-0" />
-                  <span className="text-sm text-danger-700">Total Outstanding: <strong>{fmt(totalOuts)}</strong> across {filtered.filter((r) => r.balance > 0).length} records</span>
-                </div>
-              )}
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      {['Student', 'Class', 'Status', 'Fee', 'Session', 'Billed', 'Paid', 'Balance'].map((h) => (
-                        <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ledgerLoading ? (
-                      <tr><td colSpan={8} className="text-center py-12"><div className="w-6 h-6 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto" /></td></tr>
-                    ) : filtered.length === 0 ? (
-                      <tr><td colSpan={8} className="text-center py-10 text-gray-400">No records found</td></tr>
-                    ) : filtered.map((r, i) => (
-                      <tr key={i} className={`border-t ${r.balance > 0 ? 'hover:bg-danger-50' : 'hover:bg-success-50'}`}>
-                        <td className="px-4 py-2.5 font-medium">{r.student_name}</td>
-                        <td className="px-4 py-2.5"><span className="px-1.5 py-0.5 bg-primary-100 text-primary-800 rounded text-xs">{r.student_class}</span></td>
-                        <td className="px-4 py-2.5"><span className={`px-1.5 py-0.5 rounded text-xs ${r.student_status === 'Boarding' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600'}`}>{r.student_status || 'Day'}</span></td>
-                        <td className="px-4 py-2.5 text-gray-700">{r.fee_name}</td>
-                        <td className="px-4 py-2.5 text-gray-500 text-xs">{r.academic_session}</td>
-                        <td className="px-4 py-2.5 font-semibold">{fmt(Number(r.amount_due))}</td>
-                        <td className="px-4 py-2.5 text-success-700 font-semibold">{fmt(Number(r.amount_paid))}</td>
-                        <td className={`px-4 py-2.5 font-bold ${r.balance > 0 ? 'text-danger-600' : 'text-success-600'}`}>{fmt(Number(r.balance))}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>);
-          })()}
-        </div>
-      )}
+      </>)}
 
       {/* Add Student Modal */}
       {showModal && (
@@ -467,12 +390,45 @@ const StudentManagement: React.FC = () => {
                 </div>
               </div>
 
-              {/* Balance Due */}
+              {/* Fee Breakdown */}
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">Current Balance Due (₦)</label>
-                <div className="px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-xl font-bold text-gray-800">
-                  <span className={selectedStudent.current_fees_owed > 0 ? 'text-danger-600' : 'text-success-600'}>{fmt(selectedStudent.current_fees_owed)}</span>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-sm font-medium text-gray-700">Active Fee Summary</label>
+                  <span className={`text-base font-bold ${selectedStudent.current_fees_owed > 0 ? 'text-danger-600' : 'text-success-600'}`}>{fmt(selectedStudent.current_fees_owed)} owing</span>
                 </div>
+                {editFeesLoading ? (
+                  <div className="py-4 text-center"><div className="w-5 h-5 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto" /></div>
+                ) : editStudentFees.length === 0 ? (
+                  <p className="text-xs text-gray-400 italic py-2">No fees assigned yet.</p>
+                ) : (
+                  <div className="space-y-1.5 max-h-44 overflow-auto">
+                    {editStudentFees.map((sf) => (
+                      <div key={sf.id} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg border border-gray-100">
+                        <div>
+                          <div className="text-sm font-medium text-gray-800">{sf.fee_name}</div>
+                          <div className="text-xs text-gray-400">{sf.academic_session}</div>
+                        </div>
+                        <div className="text-right">
+                          {sf.balance <= 0 ? (
+                            <span className="flex items-center gap-1 text-xs text-success-600 font-semibold"><CheckCircle className="w-3 h-3" /> Paid</span>
+                          ) : (
+                            <div>
+                              <div className="text-xs text-gray-400">Paid: {fmt(sf.amount_paid)}</div>
+                              <div className="text-sm font-bold text-danger-600">Owing: {fmt(sf.balance)}</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowEditStudent(false)}
+                  className="mt-2 flex items-center gap-1 text-xs text-primary-600 hover:text-primary-800 font-medium"
+                >
+                  <ExternalLink className="w-3 h-3" /> View Full Ledger in Fees &amp; Billing
+                </button>
               </div>
 
               {/* Fee Template Checklist */}

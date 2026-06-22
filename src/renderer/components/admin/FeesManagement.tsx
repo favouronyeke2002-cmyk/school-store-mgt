@@ -5,7 +5,7 @@ import { feeTypeAPI, studentFeeAPI, studentAPI, settingsAPI } from '../../lib/ap
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 interface FeeType { id: number; name: string; description: string | null; academic_session: string; amount: number; class_filter: string | null; fee_category: string; applicable_to?: string; }
-interface StudentFee { id: number; student_id: string; student_name: string; student_class: string; admission_type: string; fee_name: string; fee_category: string; academic_session: string; amount_due: number; amount_paid: number; balance: number; }
+interface StudentFee { id: number; student_id: string; student_name: string; student_class: string; admission_type: string; student_status: string; fee_name: string; fee_category: string; academic_session: string; amount_due: number; amount_paid: number; balance: number; }
 
 const FeesManagement: React.FC = () => {
   const [tab, setTab] = useState<'types' | 'ledger'>('types');
@@ -46,12 +46,13 @@ const FeesManagement: React.FC = () => {
 
   // Ledger pagination
   const [ledgerPage, setLedgerPage] = useState(1);
-  const ledgerPageSize = 15;
+  const ledgerPageSize = 20;
 
   // Ledger filters
   const [ledgerSearch, setLedgerSearch] = useState('');
   const [ledgerClass, setLedgerClass] = useState('all');
   const [ledgerStatus, setLedgerStatus] = useState<'all' | 'outstanding' | 'paid'>('all');
+  const [ledgerTypeFilter, setLedgerTypeFilter] = useState<'all' | 'Day' | 'Boarding'>('all');
 
   useEffect(() => {
     load();
@@ -157,19 +158,39 @@ const FeesManagement: React.FC = () => {
 
   const openAssign = (ft: FeeType) => { setAssignTarget(ft); setAssignClass(ft.class_filter || ''); setAssignSpecific(''); setAssignError(''); setAssignResult(''); setShowAssign(true); };
 
-  const filteredLedger = ledger.filter((sf) => {
-    if (ledgerClass !== 'all' && sf.student_class !== ledgerClass) return false;
-    if (ledgerStatus === 'outstanding' && sf.balance <= 0) return false;
-    if (ledgerStatus === 'paid' && sf.balance > 0) return false;
-    if (sessionFilter && sf.academic_session !== sessionFilter) return false;
+  // Per-student aggregation for the Student Ledger
+  const perStudentLedger = (() => {
+    const map = new Map<string, {
+      student_id: string; student_name: string; student_class: string; student_status: string;
+      arrearsForward: number; currentTermBill: number; currentTermPaid: number; totalPaid: number; netBalance: number;
+    }>();
+    for (const sf of ledger) {
+      if (!map.has(sf.student_id)) {
+        map.set(sf.student_id, { student_id: sf.student_id, student_name: sf.student_name || '', student_class: sf.student_class || '', student_status: sf.student_status || 'Day', arrearsForward: 0, currentTermBill: 0, currentTermPaid: 0, totalPaid: 0, netBalance: 0 });
+      }
+      const entry = map.get(sf.student_id)!;
+      const isCurrent = currentSession && sf.academic_session === currentSession;
+      if (isCurrent) { entry.currentTermBill += Number(sf.amount_due); entry.currentTermPaid += Number(sf.amount_paid); }
+      else { entry.arrearsForward += Math.max(0, Number(sf.balance)); }
+      entry.totalPaid += Number(sf.amount_paid);
+      entry.netBalance += Number(sf.balance);
+    }
+    return Array.from(map.values()).sort((a, b) => a.student_name.localeCompare(b.student_name));
+  })();
+
+  const filteredLedger = perStudentLedger.filter((s) => {
+    if (ledgerClass !== 'all' && s.student_class !== ledgerClass) return false;
+    if (ledgerTypeFilter !== 'all' && s.student_status !== ledgerTypeFilter) return false;
+    if (ledgerStatus === 'outstanding' && s.netBalance <= 0) return false;
+    if (ledgerStatus === 'paid' && s.netBalance > 0) return false;
     if (ledgerSearch) {
       const q = ledgerSearch.toLowerCase();
-      return sf.student_name?.toLowerCase().includes(q) || sf.student_id?.toLowerCase().includes(q) || sf.fee_name?.toLowerCase().includes(q);
+      return s.student_name.toLowerCase().includes(q) || s.student_id.toLowerCase().includes(q);
     }
     return true;
   });
 
-  const totalOutstanding = filteredLedger.filter((sf) => sf.balance > 0).reduce((s, sf) => s + sf.balance, 0);
+  const totalOutstanding = filteredLedger.filter((s) => s.netBalance > 0).reduce((sum, s) => sum + s.netBalance, 0);
   const paginatedLedger = filteredLedger.slice((ledgerPage - 1) * ledgerPageSize, ledgerPage * ledgerPageSize);
   const ledgerTotalPages = Math.ceil(filteredLedger.length / ledgerPageSize);
 
@@ -195,7 +216,7 @@ const FeesManagement: React.FC = () => {
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
-          <button onClick={() => { setForm({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard' }); setFormError(''); setShowCreate(true); }} className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700">
+          <button onClick={() => { setForm({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard', applicableTo: 'All Students' }); setFormError(''); setShowCreate(true); }} className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700">
             <Plus className="w-4 h-4" /> New Fee Type
           </button>
         </div>
@@ -273,59 +294,52 @@ const FeesManagement: React.FC = () => {
         <div>
           {/* Filters */}
           <div className="flex gap-3 mb-4 flex-wrap">
-            <input type="text" value={ledgerSearch} onChange={(e) => { setLedgerSearch(e.target.value); setLedgerPage(1); }} placeholder="Search student or fee…" className="flex-1 min-w-40 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" />
+            <input type="text" value={ledgerSearch} onChange={(e) => { setLedgerSearch(e.target.value); setLedgerPage(1); }} placeholder="Search student name or ID…" className="flex-1 min-w-40 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" />
             <select value={ledgerClass} onChange={(e) => { setLedgerClass(e.target.value); setLedgerPage(1); }} className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
               <option value="all">All Classes</option>
               {classes.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
+            <select value={ledgerTypeFilter} onChange={(e) => { setLedgerTypeFilter(e.target.value as any); setLedgerPage(1); }} className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
+              <option value="all">All Types</option>
+              <option value="Day">Day</option>
+              <option value="Boarding">Boarding</option>
+            </select>
             <select value={ledgerStatus} onChange={(e) => { setLedgerStatus(e.target.value as any); setLedgerPage(1); }} className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
-              <option value="all">All Status</option>
+              <option value="all">All Balance</option>
               <option value="outstanding">Outstanding</option>
               <option value="paid">Fully Paid</option>
             </select>
           </div>
 
-          {filteredLedger.length > 0 && (
+          {totalOutstanding > 0 && (
             <div className="bg-danger-50 border border-danger-200 rounded-lg px-4 py-2 mb-4 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-danger-500 shrink-0" />
-              <span className="text-sm text-danger-700">Total Outstanding: <strong>{fmt(totalOutstanding)}</strong> across {filteredLedger.filter((s) => s.balance > 0).length} records</span>
+              <span className="text-sm text-danger-700">Total Outstanding: <strong>{fmt(totalOutstanding)}</strong> across {filteredLedger.filter((s) => s.netBalance > 0).length} students</span>
             </div>
           )}
 
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b">
                 <tr>
-                  {['Student', 'Class', 'Fee', 'Session', 'Amount Due', 'Paid', 'Balance', 'Status'].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
+                  {['Student ID', 'Student Name', 'Class', 'Status', 'Arrears B/F', 'Current Term Bill', 'Total Paid', 'Net Balance Due'].map((h) => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {paginatedLedger.length === 0 ? (
-                  <tr><td colSpan={8} className="text-center py-12 text-gray-400">No records match your filters</td></tr>
-                ) : paginatedLedger.map((sf) => (
-                  <tr key={sf.id} className="border-t hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">{sf.student_name}</div>
-                      <div className="text-xs text-gray-400 font-mono">{sf.student_id}</div>
-                    </td>
-                    <td className="px-4 py-3"><span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{sf.student_class}</span></td>
-                    <td className="px-4 py-3">
-                      <div className="font-medium">{sf.fee_name}</div>
-                      {sf.fee_category === 'registration' && <span className="text-[10px] bg-warning-100 text-warning-700 px-1.5 py-0.5 rounded">Reg</span>}
-                    </td>
-                    <td className="px-4 py-3 text-gray-500">{sf.academic_session}</td>
-                    <td className="px-4 py-3 font-semibold">{fmt(sf.amount_due)}</td>
-                    <td className="px-4 py-3 text-success-600 font-semibold">{fmt(sf.amount_paid)}</td>
-                    <td className={`px-4 py-3 font-bold ${sf.balance > 0 ? 'text-danger-600' : 'text-success-600'}`}>{fmt(sf.balance)}</td>
-                    <td className="px-4 py-3">
-                      {sf.balance <= 0 ? (
-                        <span className="flex items-center gap-1 text-success-600 text-xs font-bold"><CheckCircle className="w-3.5 h-3.5" /> Paid</span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-danger-600 text-xs font-bold"><AlertCircle className="w-3.5 h-3.5" /> Owing</span>
-                      )}
-                    </td>
+                  <tr><td colSpan={8} className="text-center py-12 text-gray-400">No students match your filters</td></tr>
+                ) : paginatedLedger.map((s) => (
+                  <tr key={s.student_id} className={`border-t ${s.netBalance > 0 ? 'hover:bg-danger-50' : 'hover:bg-success-50'}`}>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{s.student_id}</td>
+                    <td className="px-4 py-3 font-semibold text-gray-900">{s.student_name}</td>
+                    <td className="px-4 py-3"><span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{s.student_class}</span></td>
+                    <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${s.student_status === 'Boarding' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-500'}`}>{s.student_status || 'Day'}</span></td>
+                    <td className="px-4 py-3 font-semibold text-warning-700">{fmt(s.arrearsForward)}</td>
+                    <td className="px-4 py-3 font-semibold text-gray-800">{fmt(s.currentTermBill)}</td>
+                    <td className="px-4 py-3 font-semibold text-success-700">{fmt(s.totalPaid)}</td>
+                    <td className={`px-4 py-3 font-bold text-base ${s.netBalance > 0 ? 'text-danger-600' : 'text-success-600'}`}>{fmt(s.netBalance)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -336,7 +350,7 @@ const FeesManagement: React.FC = () => {
           {ledgerTotalPages > 1 && (
             <div className="flex items-center justify-center gap-3 mt-4">
               <button onClick={() => setLedgerPage((p) => Math.max(1, p - 1))} disabled={ledgerPage <= 1} className="p-2 rounded-lg bg-white border hover:bg-gray-50 disabled:opacity-30"><ChevronLeft className="w-4 h-4" /></button>
-              <span className="text-sm text-gray-500 font-medium">Page {ledgerPage} of {ledgerTotalPages}</span>
+              <span className="text-sm text-gray-500 font-medium">Page {ledgerPage} of {ledgerTotalPages} ({filteredLedger.length} students)</span>
               <button onClick={() => setLedgerPage((p) => Math.min(ledgerTotalPages, p + 1))} disabled={ledgerPage >= ledgerTotalPages} className="p-2 rounded-lg bg-white border hover:bg-gray-50 disabled:opacity-30"><ChevronRight className="w-4 h-4" /></button>
             </div>
           )}

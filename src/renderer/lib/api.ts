@@ -254,7 +254,7 @@ export const inventoryAPI = {
     if (!item) throw new Error('Item not found');
     const diff = newQty - item.stock_quantity;
     await supabase.from('inventory').update({ stock_quantity: Math.max(0, newQty) }).eq('item_id', id);
-    await supabase.from('stock_adjustments').insert({ item_id: id, quantity_change: diff, reason: 'Admin stock override' }).catch(() => {});
+    await supabase.from('stock_adjustments').insert({ item_id: id, quantity_change: diff, reason: 'Admin stock override' }).then(() => {}).catch(() => {});
     return { success: true };
   },
   async bulkImport(items: any[]) {
@@ -346,16 +346,16 @@ export const studentFeeAPI = {
   async getAll(filters?: { session?: string }) {
     const { data, error } = await supabase.from('student_fees').select('*, students(name, student_class, admission_type), fee_types(name, academic_session, fee_category)').order('created_at', { ascending: false });
     if (error) throw error;
-    return (data || []).map((sf: any) => ({ ...sf, student_name: sf.students?.name, student_class: sf.students?.student_class, admission_type: sf.students?.admission_type, fee_name: sf.fee_types?.name, academic_session: sf.fee_types?.academic_session, fee_category: sf.fee_types?.fee_category, balance: Number(sf.amount_due) - Number(sf.amount_paid) })).filter((sf: any) => !filters?.session || sf.academic_session === filters.session);
+    return (data || []).map((sf: any) => ({ ...sf, student_name: sf.students?.name, student_class: sf.students?.student_class, admission_type: sf.students?.admission_type, student_status: 'Day', fee_name: sf.fee_types?.name, academic_session: sf.fee_types?.academic_session, fee_category: sf.fee_types?.fee_category, balance: Number(sf.amount_due) - Number(sf.amount_paid) })).filter((sf: any) => !filters?.session || sf.academic_session === filters.session);
   },
   async getLedger(session?: string) {
-    const { data, error } = await supabase.from('student_fees').select('student_id, amount_due, amount_paid, students(name, student_class, student_status), fee_types(academic_session)');
+    const { data, error } = await supabase.from('student_fees').select('student_id, amount_due, amount_paid, students(name, student_class), fee_types(academic_session)');
     if (error) throw error;
     const map = new Map<string, any>();
     for (const sf of data || []) {
       if (session && sf.fee_types?.academic_session && sf.fee_types.academic_session !== session) continue;
       const id = sf.student_id;
-      if (!map.has(id)) map.set(id, { student_id: id, name: (sf.students as any)?.name || 'Unknown', student_class: (sf.students as any)?.student_class || '', student_status: (sf.students as any)?.student_status || 'Day', total_billed: 0, total_paid: 0 });
+      if (!map.has(id)) map.set(id, { student_id: id, name: (sf.students as any)?.name || 'Unknown', student_class: (sf.students as any)?.student_class || '', student_status: 'Day', total_billed: 0, total_paid: 0 });
       const entry = map.get(id)!;
       entry.total_billed += Number(sf.amount_due);
       entry.total_paid += Number(sf.amount_paid);
