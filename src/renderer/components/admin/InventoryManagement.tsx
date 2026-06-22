@@ -256,7 +256,7 @@ const InventoryManagement: React.FC = () => {
                       <button onClick={() => { setSelected(item); setAdjNewQty(String(item.stock_quantity)); setAdjError(''); setShowAdjust(true); }} className="px-2 py-1 text-xs bg-warning-100 text-warning-700 rounded-lg hover:bg-warning-200 font-medium mr-1">Stock</button>
                     </>
                   )}
-                  <button onClick={() => setDeleteConfirm(item)} className="p-1.5 text-gray-300 hover:text-danger-600 hover:bg-danger-50 rounded-lg transition-colors" title={item.is_active === false ? 'Permanently Delete' : 'Delete / Archive'}><Trash2 className="w-4 h-4" /></button>
+                  <button onClick={() => setDeleteConfirm(item)} className="p-1.5 text-danger-400 hover:text-white hover:bg-danger-600 rounded-lg transition-colors" title={item.is_active === false ? 'Permanently Delete' : 'Delete / Archive'}><Trash2 className="w-4 h-4" /></button>
                 </td>
               </tr>
             ))}
