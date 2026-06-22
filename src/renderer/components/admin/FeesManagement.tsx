@@ -61,6 +61,8 @@ const FeesManagement: React.FC = () => {
   const [manageFeesSaving, setManageFeesSaving] = useState(false);
   const [manageFeesError, setManageFeesError] = useState('');
   const [openActionMenu, setOpenActionMenu] = useState<string | null>(null);
+  const [manageFeeAssigned, setManageFeeAssigned] = useState<any[]>([]);
+  const [manageFeeAssignedLoading, setManageFeeAssignedLoading] = useState(false);
 
   useEffect(() => {
     load();
@@ -84,25 +86,33 @@ const FeesManagement: React.FC = () => {
     if (!form.name || !form.amount) { setFormError('Name and amount are required.'); return; }
     setFormSaving(true);
     setFormError('');
-    const result = await feeTypeAPI.create({
-      name: form.name,
-      description: form.description || undefined,
-      academicSession: currentSession,
-      amount: parseFloat(form.amount),
-      classFilter: form.classFilter || undefined,
-      feeCategory: form.feeCategory,
-      applicableTo: form.applicableTo,
-    });
-    if (result.success) {
-      // Auto-assign: if class filter set, assign to that class; if no filter, assign to all returning students
-      if (result.id) {
-        await feeTypeAPI.assignToStudents(result.id, parseFloat(form.amount), form.classFilter || undefined, undefined, form.feeCategory);
+    const amount = parseFloat(form.amount);
+    const classFilter = form.classFilter;
+    const applicableTo = form.applicableTo;
+    try {
+      const result = await feeTypeAPI.create({
+        name: form.name,
+        description: form.description || undefined,
+        academicSession: currentSession,
+        amount,
+        classFilter: classFilter || undefined,
+        feeCategory: 'standard',
+        applicableTo,
+      });
+      if (result.success) {
+        setShowCreate(false);
+        setForm({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard', applicableTo: 'All Students' });
+        load();
+        if (result.id) {
+          feeTypeAPI.assignToStudents(result.id, amount, classFilter || undefined, undefined, 'standard', applicableTo !== 'All Students' ? applicableTo : undefined)
+            .then(() => load())
+            .catch(console.error);
+        }
+      } else {
+        setFormError(result.error || 'Failed to create fee type');
       }
-      setForm({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard', applicableTo: 'All Students' });
-      setShowCreate(false);
-      load();
-    } else {
-      setFormError(result.error || 'Failed to create fee type');
+    } catch (err) {
+      setFormError((err as Error).message);
     }
     setFormSaving(false);
   };
@@ -166,12 +176,19 @@ const FeesManagement: React.FC = () => {
 
   const openAssign = (ft: FeeType) => { setAssignTarget(ft); setAssignClass(ft.class_filter || ''); setAssignSpecific(''); setAssignError(''); setAssignResult(''); setShowAssign(true); };
 
-  const openManageFees = (s: { student_id: string; student_name: string; student_class: string }) => {
+  const openManageFees = async (s: { student_id: string; student_name: string; student_class: string }) => {
     setManageFeeStudent(s);
     setManageFeeSelected([]);
     setManageFeesError('');
+    setManageFeeAssigned([]);
+    setManageFeeAssignedLoading(true);
     setShowManageFees(true);
     setOpenActionMenu(null);
+    try {
+      const all = await studentFeeAPI.getForStudent(s.student_id);
+      setManageFeeAssigned(all.filter((sf: any) => !sessionFilter || sf.academic_session === sessionFilter));
+    } catch { /* best-effort */ }
+    setManageFeeAssignedLoading(false);
   };
 
   const saveManageFees = async () => {
@@ -183,7 +200,24 @@ const FeesManagement: React.FC = () => {
         const ft = feeTypes.find((f) => f.id === feeId);
         if (ft) await feeTypeAPI.assignToStudents(feeId, ft.amount, undefined, manageFeeStudent.student_id, ft.fee_category as 'standard' | 'registration');
       }
-      setShowManageFees(false);
+      // Reload assigned section
+      const updated = await studentFeeAPI.getForStudent(manageFeeStudent.student_id);
+      setManageFeeAssigned(updated.filter((sf: any) => !sessionFilter || sf.academic_session === sessionFilter));
+      setManageFeeSelected([]);
+      load();
+    } catch (e) { setManageFeesError((e as Error).message); }
+    setManageFeesSaving(false);
+  };
+
+  const removeAssignedFee = async (sf: any) => {
+    if (!manageFeeStudent) return;
+    setManageFeesSaving(true);
+    setManageFeesError('');
+    try {
+      const balance = Number(sf.amount_due) - Number(sf.amount_paid);
+      await studentFeeAPI.remove(sf.id, manageFeeStudent.student_id, balance);
+      const updated = await studentFeeAPI.getForStudent(manageFeeStudent.student_id);
+      setManageFeeAssigned(updated.filter((f: any) => !sessionFilter || f.academic_session === sessionFilter));
       load();
     } catch (e) { setManageFeesError((e as Error).message); }
     setManageFeesSaving(false);
@@ -427,43 +461,95 @@ const FeesManagement: React.FC = () => {
       )}
 
       {/* Manage Fees Modal (per student row) */}
-      {showManageFees && manageFeeStudent && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-bold">Manage Fees</h2>
-                <p className="text-sm text-gray-500">{manageFeeStudent.student_name} · {manageFeeStudent.student_class}</p>
+      {showManageFees && manageFeeStudent && (() => {
+        const assignedIds = new Set(manageFeeAssigned.map((sf: any) => sf.fee_type_id));
+        const seenNames = new Set<string>();
+        const availableTemplates = feeTypes.filter((ft) => {
+          if (ft.class_filter && ft.class_filter !== manageFeeStudent.student_class) return false;
+          if (sessionFilter && ft.academic_session !== sessionFilter) return false;
+          if (assignedIds.has(ft.id)) return false;
+          if (seenNames.has(ft.name)) return false;
+          seenNames.add(ft.name);
+          return true;
+        });
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 p-6 max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between mb-4 shrink-0">
+                <div>
+                  <h2 className="text-lg font-bold">Manage Fees</h2>
+                  <p className="text-sm text-gray-500">{manageFeeStudent.student_name} · {manageFeeStudent.student_class}</p>
+                </div>
+                <button onClick={() => setShowManageFees(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
               </div>
-              <button onClick={() => setShowManageFees(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
-            </div>
-            {manageFeesError && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{manageFeesError}</div>}
-            <p className="text-xs text-gray-400 mb-3">Select fee templates to assign to this student. Already-assigned fees are skipped automatically.</p>
-            <div className="space-y-2 max-h-64 overflow-auto border border-gray-200 rounded-xl p-2 mb-4">
-              {feeTypes.filter((ft) => !ft.class_filter || ft.class_filter === manageFeeStudent.student_class).length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-4 italic">No fee templates available for this class.</p>
-              ) : feeTypes.filter((ft) => !ft.class_filter || ft.class_filter === manageFeeStudent.student_class).map((ft) => (
-                <label key={ft.id} className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer border transition-all ${manageFeeSelected.includes(ft.id) ? 'border-primary-400 bg-primary-50' : 'border-gray-100 hover:bg-gray-50'}`}>
-                  <div className="flex items-center gap-2">
-                    <input type="checkbox" checked={manageFeeSelected.includes(ft.id)} onChange={() => toggleManageFee(ft.id)} className="rounded" />
-                    <div>
-                      <div className="text-sm font-medium text-gray-800">{ft.name}</div>
-                      <div className="text-xs text-gray-400">{ft.academic_session}</div>
+              {manageFeesError && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-3 shrink-0">{manageFeesError}</div>}
+
+              <div className="overflow-auto flex-1 space-y-5">
+                {/* Section 1 — Assigned Fees */}
+                <div>
+                  <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Assigned Fees ({sessionFilter || currentSession})</div>
+                  {manageFeeAssignedLoading ? (
+                    <div className="py-4 flex justify-center"><div className="w-5 h-5 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>
+                  ) : manageFeeAssigned.length === 0 ? (
+                    <p className="text-sm text-gray-400 italic py-2">No fees assigned for this session.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {manageFeeAssigned.map((sf: any) => (
+                        <div key={sf.id} className="flex items-center justify-between px-3 py-2.5 bg-gray-50 rounded-xl border border-gray-200">
+                          <div>
+                            <div className="text-sm font-semibold text-gray-800">{sf.fee_name}</div>
+                            <div className="text-xs text-gray-400">
+                              Due: {fmt(sf.amount_due)} · Paid: {fmt(sf.amount_paid)}
+                              {Number(sf.amount_due) - Number(sf.amount_paid) <= 0 && <span className="ml-1 text-success-600 font-semibold">✓ Cleared</span>}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => removeAssignedFee(sf)}
+                            disabled={manageFeesSaving}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-danger-600 hover:bg-danger-50 rounded-lg border border-danger-200 transition-colors disabled:opacity-40"
+                          >
+                            <Trash2 className="w-3 h-3" /> Remove
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                  </div>
-                  <span className="text-sm font-bold text-gray-700">{fmt(ft.amount)}</span>
-                </label>
-              ))}
-            </div>
-            <div className="flex gap-3">
-              <button onClick={() => setShowManageFees(false)} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-              <button onClick={saveManageFees} disabled={manageFeesSaving || manageFeeSelected.length === 0} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">
-                {manageFeesSaving ? 'Assigning…' : `Assign ${manageFeeSelected.length > 0 ? `(${manageFeeSelected.length})` : ''}`}
-              </button>
+                  )}
+                </div>
+
+                {/* Section 2 — Available Templates */}
+                <div>
+                  <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Available Templates</div>
+                  {availableTemplates.length === 0 ? (
+                    <p className="text-sm text-gray-400 italic py-2">No additional templates available for this class/session.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {availableTemplates.map((ft) => (
+                        <label key={ft.id} className={`flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer border transition-all ${manageFeeSelected.includes(ft.id) ? 'border-primary-400 bg-primary-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                          <div className="flex items-center gap-2">
+                            <input type="checkbox" checked={manageFeeSelected.includes(ft.id)} onChange={() => toggleManageFee(ft.id)} className="rounded" />
+                            <div>
+                              <div className="text-sm font-medium text-gray-800">{ft.name}</div>
+                              <div className="text-xs text-gray-400">{ft.academic_session}</div>
+                            </div>
+                          </div>
+                          <span className="text-sm font-bold text-gray-700">{fmt(ft.amount)}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4 shrink-0 border-t mt-4">
+                <button onClick={() => setShowManageFees(false)} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Close</button>
+                <button onClick={saveManageFees} disabled={manageFeesSaving || manageFeeSelected.length === 0} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">
+                  {manageFeesSaving ? 'Working…' : manageFeeSelected.length > 0 ? `Assign (${manageFeeSelected.length})` : 'Assign'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Create Fee Type Modal */}
       {showCreate && (

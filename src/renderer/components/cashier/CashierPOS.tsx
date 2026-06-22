@@ -775,6 +775,7 @@ const CashierPOS: React.FC = () => {
   const [classFees, setClassFees] = useState<any[]>([]);
   const [selectedFee, setSelectedFee] = useState<StudentFee | null>(null);
   const [feesAmount, setFeesAmount] = useState('');
+  const [feesDiscount, setFeesDiscount] = useState('');
   const [feesPayMode, setFeesPayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
 
   // UI state
@@ -940,13 +941,18 @@ const CashierPOS: React.FC = () => {
   const handleFeesPayment = async () => {
     if (!selectedStudent || !activeShift || !selectedFee || loading) return;
     const amount = parseFloat(feesAmount);
+    const discount = feesDiscount ? parseFloat(feesDiscount) : 0;
     if (isNaN(amount) || amount <= 0) { setErrorMsg('Enter a valid amount.'); return; }
-    if (amount > selectedFee.balance) {
-      setErrorMsg(`Cannot pay ${fmt(amount)} — the outstanding balance is only ${fmt(selectedFee.balance)}.`);
+    const netBalance = selectedFee.balance - (isNaN(discount) ? 0 : discount);
+    if (amount > netBalance) {
+      setErrorMsg(`Cannot pay ${fmt(amount)} — the net balance after discount is ${fmt(netBalance)}.`);
       return;
     }
     setLoading(true);
     try {
+      if (discount > 0) {
+        await studentFeeAPI.applyDiscount(selectedFee.id, selectedStudent.student_id, discount);
+      }
       const result = await studentFeeAPI.recordPayment(selectedFee.id, amount, selectedStudent.student_id, activeShift.id, feesPayMode);
       if (result.success) {
         const updated = await studentAPI.getById(selectedStudent.student_id);
@@ -965,6 +971,7 @@ const CashierPOS: React.FC = () => {
           setStudentFees(fees.filter((f: StudentFee) => f.balance > 0));
           setSelectedFee(null);
           setFeesAmount('');
+          setFeesDiscount('');
         });
       } else setErrorMsg('Failed to process payment');
     } catch (e) { setErrorMsg((e as Error).message); }
@@ -1460,7 +1467,7 @@ const CashierPOS: React.FC = () => {
                     <>
                       <div className="space-y-2">
                         {studentFees.map((fee) => (
-                          <button key={fee.id} onClick={() => { setSelectedFee(fee); setFeesAmount(''); }} className={`w-full text-left p-4 rounded-xl border-2 transition-all ${selectedFee?.id === fee.id ? 'border-primary-500 bg-primary-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+                          <button key={fee.id} onClick={() => { setSelectedFee(fee); setFeesAmount(''); setFeesDiscount(''); }} className={`w-full text-left p-4 rounded-xl border-2 transition-all ${selectedFee?.id === fee.id ? 'border-primary-500 bg-primary-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
                             <div className="flex items-start justify-between">
                               <div>
                                 <div className="font-bold text-gray-900">{fee.fee_name}</div>
@@ -1504,10 +1511,41 @@ const CashierPOS: React.FC = () => {
                                 placeholder="0.00" autoFocus
                               />
                             </div>
-                            <div className="flex gap-2 mt-2">
-                              <button onClick={() => setFeesAmount(String(selectedFee.balance))} className="flex-1 py-1.5 text-xs bg-gray-100 rounded-lg hover:bg-gray-200 font-semibold">Full Balance {fmt(selectedFee.balance)}</button>
-                              <button onClick={() => setFeesAmount(String(Math.round(selectedFee.balance / 2)))} className="flex-1 py-1.5 text-xs bg-gray-100 rounded-lg hover:bg-gray-200 font-medium">Half</button>
+                            {(() => {
+                              const disc = feesDiscount ? (parseFloat(feesDiscount) || 0) : 0;
+                              const netBal = Math.max(0, selectedFee.balance - disc);
+                              return (
+                                <div className="flex gap-2 mt-2">
+                                  <button onClick={() => setFeesAmount(String(netBal))} className="flex-1 py-1.5 text-xs bg-gray-100 rounded-lg hover:bg-gray-200 font-semibold">Full Balance {fmt(netBal)}</button>
+                                  <button onClick={() => setFeesAmount(String(Math.round(netBal / 2)))} className="flex-1 py-1.5 text-xs bg-gray-100 rounded-lg hover:bg-gray-200 font-medium">Half</button>
+                                </div>
+                              );
+                            })()}
+                          </div>
+
+                          {/* Optional Discount / Concession */}
+                          <div>
+                            <label className="text-sm font-medium text-gray-700 mb-1 block">Discount / Concession <span className="text-gray-400 font-normal">(₦, optional)</span></label>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-gray-500 text-sm">₦</span>
+                              <input
+                                type="number" min="0" step="1"
+                                value={feesDiscount}
+                                onChange={(e) => {
+                                  const v = parseFloat(e.target.value);
+                                  if (!isNaN(v) && v >= selectedFee.balance) {
+                                    setFeesDiscount(String(selectedFee.balance - 1));
+                                  } else {
+                                    setFeesDiscount(e.target.value);
+                                  }
+                                }}
+                                className="w-full pl-8 pr-3 py-2.5 border border-warning-200 bg-warning-50 rounded-xl text-sm focus:outline-none focus:border-warning-400"
+                                placeholder="0.00"
+                              />
                             </div>
+                            {feesDiscount && parseFloat(feesDiscount) > 0 && (
+                              <p className="text-xs text-warning-700 mt-1 font-medium">Net balance after discount: {fmt(Math.max(0, selectedFee.balance - parseFloat(feesDiscount)))}</p>
+                            )}
                           </div>
 
                           <div>
@@ -1518,13 +1556,20 @@ const CashierPOS: React.FC = () => {
                             </div>
                           </div>
 
-                          <button
-                            onClick={handleFeesPayment}
-                            disabled={!feesAmount || parseFloat(feesAmount) <= 0 || parseFloat(feesAmount) > selectedFee.balance || loading}
-                            className="w-full py-4 bg-success-600 text-white font-bold rounded-xl hover:bg-success-700 disabled:opacity-50 disabled:cursor-not-allowed text-lg"
-                          >
-                            {loading ? 'Processing…' : `Record ${feesAmount ? fmt(parseFloat(feesAmount)) : ''} Payment`}
-                          </button>
+                          {(() => {
+                            const disc = feesDiscount ? (parseFloat(feesDiscount) || 0) : 0;
+                            const netBal = Math.max(0, selectedFee.balance - disc);
+                            const amt = parseFloat(feesAmount);
+                            return (
+                              <button
+                                onClick={handleFeesPayment}
+                                disabled={!feesAmount || isNaN(amt) || amt <= 0 || amt > netBal || loading}
+                                className="w-full py-4 bg-success-600 text-white font-bold rounded-xl hover:bg-success-700 disabled:opacity-50 disabled:cursor-not-allowed text-lg"
+                              >
+                                {loading ? 'Processing…' : `Record ${feesAmount ? fmt(amt) : ''} Payment`}
+                              </button>
+                            );
+                          })()}
                         </div>
                       )}
                     </>

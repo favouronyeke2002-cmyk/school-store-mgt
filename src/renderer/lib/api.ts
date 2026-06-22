@@ -343,6 +343,29 @@ export const feeTypeAPI = {
 
 // ─── STUDENT FEE LEDGER ───────────────────────────────────────────────────────
 export const studentFeeAPI = {
+  async remove(sfId: number, studentId: string, balanceToSubtract: number) {
+    const { error } = await supabase.from('student_fees').delete().eq('id', sfId);
+    if (error) return { success: false, error: error.message };
+    const { data: student } = await supabase.from('students').select('current_fees_owed').eq('student_id', studentId).single();
+    if (student) {
+      const newOwed = Math.max(0, Number(student.current_fees_owed || 0) - balanceToSubtract);
+      await supabase.from('students').update({ current_fees_owed: newOwed, updated_at: new Date().toISOString() }).eq('student_id', studentId);
+    }
+    return { success: true };
+  },
+  async applyDiscount(sfId: number, studentId: string, discountAmount: number) {
+    const { data: sf } = await supabase.from('student_fees').select('amount_due').eq('id', sfId).single();
+    if (!sf) return { success: false, error: 'Fee record not found' };
+    const newAmountDue = Math.max(0, Number(sf.amount_due) - discountAmount);
+    const { error } = await supabase.from('student_fees').update({ amount_due: newAmountDue }).eq('id', sfId);
+    if (error) return { success: false, error: error.message };
+    const { data: student } = await supabase.from('students').select('current_fees_owed').eq('student_id', studentId).single();
+    if (student) {
+      const newOwed = Math.max(0, Number(student.current_fees_owed || 0) - discountAmount);
+      await supabase.from('students').update({ current_fees_owed: newOwed, updated_at: new Date().toISOString() }).eq('student_id', studentId);
+    }
+    return { success: true };
+  },
   async getForStudent(studentId: string) {
     const { data, error } = await supabase.from('student_fees').select('*, fee_types(name, description, academic_session, fee_category)').eq('student_id', studentId).order('created_at', { ascending: false });
     if (error) throw error;
@@ -614,10 +637,11 @@ export const bundleAPI = {
   },
   async update(id: number, data: { name: string; description?: string; basePrice: number; bundleType: 'acceptance' | 'registration' | 'custom'; applicableTo?: string; isActive?: boolean; items: { itemId: number; quantity: number }[] }) {
     const base = { name: data.name, description: data.description || null, base_price: data.basePrice, bundle_type: data.bundleType, is_active: data.isActive ?? true };
-    const { error } = await supabase.from('bundles').update({ ...base, applicable_to: data.applicableTo || 'All Students' }).eq('id', id).then(
-      async (r) => r.error ? supabase.from('bundles').update(base).eq('id', id) : r
-    );
-    if (error) return { success: false, error: error.message };
+    const { error: e1 } = await supabase.from('bundles').update({ ...base, applicable_to: data.applicableTo || 'All Students' }).eq('id', id);
+    if (e1) {
+      const { error: e2 } = await supabase.from('bundles').update(base).eq('id', id);
+      if (e2) return { success: false, error: e2.message };
+    }
     // Delete existing items and re-insert
     await supabase.from('bundle_items').delete().eq('bundle_id', id);
     const itemRows = data.items.map((i) => ({ bundle_id: id, item_id: i.itemId, quantity: i.quantity }));
