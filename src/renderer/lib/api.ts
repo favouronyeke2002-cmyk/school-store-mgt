@@ -286,13 +286,11 @@ export const feeTypeAPI = {
     if (error) throw error;
     return data || [];
   },
-  async create(data: { name: string; description?: string; academicSession: string; amount: number; classFilter?: string; feeCategory?: 'standard' | 'registration'; applicableTo?: string }) {
-    const base = { name: data.name, description: data.description || null, academic_session: data.academicSession, amount: data.amount, class_filter: data.classFilter || null, fee_category: data.feeCategory || 'standard' };
-    const withApplicable = { ...base, applicable_to: data.applicableTo || 'All Students' };
-    let res = await supabase.from('fee_types').insert(withApplicable).select('id').single();
-    if (res.error) res = await supabase.from('fee_types').insert(base).select('id').single();
-    if (res.error) return { success: false, error: res.error.message };
-    return { success: true, id: (res.data as any).id };
+  async create(data: { name: string; description?: string; academicSession: string; term?: string; amount: number; classFilter?: string; feeCategory?: 'standard' | 'registration'; applicableTo?: string }) {
+    const payload = { name: data.name, description: data.description || null, academic_session: data.academicSession, term: data.term || null, amount: data.amount, class_filter: data.classFilter || null, fee_category: data.feeCategory || 'standard', applicable_to: data.applicableTo || 'All Students' };
+    const { data: res, error } = await supabase.from('fee_types').insert(payload).select('id').single();
+    if (error) return { success: false, error: error.message };
+    return { success: true, id: (res as any).id };
   },
   async update(id: number, data: { name: string; description?: string; amount: number; classFilter?: string; feeCategory?: 'standard' | 'registration'; applicableTo?: string }) {
     const base = { name: data.name, description: data.description || null, amount: data.amount, class_filter: data.classFilter || null, fee_category: data.feeCategory || 'standard' };
@@ -590,21 +588,6 @@ export const userAPI = {
 };
 
 // ─── BUNDLES ──────────────────────────────────────────────────────────────────
-// applicable_to is encoded inside description using a non-printable separator (\x1F)
-// because the live DB may not have an applicable_to column.
-const BUNDLE_SEP = '\x1F';
-function encodeDesc(description: string | undefined, applicableTo: string): string {
-  const desc = description || '';
-  if (!applicableTo || applicableTo === 'All Students') return desc;
-  return `${desc}${BUNDLE_SEP}${applicableTo}`;
-}
-function decodeDesc(raw: string | null): { description: string; applicable_to: string } {
-  if (!raw) return { description: '', applicable_to: 'All Students' };
-  const idx = raw.indexOf(BUNDLE_SEP);
-  if (idx < 0) return { description: raw, applicable_to: 'All Students' };
-  return { description: raw.slice(0, idx), applicable_to: raw.slice(idx + 1) || 'All Students' };
-}
-
 function mapBundleItems(bundle_items: any[]) {
   return (bundle_items || []).map((bi: any) => ({
     id: bi.id,
@@ -620,19 +603,15 @@ export const bundleAPI = {
   async getAll() {
     const { data, error } = await supabase.from('bundles').select('*, bundle_items(*, inventory(item_id, item_name, selling_price, stock_quantity))').order('created_at', { ascending: false });
     if (error) throw error;
-    return (data || []).map((b: any) => {
-      const { description, applicable_to } = decodeDesc(b.description);
-      return { ...b, description: description || null, applicable_to, items: mapBundleItems(b.bundle_items) };
-    });
+    return (data || []).map((b: any) => ({ ...b, applicable_to: b.applicable_to || 'All Students', items: mapBundleItems(b.bundle_items) }));
   },
   async getById(id: number) {
     const { data, error } = await supabase.from('bundles').select('*, bundle_items(*, inventory(item_id, item_name, selling_price, stock_quantity))').eq('id', id).single();
     if (error) throw error;
-    const { description, applicable_to } = decodeDesc(data.description);
-    return { ...data, description: description || null, applicable_to, items: mapBundleItems(data.bundle_items) };
+    return { ...data, applicable_to: data.applicable_to || 'All Students', items: mapBundleItems(data.bundle_items) };
   },
   async create(data: { name: string; description?: string; basePrice: number; bundleType: 'acceptance' | 'registration' | 'custom'; applicableTo?: string; items: { itemId: number; quantity: number }[] }) {
-    const payload = { name: data.name, description: encodeDesc(data.description, data.applicableTo || 'All Students') || null, base_price: data.basePrice, bundle_type: data.bundleType };
+    const payload = { name: data.name, description: data.description || null, base_price: data.basePrice, bundle_type: data.bundleType, applicable_to: data.applicableTo || 'All Students' };
     const { data: res, error } = await supabase.from('bundles').insert(payload).select('id').single();
     if (error) return { success: false, error: error.message };
     const bundle = res as any;
@@ -642,7 +621,7 @@ export const bundleAPI = {
     return { success: true, id: bundle.id };
   },
   async update(id: number, data: { name: string; description?: string; basePrice: number; bundleType: 'acceptance' | 'registration' | 'custom'; applicableTo?: string; isActive?: boolean; items: { itemId: number; quantity: number }[] }) {
-    const payload = { name: data.name, description: encodeDesc(data.description, data.applicableTo || 'All Students') || null, base_price: data.basePrice, bundle_type: data.bundleType, is_active: data.isActive ?? true };
+    const payload = { name: data.name, description: data.description || null, base_price: data.basePrice, bundle_type: data.bundleType, is_active: data.isActive ?? true, applicable_to: data.applicableTo || 'All Students' };
     const { error } = await supabase.from('bundles').update(payload).eq('id', id);
     if (error) return { success: false, error: error.message };
     // Delete existing items and re-insert

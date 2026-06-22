@@ -4,7 +4,7 @@ import { feeTypeAPI, studentFeeAPI, studentAPI, settingsAPI } from '../../lib/ap
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-interface FeeType { id: number; name: string; description: string | null; academic_session: string; amount: number; class_filter: string | null; fee_category: string; applicable_to?: string; }
+interface FeeType { id: number; name: string; description: string | null; academic_session: string; term: string | null; amount: number; class_filter: string | null; fee_category: string; applicable_to?: string; }
 interface StudentFee { id: number; student_id: string; student_name: string; student_class: string; admission_type: string; student_status: string; fee_name: string; fee_category: string; academic_session: string; amount_due: number; amount_paid: number; balance: number; }
 
 const FeesManagement: React.FC = () => {
@@ -94,6 +94,7 @@ const FeesManagement: React.FC = () => {
         name: form.name,
         description: form.description || undefined,
         academicSession: currentSession,
+        term: currentTerm || undefined,
         amount,
         classFilter: classFilter || undefined,
         feeCategory: 'standard',
@@ -308,7 +309,7 @@ const FeesManagement: React.FC = () => {
         <div className="space-y-3">
           {feeTypes.filter((f) => {
             if (sessionFilter && f.academic_session !== sessionFilter) return false;
-            if (termFilter) { const key = termFilter.split(' ')[0].toLowerCase(); if (!(f.name + ' ' + (f.description || '')).toLowerCase().includes(key)) return false; }
+            if (termFilter && f.term !== termFilter) return false;
             return true;
           }).length === 0 ? (
             <div className="bg-white rounded-xl border border-dashed border-gray-200 p-12 text-center text-gray-400">
@@ -319,7 +320,7 @@ const FeesManagement: React.FC = () => {
             </div>
           ) : feeTypes.filter((f) => {
             if (sessionFilter && f.academic_session !== sessionFilter) return false;
-            if (termFilter) { const key = termFilter.split(' ')[0].toLowerCase(); if (!(f.name + ' ' + (f.description || '')).toLowerCase().includes(key)) return false; }
+            if (termFilter && f.term !== termFilter) return false;
             return true;
           }).map((ft) => {
             const assignments = ledger.filter((sf) => sf.fee_name === ft.name && sf.academic_session === ft.academic_session);
