@@ -1099,7 +1099,7 @@ const CashierPOS: React.FC = () => {
       const result = await applicantAPI.create({ firstName: data.firstName, lastName: data.lastName, proposedClass: data.proposedClass, studentStatus: data.studentStatus });
       if (result.success) {
         const applicant = await applicantAPI.getById(result.id);
-        setWalkInApplicant(applicant);
+        setWalkInApplicant({ ...applicant, student_status: data.studentStatus });
         setShowWalkIn(false);
         // Action menu will now appear — no auto popup
       } else setWalkInError(result.error || 'Failed to create applicant');
