@@ -16,6 +16,7 @@ interface Shift {
 
 interface ShiftContextType {
   activeShift: Shift | null;
+  isStaleShift: boolean;
   loading: boolean;
   openShift: (openingCash: number, userId: number) => Promise<boolean>;
   closeShift: (closingCash: number, userId: number) => Promise<{ expectedCash: number; difference: number } | null>;
@@ -72,8 +73,11 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeShift]);
 
+  const today = new Date().toDateString();
+  const isStaleShift = Boolean(activeShift && new Date(activeShift.opened_at).toDateString() !== today);
+
   return (
-    <ShiftContext.Provider value={{ activeShift, loading, openShift, closeShift, refreshShift }}>
+    <ShiftContext.Provider value={{ activeShift, isStaleShift, loading, openShift, closeShift, refreshShift }}>
       {children}
     </ShiftContext.Provider>
   );

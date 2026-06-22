@@ -87,7 +87,98 @@ function buildReceiptHtml(settings: any, txn: any, total: number, items: any[], 
   </body></html>`;
 }
 
-// ─── Shift Open Form ─────────────────────────────────────────────────────────
+// ─── Stale Shift Lockout ──────────────────────────────────────────────────────
+const StaleShiftLockout: React.FC<{
+  shift: { id: number; opened_at: string };
+  closeShift: (cash: number, uid: number) => Promise<{ expectedCash: number; difference: number } | null>;
+  userId: number;
+  onLogout: () => void;
+}> = ({ shift, closeShift, userId, onLogout }) => {
+  const [expectedCash, setExpectedCash] = useState<number | null>(null);
+  const [cash, setCash] = useState('');
+  const [err, setErr] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState<{ expectedCash: number; actualCash: number; difference: number } | null>(null);
+
+  useEffect(() => {
+    shiftAPI.getExpectedCash(shift.id).then(setExpectedCash).catch(() => setExpectedCash(0));
+  }, [shift.id]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = parseFloat(cash);
+    if (isNaN(val) || val < 0) { setErr('Enter a valid cash amount'); return; }
+    setLoading(true);
+    const result = await closeShift(val, userId);
+    setLoading(false);
+    if (result) setDone({ expectedCash: result.expectedCash, actualCash: val, difference: result.difference });
+    else setErr('Failed to close shift. Please try again.');
+  };
+
+  const shiftDate = new Date(shift.opened_at).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  if (done) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center">
+          <div className="w-14 h-14 bg-success-100 rounded-full flex items-center justify-center mx-auto mb-4"><CheckCircle className="w-7 h-7 text-success-600" /></div>
+          <h2 className="text-xl font-bold mb-1">Shift Closed</h2>
+          <p className="text-sm text-gray-500 mb-5">You can now open a new shift for today.</p>
+          <div className="space-y-2 mb-5 text-left">
+            <div className="flex justify-between bg-gray-50 rounded-lg px-4 py-2 text-sm"><span className="text-gray-500">Expected</span><span className="font-bold">{fmt(done.expectedCash)}</span></div>
+            <div className="flex justify-between bg-gray-50 rounded-lg px-4 py-2 text-sm"><span className="text-gray-500">Actual Count</span><span className="font-bold">{fmt(done.actualCash)}</span></div>
+            <div className={`flex justify-between rounded-lg px-4 py-2 text-sm ${done.difference === 0 ? 'bg-success-50' : done.difference < 0 ? 'bg-danger-50' : 'bg-primary-50'}`}>
+              <span className="text-gray-500">Difference</span>
+              <span className={`font-extrabold ${done.difference === 0 ? 'text-success-600' : done.difference < 0 ? 'text-danger-600' : 'text-primary-600'}`}>{fmt(done.difference)}</span>
+            </div>
+          </div>
+          <p className="text-xs text-gray-400">Reload the page to open a new shift.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8">
+        <div className="text-center mb-5">
+          <div className="w-14 h-14 bg-danger-100 rounded-full flex items-center justify-center mx-auto mb-3"><AlertTriangle className="w-7 h-7 text-danger-600" /></div>
+          <h2 className="text-xl font-bold text-gray-900">Stale Shift Detected</h2>
+          <p className="text-sm text-gray-500 mt-1">A shift from <strong>{shiftDate}</strong> is still open.</p>
+          <p className="text-sm text-danger-600 font-medium mt-2">You must close this shift before processing any new payments.</p>
+        </div>
+        {err && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{err}</div>}
+        {expectedCash === null ? (
+          <div className="text-center text-gray-400 py-4 text-sm">Calculating expected cash…</div>
+        ) : (
+          <>
+            <div className="bg-gray-50 rounded-xl p-3 mb-4 text-center">
+              <div className="text-xs text-gray-400 font-semibold uppercase">Expected Cash in Drawer</div>
+              <div className="text-2xl font-extrabold text-gray-900">{fmt(expectedCash)}</div>
+            </div>
+            <form onSubmit={handleSubmit}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Actual Cash Count</label>
+              <div className="relative mb-4">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold">₦</span>
+                <input type="number" min="0" step="0.01" value={cash} onChange={(e) => { setCash(e.target.value); setErr(''); }} className="w-full pl-8 pr-3 py-3 border border-gray-300 rounded-lg text-xl font-semibold focus:outline-none focus:ring-2 focus:ring-danger-500" placeholder="0.00" autoFocus />
+              </div>
+              {cash && !isNaN(parseFloat(cash)) && (
+                <div className={`rounded-xl p-3 mb-4 text-center ${parseFloat(cash) === expectedCash ? 'bg-success-50' : parseFloat(cash) < expectedCash ? 'bg-danger-50' : 'bg-primary-50'}`}>
+                  <div className="text-xs text-gray-400">Difference</div>
+                  <div className={`text-xl font-extrabold ${parseFloat(cash) === expectedCash ? 'text-success-600' : parseFloat(cash) < expectedCash ? 'text-danger-600' : 'text-primary-600'}`}>{fmt(parseFloat(cash) - expectedCash)}</div>
+                </div>
+              )}
+              <button type="submit" disabled={loading} className="w-full py-3 bg-danger-600 text-white font-bold rounded-xl hover:bg-danger-700 disabled:opacity-50">{loading ? 'Closing…' : 'Close Shift & Continue'}</button>
+            </form>
+          </>
+        )}
+        <button onClick={onLogout} className="w-full mt-3 py-2 text-gray-400 hover:text-gray-600 text-sm">Log Out</button>
+      </div>
+    </div>
+  );
+};
+
+// ─── Open Shift Form ──────────────────────────────────────────────────────────
 const ShiftOpenForm: React.FC<{ userId: number; openShift: (cash: number, uid: number) => Promise<boolean>; onLogout: () => void }> = ({ userId, openShift, onLogout }) => {
   const [opening, setOpening] = useState('');
   const [loading, setLoading] = useState(false);
@@ -741,7 +832,7 @@ const WalkInBundleModal: React.FC<{
 // ─── Main CashierPOS ─────────────────────────────────────────────────────────
 const CashierPOS: React.FC = () => {
   const { user, logout } = useAuth();
-  const { activeShift, openShift, closeShift } = useShift();
+  const { activeShift, isStaleShift, openShift, closeShift } = useShift();
 
   const [tab, setTab] = useState<SideTab>('sale');
   const [saleMode, setSaleMode] = useState<SaleMode>('store');
@@ -1239,6 +1330,7 @@ const CashierPOS: React.FC = () => {
   };
 
   if (!activeShift) return <ShiftOpenForm userId={user?.id || 0} openShift={openShift} onLogout={logout} />;
+  if (isStaleShift) return <StaleShiftLockout shift={activeShift} closeShift={closeShift} userId={user?.id || 0} onLogout={logout} />;
 
   const shiftCash = historyTxns.filter((t) => t.payment_mode === 'Cash').reduce((s, t) => s + Number(t.amount_paid), 0);
   const shiftPOS = historyTxns.filter((t) => t.payment_mode === 'POS_Transfer').reduce((s, t) => s + Number(t.amount_paid), 0);
