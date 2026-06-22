@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronDown, ChevronRight, Users, Tag, X, AlertCircle, CheckCircle, Pencil, Trash2, BarChart2 } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, ChevronLeft, Users, Tag, X, AlertCircle, CheckCircle, Pencil, Trash2, BarChart2, Search, Receipt, FileText, GraduationCap } from 'lucide-react';
 import { feeTypeAPI, studentFeeAPI, studentAPI, settingsAPI } from '../../lib/api';
 import StudentTimeline from './StudentTimeline';
 
@@ -287,6 +287,11 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
   const paginatedLedger = filteredLedger.slice((ledgerPage - 1) * ledgerPageSize, ledgerPage * ledgerPageSize);
   const ledgerTotalPages = Math.ceil(filteredLedger.length / ledgerPageSize);
 
+  const isBlankSearch = ledgerSearch.trim() === '';
+  const isSingleStudent = !isBlankSearch && filteredLedger.length === 1;
+  const focusStudent = isSingleStudent ? filteredLedger[0] : null;
+  const focusStudentFees = focusStudent ? ledger.filter((sf) => sf.student_id === focusStudent.student_id) : [];
+
   return (
     <div>
       {/* Header */}
@@ -404,85 +409,231 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
             </select>
           </div>
 
-          {/* Analytics Summary Cards */}
-          <div className="grid grid-cols-3 gap-4 mb-4">
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <div className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-1">Total Expected Revenue</div>
-              <div className="text-xl font-extrabold text-gray-900">{fmt(totalExpectedRevenue)}</div>
-              <div className="text-xs text-gray-400 mt-1">{filteredLedger.length} student{filteredLedger.length !== 1 ? 's' : ''}</div>
-            </div>
-            <div className="bg-success-50 rounded-xl border border-success-200 shadow-sm p-4">
-              <div className="text-xs text-success-600 font-semibold uppercase tracking-wider mb-1">Total Revenue Collected</div>
-              <div className="text-xl font-extrabold text-success-700">{fmt(totalCollected)}</div>
-              <div className="text-xs text-success-500 mt-1">{totalExpectedRevenue > 0 ? ((totalCollected / totalExpectedRevenue) * 100).toFixed(1) : '0.0'}% collected</div>
-            </div>
-            <div className="bg-danger-50 rounded-xl border border-danger-200 shadow-sm p-4">
-              <div className="text-xs text-danger-600 font-semibold uppercase tracking-wider mb-1">Total Outstanding Debt</div>
-              <div className="text-xl font-extrabold text-danger-700">{fmt(totalOutstanding)}</div>
-              <div className="text-xs text-danger-500 mt-1">{filteredLedger.filter((s) => s.netBalance > 0).length} students owing</div>
-            </div>
-          </div>
-
           {/* click outside to close action menus */}
           {openActionMenu && <div className="fixed inset-0 z-10" onClick={() => setOpenActionMenu(null)} />}
 
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  {['Student ID', 'Student Name', 'Class', 'Status', 'Arrears B/F', 'Current Term Bill', 'Total Paid', 'Net Balance Due', 'Actions'].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedLedger.length === 0 ? (
-                  <tr><td colSpan={9} className="text-center py-12 text-gray-400">No students match your filters</td></tr>
-                ) : paginatedLedger.map((s) => (
-                  <tr key={s.student_id} className={`border-t ${s.netBalance > 0 ? 'hover:bg-danger-50' : 'hover:bg-success-50'}`}>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{s.student_id}</td>
-                    <td className="px-4 py-3 font-semibold text-gray-900">{s.student_name}</td>
-                    <td className="px-4 py-3"><span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{s.student_class}</span></td>
-                    <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${s.student_status === 'Boarding' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-500'}`}>{s.student_status || 'Day'}</span></td>
-                    <td className="px-4 py-3 font-semibold text-warning-700">{fmt(s.arrearsForward)}</td>
-                    <td className="px-4 py-3 font-semibold text-gray-800">{fmt(s.currentTermBill)}</td>
-                    <td className="px-4 py-3 font-semibold text-success-700">{fmt(s.totalPaid)}</td>
-                    <td className="px-4 py-3">
-                      {s.netBalance <= 0
-                        ? <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-success-100 text-success-700 rounded-full text-xs font-bold"><CheckCircle className="w-3 h-3" /> Cleared</span>
-                        : <span className="font-bold text-danger-600">{fmt(s.netBalance)}</span>}
-                    </td>
-                    <td className="px-4 py-3 relative">
-                      <button
-                        onClick={() => setOpenActionMenu(openActionMenu === s.student_id ? null : s.student_id)}
-                        className="px-3 py-1.5 bg-gray-100 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-200 flex items-center gap-1 z-20 relative"
-                      >
-                        Actions <ChevronDown className="w-3 h-3" />
-                      </button>
-                      {openActionMenu === s.student_id && (
-                        <div className="absolute right-4 top-10 z-30 bg-white border border-gray-200 rounded-xl shadow-xl w-48 py-1">
-                          <button onClick={() => openTimeline(s)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-primary-50 flex items-center gap-2 text-gray-700 hover:text-primary-700">
-                            <BarChart2 className="w-3.5 h-3.5" /> View Timeline
-                          </button>
-                          <button onClick={() => openManageFees(s)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-primary-50 flex items-center gap-2 text-gray-700 hover:text-primary-700">
-                            <Plus className="w-3.5 h-3.5" /> Manage Fees
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Ledger Pagination */}
-          {ledgerTotalPages > 1 && (
-            <div className="flex items-center justify-center gap-3 mt-4">
-              <button onClick={() => setLedgerPage((p) => Math.max(1, p - 1))} disabled={ledgerPage <= 1} className="p-2 rounded-lg bg-white border hover:bg-gray-50 disabled:opacity-30"><ChevronLeft className="w-4 h-4" /></button>
-              <span className="text-sm text-gray-500 font-medium">Page {ledgerPage} of {ledgerTotalPages} ({filteredLedger.length} students)</span>
-              <button onClick={() => setLedgerPage((p) => Math.min(ledgerTotalPages, p + 1))} disabled={ledgerPage >= ledgerTotalPages} className="p-2 rounded-lg bg-white border hover:bg-gray-50 disabled:opacity-30"><ChevronRight className="w-4 h-4" /></button>
+          {isBlankSearch ? (
+            /* ── Blank-search instructional state ─────────────────── */
+            <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-16 text-center mt-2">
+              <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Search className="w-8 h-8 text-gray-300" />
+              </div>
+              <p className="text-gray-500 font-semibold text-base mb-1">No student selected</p>
+              <p className="text-gray-400 text-sm max-w-sm mx-auto">Search for a student profile above to view their active financial timeline statement history.</p>
             </div>
+          ) : isSingleStudent && focusStudent ? (
+            /* ── Single-student Financial Statement Workspace ──────── */
+            <div className="flex gap-5 items-start">
+
+              {/* Left: Profile card */}
+              <div className="w-60 shrink-0">
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 sticky top-4">
+                  <div className="w-14 h-14 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <GraduationCap className="w-7 h-7 text-primary-600" />
+                  </div>
+                  <div className="text-center mb-4">
+                    <h3 className="font-bold text-gray-900 text-sm leading-tight">{focusStudent.student_name}</h3>
+                    <p className="text-xs text-gray-400 font-mono mt-1">{focusStudent.student_id}</p>
+                    <div className="flex items-center justify-center gap-1.5 mt-2 flex-wrap">
+                      <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{focusStudent.student_class}</span>
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${focusStudent.student_status === 'Boarding' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {focusStudent.student_status || 'Day'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Mini financial summary */}
+                  <div className="space-y-2.5 border-t pt-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-400">Arrears B/F</span>
+                      <span className="text-sm font-bold text-warning-700">{fmt(focusStudent.arrearsForward)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-400">Current Bill</span>
+                      <span className="text-sm font-bold text-gray-800">{fmt(focusStudent.currentTermBill)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-400">Total Paid</span>
+                      <span className="text-sm font-bold text-success-700">{fmt(focusStudent.totalPaid)}</span>
+                    </div>
+                    <div className="border-t pt-2.5 flex justify-between items-center">
+                      <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Balance</span>
+                      {focusStudent.netBalance <= 0
+                        ? <span className="text-xs font-bold text-success-600 flex items-center gap-1"><CheckCircle className="w-3.5 h-3.5" /> Cleared</span>
+                        : <span className="text-sm font-extrabold text-danger-600">{fmt(focusStudent.netBalance)}</span>}
+                    </div>
+                  </div>
+
+                  {/* Quick actions */}
+                  <div className="mt-4 space-y-2 border-t pt-4">
+                    <button onClick={() => openTimeline(focusStudent)} className="w-full flex items-center gap-2 justify-center px-3 py-2 bg-primary-50 text-primary-700 rounded-lg text-sm font-semibold hover:bg-primary-100 transition-colors">
+                      <BarChart2 className="w-3.5 h-3.5" /> Full Timeline
+                    </button>
+                    <button onClick={() => openManageFees(focusStudent)} className="w-full flex items-center gap-2 justify-center px-3 py-2 bg-gray-50 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-100 transition-colors">
+                      <Plus className="w-3.5 h-3.5" /> Manage Fees
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: Fee Statement Feed */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="font-bold text-gray-800">Financial Statement Feed</h3>
+                    <p className="text-xs text-gray-400 mt-0.5">{focusStudentFees.length} fee record{focusStudentFees.length !== 1 ? 's' : ''} across all sessions</p>
+                  </div>
+                  {focusStudent.netBalance <= 0
+                    ? <span className="flex items-center gap-1.5 px-3 py-1.5 bg-success-100 text-success-700 rounded-full text-xs font-bold"><CheckCircle className="w-3.5 h-3.5" /> Account Cleared</span>
+                    : <span className="flex items-center gap-1.5 px-3 py-1.5 bg-danger-100 text-danger-700 rounded-full text-xs font-bold"><AlertCircle className="w-3.5 h-3.5" /> {fmt(focusStudent.netBalance)} Outstanding</span>}
+                </div>
+
+                {focusStudentFees.length === 0 ? (
+                  <div className="bg-white rounded-xl border border-dashed border-gray-200 p-10 text-center text-gray-400">
+                    <FileText className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm font-medium">No fee records found for this student.</p>
+                    <button onClick={() => openManageFees(focusStudent)} className="mt-3 px-4 py-1.5 bg-primary-600 text-white rounded-lg text-xs font-semibold hover:bg-primary-700">Assign First Fee</button>
+                  </div>
+                ) : (
+                  <div className="relative space-y-3">
+                    {/* Vertical timeline spine */}
+                    <div className="absolute left-5 top-6 bottom-6 w-0.5 bg-gray-100 rounded-full" />
+
+                    {focusStudentFees.map((sf) => {
+                      const bal = Number(sf.balance);
+                      const paid = Number(sf.amount_paid);
+                      const due = Number(sf.amount_due);
+                      const cleared = bal <= 0;
+                      return (
+                        <div key={sf.id} className="relative flex gap-4">
+                          {/* Timeline badge */}
+                          <div className={`relative z-10 w-10 h-10 rounded-full flex items-center justify-center shrink-0 border-2 shadow-sm ${cleared ? 'bg-success-50 border-success-200' : 'bg-amber-50 border-amber-200'}`}>
+                            {cleared
+                              ? <CheckCircle className="w-4 h-4 text-success-600" />
+                              : <Receipt className="w-4 h-4 text-amber-600" />}
+                          </div>
+
+                          {/* Statement card */}
+                          <div className="flex-1 bg-white rounded-xl border border-gray-200 shadow-sm p-4 min-w-0">
+                            {/* Header row */}
+                            <div className="flex items-start justify-between gap-2 mb-3">
+                              <div>
+                                <h4 className="font-bold text-gray-900 text-sm">{sf.fee_name}</h4>
+                                <p className="text-xs text-gray-400 mt-0.5 capitalize">
+                                  {sf.academic_session}
+                                  {(sf as any).term ? ` · ${(sf as any).term}` : ''}
+                                  {' · '}{sf.fee_category}
+                                </p>
+                              </div>
+                              {cleared
+                                ? <span className="px-2.5 py-0.5 bg-success-100 text-success-700 text-xs font-bold rounded-full shrink-0">✓ Cleared</span>
+                                : <span className="px-2.5 py-0.5 bg-amber-100 text-amber-700 text-xs font-bold rounded-full shrink-0">Owing</span>}
+                            </div>
+
+                            {/* Debit / Credit / Balance grid */}
+                            <div className="grid grid-cols-3 gap-2">
+                              <div className="bg-gray-50 rounded-lg px-3 py-2.5 border border-gray-100">
+                                <div className="text-xs text-gray-400 mb-1 font-medium">Charged (Debit)</div>
+                                <div className="text-sm font-extrabold text-gray-800">{fmt(due)}</div>
+                              </div>
+                              <div className="bg-success-50 rounded-lg px-3 py-2.5 border border-success-100">
+                                <div className="text-xs text-success-600 mb-1 font-medium">Paid (Credit)</div>
+                                <div className="text-sm font-extrabold text-success-700">{fmt(paid)}</div>
+                              </div>
+                              <div className={`rounded-lg px-3 py-2.5 border ${cleared ? 'bg-gray-50 border-gray-100' : 'bg-danger-50 border-danger-100'}`}>
+                                <div className={`text-xs mb-1 font-medium ${cleared ? 'text-gray-400' : 'text-danger-600'}`}>Balance Due</div>
+                                <div className={`text-sm font-extrabold ${cleared ? 'text-gray-400' : 'text-danger-700'}`}>{fmt(Math.max(0, bal))}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* ── Multi-student table (default) ─────────────────────── */
+            <>
+              {/* Analytics Summary Cards */}
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                  <div className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-1">Total Expected Revenue</div>
+                  <div className="text-xl font-extrabold text-gray-900">{fmt(totalExpectedRevenue)}</div>
+                  <div className="text-xs text-gray-400 mt-1">{filteredLedger.length} student{filteredLedger.length !== 1 ? 's' : ''}</div>
+                </div>
+                <div className="bg-success-50 rounded-xl border border-success-200 shadow-sm p-4">
+                  <div className="text-xs text-success-600 font-semibold uppercase tracking-wider mb-1">Total Revenue Collected</div>
+                  <div className="text-xl font-extrabold text-success-700">{fmt(totalCollected)}</div>
+                  <div className="text-xs text-success-500 mt-1">{totalExpectedRevenue > 0 ? ((totalCollected / totalExpectedRevenue) * 100).toFixed(1) : '0.0'}% collected</div>
+                </div>
+                <div className="bg-danger-50 rounded-xl border border-danger-200 shadow-sm p-4">
+                  <div className="text-xs text-danger-600 font-semibold uppercase tracking-wider mb-1">Total Outstanding Debt</div>
+                  <div className="text-xl font-extrabold text-danger-700">{fmt(totalOutstanding)}</div>
+                  <div className="text-xs text-danger-500 mt-1">{filteredLedger.filter((s) => s.netBalance > 0).length} students owing</div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      {['Student ID', 'Student Name', 'Class', 'Status', 'Arrears B/F', 'Current Term Bill', 'Total Paid', 'Net Balance Due', 'Actions'].map((h) => (
+                        <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedLedger.length === 0 ? (
+                      <tr><td colSpan={9} className="text-center py-12 text-gray-400">No students match your filters</td></tr>
+                    ) : paginatedLedger.map((s) => (
+                      <tr key={s.student_id} className={`border-t ${s.netBalance > 0 ? 'hover:bg-danger-50' : 'hover:bg-success-50'}`}>
+                        <td className="px-4 py-3 font-mono text-xs text-gray-500">{s.student_id}</td>
+                        <td className="px-4 py-3 font-semibold text-gray-900">{s.student_name}</td>
+                        <td className="px-4 py-3"><span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{s.student_class}</span></td>
+                        <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${s.student_status === 'Boarding' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-500'}`}>{s.student_status || 'Day'}</span></td>
+                        <td className="px-4 py-3 font-semibold text-warning-700">{fmt(s.arrearsForward)}</td>
+                        <td className="px-4 py-3 font-semibold text-gray-800">{fmt(s.currentTermBill)}</td>
+                        <td className="px-4 py-3 font-semibold text-success-700">{fmt(s.totalPaid)}</td>
+                        <td className="px-4 py-3">
+                          {s.netBalance <= 0
+                            ? <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-success-100 text-success-700 rounded-full text-xs font-bold"><CheckCircle className="w-3 h-3" /> Cleared</span>
+                            : <span className="font-bold text-danger-600">{fmt(s.netBalance)}</span>}
+                        </td>
+                        <td className="px-4 py-3 relative">
+                          <button
+                            onClick={() => setOpenActionMenu(openActionMenu === s.student_id ? null : s.student_id)}
+                            className="px-3 py-1.5 bg-gray-100 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-200 flex items-center gap-1 z-20 relative"
+                          >
+                            Actions <ChevronDown className="w-3 h-3" />
+                          </button>
+                          {openActionMenu === s.student_id && (
+                            <div className="absolute right-4 top-10 z-30 bg-white border border-gray-200 rounded-xl shadow-xl w-48 py-1">
+                              <button onClick={() => openTimeline(s)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-primary-50 flex items-center gap-2 text-gray-700 hover:text-primary-700">
+                                <BarChart2 className="w-3.5 h-3.5" /> View Timeline
+                              </button>
+                              <button onClick={() => openManageFees(s)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-primary-50 flex items-center gap-2 text-gray-700 hover:text-primary-700">
+                                <Plus className="w-3.5 h-3.5" /> Manage Fees
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Ledger Pagination */}
+              {ledgerTotalPages > 1 && (
+                <div className="flex items-center justify-center gap-3 mt-4">
+                  <button onClick={() => setLedgerPage((p) => Math.max(1, p - 1))} disabled={ledgerPage <= 1} className="p-2 rounded-lg bg-white border hover:bg-gray-50 disabled:opacity-30"><ChevronLeft className="w-4 h-4" /></button>
+                  <span className="text-sm text-gray-500 font-medium">Page {ledgerPage} of {ledgerTotalPages} ({filteredLedger.length} students)</span>
+                  <button onClick={() => setLedgerPage((p) => Math.min(ledgerTotalPages, p + 1))} disabled={ledgerPage >= ledgerTotalPages} className="p-2 rounded-lg bg-white border hover:bg-gray-50 disabled:opacity-30"><ChevronRight className="w-4 h-4" /></button>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
