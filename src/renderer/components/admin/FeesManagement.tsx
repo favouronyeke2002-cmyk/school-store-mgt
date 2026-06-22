@@ -54,6 +54,14 @@ const FeesManagement: React.FC = () => {
   const [ledgerStatus, setLedgerStatus] = useState<'all' | 'outstanding' | 'paid'>('all');
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState<'all' | 'Day' | 'Boarding'>('all');
 
+  // Manage Fees modal (per ledger row)
+  const [showManageFees, setShowManageFees] = useState(false);
+  const [manageFeeStudent, setManageFeeStudent] = useState<{ student_id: string; student_name: string; student_class: string } | null>(null);
+  const [manageFeeSelected, setManageFeeSelected] = useState<number[]>([]);
+  const [manageFeesSaving, setManageFeesSaving] = useState(false);
+  const [manageFeesError, setManageFeesError] = useState('');
+  const [openActionMenu, setOpenActionMenu] = useState<string | null>(null);
+
   useEffect(() => {
     load();
     studentAPI.getClasses().then(setClasses).catch(console.error);
@@ -158,6 +166,31 @@ const FeesManagement: React.FC = () => {
 
   const openAssign = (ft: FeeType) => { setAssignTarget(ft); setAssignClass(ft.class_filter || ''); setAssignSpecific(''); setAssignError(''); setAssignResult(''); setShowAssign(true); };
 
+  const openManageFees = (s: { student_id: string; student_name: string; student_class: string }) => {
+    setManageFeeStudent(s);
+    setManageFeeSelected([]);
+    setManageFeesError('');
+    setShowManageFees(true);
+    setOpenActionMenu(null);
+  };
+
+  const saveManageFees = async () => {
+    if (!manageFeeStudent || manageFeeSelected.length === 0) { setManageFeesError('Select at least one fee template to assign.'); return; }
+    setManageFeesSaving(true);
+    setManageFeesError('');
+    try {
+      for (const feeId of manageFeeSelected) {
+        const ft = feeTypes.find((f) => f.id === feeId);
+        if (ft) await feeTypeAPI.assignToStudents(feeId, ft.amount, undefined, manageFeeStudent.student_id, ft.fee_category as 'standard' | 'registration');
+      }
+      setShowManageFees(false);
+      load();
+    } catch (e) { setManageFeesError((e as Error).message); }
+    setManageFeesSaving(false);
+  };
+
+  const toggleManageFee = (id: number) => setManageFeeSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+
   // Per-student aggregation for the Student Ledger
   const perStudentLedger = (() => {
     const map = new Map<string, {
@@ -191,6 +224,8 @@ const FeesManagement: React.FC = () => {
   });
 
   const totalOutstanding = filteredLedger.filter((s) => s.netBalance > 0).reduce((sum, s) => sum + s.netBalance, 0);
+  const totalExpectedRevenue = filteredLedger.reduce((sum, s) => sum + s.totalPaid + Math.max(0, s.netBalance), 0);
+  const totalCollected = filteredLedger.reduce((sum, s) => sum + s.totalPaid, 0);
   const paginatedLedger = filteredLedger.slice((ledgerPage - 1) * ledgerPageSize, ledgerPage * ledgerPageSize);
   const ledgerTotalPages = Math.ceil(filteredLedger.length / ledgerPageSize);
 
@@ -311,25 +346,40 @@ const FeesManagement: React.FC = () => {
             </select>
           </div>
 
-          {totalOutstanding > 0 && (
-            <div className="bg-danger-50 border border-danger-200 rounded-lg px-4 py-2 mb-4 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-danger-500 shrink-0" />
-              <span className="text-sm text-danger-700">Total Outstanding: <strong>{fmt(totalOutstanding)}</strong> across {filteredLedger.filter((s) => s.netBalance > 0).length} students</span>
+          {/* Analytics Summary Cards */}
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+              <div className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-1">Total Expected Revenue</div>
+              <div className="text-xl font-extrabold text-gray-900">{fmt(totalExpectedRevenue)}</div>
+              <div className="text-xs text-gray-400 mt-1">{filteredLedger.length} student{filteredLedger.length !== 1 ? 's' : ''}</div>
             </div>
-          )}
+            <div className="bg-success-50 rounded-xl border border-success-200 shadow-sm p-4">
+              <div className="text-xs text-success-600 font-semibold uppercase tracking-wider mb-1">Total Revenue Collected</div>
+              <div className="text-xl font-extrabold text-success-700">{fmt(totalCollected)}</div>
+              <div className="text-xs text-success-500 mt-1">{totalExpectedRevenue > 0 ? ((totalCollected / totalExpectedRevenue) * 100).toFixed(1) : '0.0'}% collected</div>
+            </div>
+            <div className="bg-danger-50 rounded-xl border border-danger-200 shadow-sm p-4">
+              <div className="text-xs text-danger-600 font-semibold uppercase tracking-wider mb-1">Total Outstanding Debt</div>
+              <div className="text-xl font-extrabold text-danger-700">{fmt(totalOutstanding)}</div>
+              <div className="text-xs text-danger-500 mt-1">{filteredLedger.filter((s) => s.netBalance > 0).length} students owing</div>
+            </div>
+          </div>
+
+          {/* click outside to close action menus */}
+          {openActionMenu && <div className="fixed inset-0 z-10" onClick={() => setOpenActionMenu(null)} />}
 
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b">
                 <tr>
-                  {['Student ID', 'Student Name', 'Class', 'Status', 'Arrears B/F', 'Current Term Bill', 'Total Paid', 'Net Balance Due'].map((h) => (
+                  {['Student ID', 'Student Name', 'Class', 'Status', 'Arrears B/F', 'Current Term Bill', 'Total Paid', 'Net Balance Due', 'Actions'].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {paginatedLedger.length === 0 ? (
-                  <tr><td colSpan={8} className="text-center py-12 text-gray-400">No students match your filters</td></tr>
+                  <tr><td colSpan={9} className="text-center py-12 text-gray-400">No students match your filters</td></tr>
                 ) : paginatedLedger.map((s) => (
                   <tr key={s.student_id} className={`border-t ${s.netBalance > 0 ? 'hover:bg-danger-50' : 'hover:bg-success-50'}`}>
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">{s.student_id}</td>
@@ -339,7 +389,26 @@ const FeesManagement: React.FC = () => {
                     <td className="px-4 py-3 font-semibold text-warning-700">{fmt(s.arrearsForward)}</td>
                     <td className="px-4 py-3 font-semibold text-gray-800">{fmt(s.currentTermBill)}</td>
                     <td className="px-4 py-3 font-semibold text-success-700">{fmt(s.totalPaid)}</td>
-                    <td className={`px-4 py-3 font-bold text-base ${s.netBalance > 0 ? 'text-danger-600' : 'text-success-600'}`}>{fmt(s.netBalance)}</td>
+                    <td className="px-4 py-3">
+                      {s.netBalance <= 0
+                        ? <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-success-100 text-success-700 rounded-full text-xs font-bold"><CheckCircle className="w-3 h-3" /> Cleared</span>
+                        : <span className="font-bold text-danger-600">{fmt(s.netBalance)}</span>}
+                    </td>
+                    <td className="px-4 py-3 relative">
+                      <button
+                        onClick={() => setOpenActionMenu(openActionMenu === s.student_id ? null : s.student_id)}
+                        className="px-3 py-1.5 bg-gray-100 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-200 flex items-center gap-1 z-20 relative"
+                      >
+                        Actions <ChevronDown className="w-3 h-3" />
+                      </button>
+                      {openActionMenu === s.student_id && (
+                        <div className="absolute right-4 top-10 z-30 bg-white border border-gray-200 rounded-xl shadow-xl w-44 py-1">
+                          <button onClick={() => openManageFees(s)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-primary-50 flex items-center gap-2 text-gray-700 hover:text-primary-700">
+                            <Plus className="w-3.5 h-3.5" /> Manage Fees
+                          </button>
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -357,19 +426,62 @@ const FeesManagement: React.FC = () => {
         </div>
       )}
 
+      {/* Manage Fees Modal (per student row) */}
+      {showManageFees && manageFeeStudent && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-bold">Manage Fees</h2>
+                <p className="text-sm text-gray-500">{manageFeeStudent.student_name} · {manageFeeStudent.student_class}</p>
+              </div>
+              <button onClick={() => setShowManageFees(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            {manageFeesError && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{manageFeesError}</div>}
+            <p className="text-xs text-gray-400 mb-3">Select fee templates to assign to this student. Already-assigned fees are skipped automatically.</p>
+            <div className="space-y-2 max-h-64 overflow-auto border border-gray-200 rounded-xl p-2 mb-4">
+              {feeTypes.filter((ft) => !ft.class_filter || ft.class_filter === manageFeeStudent.student_class).length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4 italic">No fee templates available for this class.</p>
+              ) : feeTypes.filter((ft) => !ft.class_filter || ft.class_filter === manageFeeStudent.student_class).map((ft) => (
+                <label key={ft.id} className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer border transition-all ${manageFeeSelected.includes(ft.id) ? 'border-primary-400 bg-primary-50' : 'border-gray-100 hover:bg-gray-50'}`}>
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" checked={manageFeeSelected.includes(ft.id)} onChange={() => toggleManageFee(ft.id)} className="rounded" />
+                    <div>
+                      <div className="text-sm font-medium text-gray-800">{ft.name}</div>
+                      <div className="text-xs text-gray-400">{ft.academic_session}</div>
+                    </div>
+                  </div>
+                  <span className="text-sm font-bold text-gray-700">{fmt(ft.amount)}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowManageFees(false)} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
+              <button onClick={saveManageFees} disabled={manageFeesSaving || manageFeeSelected.length === 0} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">
+                {manageFeesSaving ? 'Assigning…' : `Assign ${manageFeeSelected.length > 0 ? `(${manageFeeSelected.length})` : ''}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Create Fee Type Modal */}
       {showCreate && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
-            <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">Create Fee Type</h2>
               <button onClick={() => setShowCreate(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="flex items-center gap-2 bg-primary-50 border border-primary-200 rounded-lg px-3 py-2 mb-4">
+              <AlertCircle className="w-4 h-4 text-primary-500 shrink-0" />
+              <span className="text-xs text-primary-700">Auto-tagged to <strong>{currentSession}</strong> · <strong>{currentTerm}</strong></span>
             </div>
             {formError && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{formError}</div>}
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Fee Name <span className="text-danger-500">*</span></label>
-                <input type="text" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. 1st Term School Fees" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required />
+                <input type="text" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. 1st Term School Fees" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required autoFocus />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Description</label>
@@ -380,10 +492,10 @@ const FeesManagement: React.FC = () => {
                 <input type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((p) => ({ ...p, amount: e.target.value }))} placeholder="0.00" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">Target Class (optional)</label>
-                <p className="text-xs text-gray-400 mb-1">If set, auto-assigns to Returning students in this class. Leave empty for all Returning students.</p>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Target Class <span className="text-gray-400 font-normal">(optional)</span></label>
+                <p className="text-xs text-gray-400 mb-1">Restrict auto-assignment to a specific class. Leave empty for all classes.</p>
                 <select value={form.classFilter} onChange={(e) => setForm((p) => ({ ...p, classFilter: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
-                  <option value="">All Students</option>
+                  <option value="">All Classes</option>
                   {classes.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
@@ -395,7 +507,7 @@ const FeesManagement: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">Applicable To</label>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Residency <span className="text-gray-400 font-normal">(applicable to)</span></label>
                 <div className="grid grid-cols-3 gap-2">
                   {['All Students', 'Day', 'Boarding'].map((opt) => (
                     <button key={opt} type="button" onClick={() => setForm((p) => ({ ...p, applicableTo: opt }))} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${form.applicableTo === opt ? 'bg-gray-700 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`}>{opt}</button>

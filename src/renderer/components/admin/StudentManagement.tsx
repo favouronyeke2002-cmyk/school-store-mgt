@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Trash2, Pencil, X, UserPlus, AlertCircle, ToggleLeft, ToggleRight, ExternalLink, CheckCircle } from 'lucide-react';
-import { studentAPI, feeTypeAPI, settingsAPI, studentFeeAPI } from '../../lib/api';
+import { ChevronLeft, ChevronRight, Trash2, Pencil, X, UserPlus, AlertCircle, ExternalLink, CheckCircle } from 'lucide-react';
+import { studentAPI, feeTypeAPI, settingsAPI } from '../../lib/api';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -10,7 +10,7 @@ interface FeeType { id: number; name: string; amount: number; fee_category: stri
 const DEFAULT_CLASSES = ['JSS1A', 'JSS1B', 'JSS2A', 'JSS2B', 'JSS3A', 'JSS3B', 'SS1A', 'SS1B', 'SS2A', 'SS2B', 'SS3A', 'SS3B'];
 const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400';
 
-const StudentManagement: React.FC = () => {
+const StudentManagement: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigate }) => {
   const [students, setStudents] = useState<Student[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -37,16 +37,9 @@ const StudentManagement: React.FC = () => {
   const [formError, setFormError] = useState('');
   const [formSaving, setFormSaving] = useState(false);
 
-  const [editData, setEditData] = useState({
-    name: '', studentClass: '', studentStatus: 'Day' as 'Day' | 'Boarding',
-    selectedFeeIds: [] as number[],
-    manualAdjOn: false, manualAdjAmount: '', manualAdjReason: '',
-  });
+  const [editData, setEditData] = useState({ name: '', studentClass: '', studentStatus: 'Day' as 'Day' | 'Boarding' });
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
-
-  const [editStudentFees, setEditStudentFees] = useState<any[]>([]);
-  const [editFeesLoading, setEditFeesLoading] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -121,49 +114,19 @@ const StudentManagement: React.FC = () => {
 
   const openEditStudent = (s: Student) => {
     setSelectedStudent(s);
-    setEditData({
-      name: s.name, studentClass: s.student_class,
-      studentStatus: (s.student_status as 'Day' | 'Boarding') || 'Day',
-      selectedFeeIds: [],
-      manualAdjOn: false, manualAdjAmount: '', manualAdjReason: '',
-    });
+    setEditData({ name: s.name, studentClass: s.student_class, studentStatus: (s.student_status as 'Day' | 'Boarding') || 'Day' });
     setEditError('');
-    setEditStudentFees([]);
     setShowEditStudent(true);
-    setEditFeesLoading(true);
-    studentFeeAPI.getForStudent(s.student_id)
-      .then(setEditStudentFees)
-      .catch(console.error)
-      .finally(() => setEditFeesLoading(false));
   };
 
   const handleEditStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStudent) return;
     if (!editData.name.trim() || !editData.studentClass) { setEditError('Name and class are required.'); return; }
-    if (editData.manualAdjOn && !editData.manualAdjReason.trim()) { setEditError('Please provide a reason for the manual adjustment.'); return; }
-    if (editData.manualAdjOn && editData.manualAdjAmount === '') { setEditError('Please enter an adjustment amount.'); return; }
     setEditSaving(true);
     setEditError('');
     try {
-      await studentAPI.update(selectedStudent.student_id, {
-        name: editData.name.trim(),
-        studentClass: editData.studentClass,
-        studentStatus: editData.studentStatus,
-      });
-      // Assign selected fee templates
-      for (const feeId of editData.selectedFeeIds) {
-        const ft = feeTypes.find((f) => f.id === feeId);
-        if (ft) await feeTypeAPI.assignToStudents(feeId, Number(ft.amount), undefined, selectedStudent.student_id, ft.fee_category as 'standard' | 'registration');
-      }
-      // Manual adjustment: apply balance change
-      if (editData.manualAdjOn && editData.manualAdjAmount !== '') {
-        const adjAmount = parseFloat(editData.manualAdjAmount);
-        if (!isNaN(adjAmount)) {
-          const newBalance = Math.max(0, selectedStudent.current_fees_owed + adjAmount);
-          await studentAPI.updateFees(selectedStudent.student_id, newBalance);
-        }
-      }
+      await studentAPI.update(selectedStudent.student_id, { name: editData.name.trim(), studentClass: editData.studentClass, studentStatus: editData.studentStatus });
       setShowEditStudent(false);
       setSelectedStudent(null);
       load();
@@ -180,28 +143,12 @@ const StudentManagement: React.FC = () => {
     }));
   };
 
-  const toggleEditFeeSelection = (id: number) => {
-    setEditData((prev) => ({
-      ...prev,
-      selectedFeeIds: prev.selectedFeeIds.includes(id)
-        ? prev.selectedFeeIds.filter((x) => x !== id)
-        : [...prev.selectedFeeIds, id],
-    }));
-  };
-
   const filteredFeeTypes = feeTypes.filter((ft) =>
     !ft.class_filter || !formData.studentClass || ft.class_filter === formData.studentClass
   );
 
-  const editFeeTypes = feeTypes.filter((ft) =>
-    !ft.class_filter || !editData.studentClass || ft.class_filter === editData.studentClass
-  );
-
   const filteredStudents = students;
-
   const totalFees = students.reduce((sum, s) => sum + s.current_fees_owed, 0);
-
-  const saveDisabled = editSaving || (editData.manualAdjOn && !editData.manualAdjReason.trim());
 
   return (
     <div>
@@ -377,7 +324,7 @@ const StudentManagement: React.FC = () => {
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Class <span className="text-danger-500">*</span></label>
-                <select value={editData.studentClass} onChange={(e) => setEditData({ ...editData, studentClass: e.target.value, selectedFeeIds: [] })} className={inputCls} required>
+                <select value={editData.studentClass} onChange={(e) => setEditData({ ...editData, studentClass: e.target.value })} className={inputCls} required>
                   <option value="">Select Class</option>
                   {classes.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -390,102 +337,25 @@ const StudentManagement: React.FC = () => {
                 </div>
               </div>
 
-              {/* Fee Breakdown */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-sm font-medium text-gray-700">Active Fee Summary</label>
-                  <span className={`text-base font-bold ${selectedStudent.current_fees_owed > 0 ? 'text-danger-600' : 'text-success-600'}`}>{fmt(selectedStudent.current_fees_owed)} owing</span>
-                </div>
-                {editFeesLoading ? (
-                  <div className="py-4 text-center"><div className="w-5 h-5 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto" /></div>
-                ) : editStudentFees.length === 0 ? (
-                  <p className="text-xs text-gray-400 italic py-2">No fees assigned yet.</p>
-                ) : (
-                  <div className="space-y-1.5 max-h-44 overflow-auto">
-                    {editStudentFees.map((sf) => (
-                      <div key={sf.id} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg border border-gray-100">
-                        <div>
-                          <div className="text-sm font-medium text-gray-800">{sf.fee_name}</div>
-                          <div className="text-xs text-gray-400">{sf.academic_session}</div>
-                        </div>
-                        <div className="text-right">
-                          {sf.balance <= 0 ? (
-                            <span className="flex items-center gap-1 text-xs text-success-600 font-semibold"><CheckCircle className="w-3 h-3" /> Paid</span>
-                          ) : (
-                            <div>
-                              <div className="text-xs text-gray-400">Paid: {fmt(sf.amount_paid)}</div>
-                              <div className="text-sm font-bold text-danger-600">Owing: {fmt(sf.balance)}</div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setShowEditStudent(false)}
-                  className="mt-2 flex items-center gap-1 text-xs text-primary-600 hover:text-primary-800 font-medium"
-                >
-                  <ExternalLink className="w-3 h-3" /> View Full Ledger in Fees &amp; Billing
-                </button>
+              {/* Balance summary */}
+              <div className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-xl border border-gray-200">
+                <span className="text-sm text-gray-600 font-medium">Total Balance Owed</span>
+                <span className={`text-lg font-bold ${selectedStudent.current_fees_owed > 0 ? 'text-danger-600' : 'text-success-600'}`}>
+                  {fmt(selectedStudent.current_fees_owed)}
+                </span>
               </div>
 
-              {/* Fee Template Checklist */}
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">Apply Additional Fee Templates</label>
-                <p className="text-xs text-gray-400 mb-2">Check templates to assign new fees to this student.</p>
-                {editFeeTypes.length === 0 ? (
-                  <p className="text-xs text-gray-400 italic">No fees available for this class.</p>
-                ) : (
-                  <div className="space-y-2 max-h-36 overflow-auto border border-gray-200 rounded-lg p-2">
-                    {editFeeTypes.map((ft) => (
-                      <label key={ft.id} className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer border transition-all ${editData.selectedFeeIds.includes(ft.id) ? 'border-primary-400 bg-primary-50' : 'border-gray-100 hover:bg-gray-50'}`}>
-                        <div className="flex items-center gap-2">
-                          <input type="checkbox" checked={editData.selectedFeeIds.includes(ft.id)} onChange={() => toggleEditFeeSelection(ft.id)} className="rounded" />
-                          <span className="text-sm font-medium text-gray-800">{ft.name}</span>
-                        </div>
-                        <span className="text-sm font-bold text-gray-700">{fmt(Number(ft.amount))}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={() => { setShowEditStudent(false); onNavigate?.('fees'); }}
+                className="w-full py-2.5 border-2 border-primary-500 text-primary-600 rounded-xl text-sm font-semibold hover:bg-primary-50 flex items-center justify-center gap-2"
+              >
+                <ExternalLink className="w-4 h-4" /> Manage Fees &amp; View Ledger
+              </button>
 
-              {/* Manual Balance Adjustment */}
-              <div className="border border-gray-200 rounded-xl p-4">
-                <button
-                  type="button"
-                  onClick={() => setEditData({ ...editData, manualAdjOn: !editData.manualAdjOn, manualAdjAmount: '', manualAdjReason: '' })}
-                  className="flex items-center gap-2 text-sm font-semibold text-gray-700 w-full"
-                >
-                  {editData.manualAdjOn
-                    ? <ToggleRight className="w-5 h-5 text-primary-600" />
-                    : <ToggleLeft className="w-5 h-5 text-gray-400" />}
-                  Manual Balance Adjustment
-                </button>
-                {editData.manualAdjOn && (
-                  <div className="mt-3 space-y-3">
-                    <div>
-                      <label className="text-xs font-medium text-gray-600 mb-1 block">Adjustment Amount (₦) — use negative to reduce</label>
-                      <input type="number" step="0.01" value={editData.manualAdjAmount} onChange={(e) => setEditData({ ...editData, manualAdjAmount: e.target.value })} placeholder="e.g. -5000 or 2000" className={inputCls} />
-                      {editData.manualAdjAmount !== '' && !isNaN(parseFloat(editData.manualAdjAmount)) && (
-                        <p className="text-xs text-warning-700 mt-1">
-                          New balance: {fmt(Math.max(0, selectedStudent.current_fees_owed + parseFloat(editData.manualAdjAmount)))}
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-gray-600 mb-1 block">Reason <span className="text-danger-500">*</span></label>
-                      <textarea value={editData.manualAdjReason} onChange={(e) => setEditData({ ...editData, manualAdjReason: e.target.value })} placeholder="Required — e.g. Scholarship deduction, Overpayment correction…" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 resize-none" rows={2} required={editData.manualAdjOn} />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex gap-3 pt-2">
+              <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setShowEditStudent(false)} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-                <button type="submit" disabled={saveDisabled} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">
+                <button type="submit" disabled={editSaving} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">
                   {editSaving ? 'Saving…' : 'Save Changes'}
                 </button>
               </div>

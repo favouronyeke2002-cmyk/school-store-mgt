@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Upload, Image, AlertCircle, X, Plus, Trash2, GraduationCap, Pencil, CheckCircle } from 'lucide-react';
-import { settingsAPI } from '../../lib/api';
+import { settingsAPI, studentAPI } from '../../lib/api';
 
 interface Settings {
   school_name: string;
@@ -102,19 +102,26 @@ const SchoolSettings: React.FC = () => {
   };
 
   const confirmRemoveClass = () => {
-    if (classToDelete) setClassList((prev) => prev.filter((c) => c !== classToDelete));
+    if (!classToDelete) return;
+    if (classDeleteStudentCount > 0) {
+      setErrorMsg(`Cannot delete "${classToDelete}" — ${classDeleteStudentCount} student${classDeleteStudentCount !== 1 ? 's are' : ' is'} still assigned to this class. Reassign them first.`);
+      setClassToDelete(null);
+      return;
+    }
+    setClassList((prev) => prev.filter((c) => c !== classToDelete));
     setClassToDelete(null);
   };
 
   const startEditClass = (cls: string) => { setEditingClass(cls); setEditClassValue(cls); };
 
-  const commitEditClass = () => {
+  const commitEditClass = async () => {
     if (!editingClass) return;
     const newName = editClassValue.trim().toUpperCase();
     if (!newName || newName === editingClass) { setEditingClass(null); return; }
     if (classList.includes(newName)) { setErrorMsg('A class with that name already exists.'); setEditingClass(null); return; }
     setClassList((prev) => prev.map((c) => c === editingClass ? newName : c).sort());
     setEditingClass(null);
+    try { await studentAPI.renameClass(editingClass, newName); } catch { /* DB update best-effort */ }
   };
 
   const baseClasses = [...new Set(classList.map((c) => c.replace(/[A-Z]$/, '')))].filter(Boolean);
@@ -281,7 +288,7 @@ const SchoolSettings: React.FC = () => {
                   <>
                     <span className="px-1">{cls}</span>
                     <button type="button" onClick={() => startEditClass(cls)} className="text-primary-400 hover:text-primary-700 transition-colors" title={`Rename ${cls}`}><Pencil className="w-3 h-3" /></button>
-                    <button type="button" onClick={() => requestRemoveClass(cls)} className="text-primary-300 hover:text-danger-600 transition-colors" title={`Remove ${cls}`}><Trash2 className="w-3 h-3" /></button>
+                    <button type="button" onClick={() => requestRemoveClass(cls)} className="text-primary-300 hover:text-danger-500 transition-colors" title={`Remove ${cls}`}><X className="w-3 h-3" /></button>
                   </>
                 )}
               </div>

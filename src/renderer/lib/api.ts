@@ -174,6 +174,11 @@ export const studentAPI = {
     if (error) throw error;
     return { success: true };
   },
+  async renameClass(oldName: string, newName: string) {
+    const { error } = await supabase.from('students').update({ student_class: newName }).eq('student_class', oldName);
+    if (error) throw error;
+    return { success: true };
+  },
   async bulkImport(students: any[]) {
     const rows = students.map((s) => ({ student_id: s.student_id, name: s.name, student_class: s.student_class, current_fees_owed: Number(s.fees_owed) || 0, admission_type: 'Returning' }));
     const { error } = await supabase.from('students').upsert(rows, { onConflict: 'student_id' });

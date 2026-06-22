@@ -1283,7 +1283,7 @@ const CashierPOS: React.FC = () => {
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Select Customer</label>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => { setSelectedStudent(null); setStudentSearch(''); setCart([]); setFeesAmount(''); setSelectedFee(null); setWalkInApplicant(null); setWalkInModalError(''); setShowWalkIn(true); setWalkInError(''); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-warning-50 border border-warning-300 text-warning-700 hover:bg-warning-100 rounded-lg text-xs font-semibold transition-all">
+                  <button onClick={() => { setSelectedStudent(null); setStudentSearch(''); setCart([]); setFeesAmount(''); setSelectedFee(null); setWalkInApplicant(null); setWalkInModalError(''); setWalkInError(''); setShowWalkInForm(false); setShowWalkInAcceptance(false); setShowWalkInRegistration(false); setWalkInAcceptanceBundle(null); setWalkInRegistrationBundle(null); setShowWalkIn(true); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-warning-50 border border-warning-300 text-warning-700 hover:bg-warning-100 rounded-lg text-xs font-semibold transition-all">
                     <User className="w-3.5 h-3.5" /> Walk-In Applicant
                   </button>
                   <button onClick={() => { setShowQuickAdd(true); setQuickAddError(''); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 border border-primary-300 text-primary-700 hover:bg-primary-100 rounded-lg text-xs font-semibold transition-all">

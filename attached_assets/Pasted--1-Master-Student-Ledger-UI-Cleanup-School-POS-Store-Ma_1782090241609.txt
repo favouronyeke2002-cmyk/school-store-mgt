@@ -1,0 +1,21 @@
+
+### 1. Master Student Ledger & UI Cleanup (School-POS-Store-Management.jpg, image_13dd42.jpg)
+- Remove Ledger Duplication: Completely remove the 'Fee Ledger' tab from the Student Management page. Keep that page strictly for names and registration details. Keep the 'Student Ledger' exclusively under Fees & Billing and ensure it does not crash the app.
+- Ledger Table Layout: Design the ledger table with columns: Student ID | Student Name | Class | Status (Day/Boarding) | Arrears | Current Term Bill | Total Paid | Net Balance Due. If Due is 0, show a green 'Cleared' pill badge; if greater than 0, display the amount in bold red.
+- Top Analytics Cards: Right ABOVE the ledger spreadsheet grid, add 3 analytics summary cards that dynamically calculate based on the current filters: 'Total Expected Revenue', 'Total Revenue Collected', and 'Total Outstanding Debt'.
+- Simplify Edit Student Modal: Strip all financial lists, summaries, except amoint owed and fee checkboxes out of the Edit Student modal (image_13dd42.jpg) to eliminate visual mess. Keep only Name, Class, and Status toggles. Add a single button at the bottom: 'Manage Fees & View Ledger' which closes the modal and instantly redirects the admin to that student's row in the master ledger grid.
+- Ledger-Based Fee Assignment: Add an 'Actions' dropdown menu button to each row in the Master Student Ledger grid with an option for 'Manage Fees'. Clicking it opens a clean modal/side-panel dedicated entirely to assigning additional fee templates to that specific student. Saving updates the database and refreshes the ledger grid rows instantly.
+
+### 2. Fix Database Term-Tracking & Configuration Forms (screencapture-d2e85a12-7949-475c-ba0b-0099d30f9c07...)
+- Automatic Term Tagging: Update the database schema for the 'fees' table to explicitly include a 'term' column. When creating a new fee type, remove manual term selection inputs. The system must automatically read the active term set in 'School Settings' (e.g., 1st/2nd/3rd Term) and save it with the fee. Ensure the dashboard term filters correctly query this new column.
+- Fix Form Duplication & Hanging: On the Create Fee Type form (image_508da3.png), ensure 'Target Class' is strictly for school classes (e.g., JSS1, All Classes) and 'Applicable To' is strictly for residency status (All, Day, Boarding). Fix the submission hang so clicking 'Create & Auto-Assign' successfully saves to the database, closes the modal immediately, and populates the table without page reloads.
+
+
+### 3. Cashier Terminal & Payment Integration (image_c0d544.png, image_c0ce63.png)
+- Fix State Leakage: Ensure opening and submitting the 'Walk-In Applicant' modal completely clears any previous customer data from context memory. Do not mix data between applicants.
+- Ledger-POS Sync: When processing payments via the transaction terminal, searching for a student must pull their active 'Net Balance Due' directly from the ledger. Submitting a transaction must update the ledger's 'Total Paid' column, reduce the 'Net Balance Due', and record the log under 'Shift History' and 'Transactions'.
+
+### 4. Inventory & Settings Safeguards (image_c064c7.png, image_bf7fc9.png)
+
+- Inventory States: Update the 'Set Stock' submit handler to immediately close the modal. Ensure that deleting an item from the Admin Inventory table cascades and removes it from the Cashier's POS terminal view instantly.
+- Class Name Cascade Editing: When an admin changes a class name in School Settings (e.g., JSS1A to JSS1 Gold), execute a cascading database update on the 'students' table so that all students in that class remain linked and do not disappear from ledger filters. Remove the instant 'X' delete buttons from class badges; replace them with standard edit text inputs and implement a database rule blocking class deletion if active students are assigned to it.

@@ -116,7 +116,7 @@ const AdminLayout: React.FC = () => {
 
         <div className="flex-1 overflow-auto p-6">
           {currentView === 'dashboard' && <Dashboard />}
-          {currentView === 'students' && <StudentManagement />}
+          {currentView === 'students' && <StudentManagement onNavigate={setCurrentView} />}
           {currentView === 'inventory' && <InventoryManagement />}
           {currentView === 'transactions' && <TransactionHistory />}
           {currentView === 'shifts' && <ShiftHistory />}
