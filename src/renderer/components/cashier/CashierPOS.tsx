@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ShoppingCart, Users, Clock, LogOut, Search, Plus, Minus,
   Trash2, CreditCard, Banknote, AlertTriangle, CheckCircle,
-  Package, User, RefreshCw, X, Tag, ChevronLeft, ChevronRight, Printer, UserPlus, Layers, UserCheck, Pencil
+  Package, User, RefreshCw, X, Tag, ChevronLeft, ChevronRight, Printer, UserPlus, Layers, UserCheck, Pencil,
+  FileText, GraduationCap, PowerOff, Wallet
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useShift } from '../../context/ShiftContext';
@@ -1120,17 +1121,18 @@ const CashierPOS: React.FC = () => {
       if (result.success) {
         // Track this ID so cashier can edit it this shift
         setQuickAddedStudentIds((prev) => new Set([...prev, result.studentId]));
-        // Apply standard class fees automatically
-        const classFeeTypes = await feeTypeAPI.getByClass(data.studentClass);
-        for (const ft of classFeeTypes) {
-          if (ft.fee_category === 'standard') {
-            await feeTypeAPI.assignToStudents(ft.id, Number(ft.amount), data.studentClass, result.studentId, 'standard');
-          }
-        }
-        // Refresh the student to get updated fees_owed
+        // Dismiss modal and populate cart immediately — don't await fee assignment
         const refreshed = await studentAPI.getById(result.studentId);
         if (refreshed) selectStudent(refreshed);
         setShowQuickAdd(false);
+        // Apply standard class fees asynchronously in the background
+        feeTypeAPI.getByClass(data.studentClass).then((classFeeTypes) => {
+          for (const ft of classFeeTypes) {
+            if (ft.fee_category === 'standard') {
+              feeTypeAPI.assignToStudents(ft.id, Number(ft.amount), data.studentClass, result.studentId, 'standard');
+            }
+          }
+        }).catch(console.error);
       } else {
         setQuickAddError(result.error || 'Failed to create student');
       }
@@ -1362,15 +1364,15 @@ const CashierPOS: React.FC = () => {
         <div className="w-9 h-9 bg-success-500 rounded-lg flex items-center justify-center mb-6"><ShoppingCart className="w-5 h-5 text-white" /></div>
         {([
           { id: 'sale', icon: <ShoppingCart className="w-5 h-5" />, label: 'New Sale' },
-          { id: 'history', icon: <Clock className="w-5 h-5" />, label: 'Shift Log' },
-          { id: 'students', icon: <Users className="w-5 h-5" />, label: 'Students' },
+          { id: 'history', icon: <FileText className="w-5 h-5" />, label: 'Shift Log' },
+          { id: 'students', icon: <GraduationCap className="w-5 h-5" />, label: 'Students' },
         ] as const).map((item) => (
           <button key={item.id} title={item.label} onClick={() => setTab(item.id)} className={`w-10 h-10 rounded-lg flex items-center justify-center mb-2 transition-all ${tab === item.id ? 'bg-primary-600 text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-white'}`}>
             {item.icon}
           </button>
         ))}
         <div className="mt-auto flex flex-col items-center gap-2">
-          <button onClick={handleShiftCloseRequest} title="Close Shift" className="w-10 h-10 rounded-lg flex items-center justify-center text-gray-400 hover:bg-danger-700 hover:text-white transition-all"><LogOut className="w-5 h-5" /></button>
+          <button onClick={handleShiftCloseRequest} title="Close Shift" className="w-10 h-10 rounded-lg flex items-center justify-center text-gray-400 hover:bg-danger-700 hover:text-white transition-all"><PowerOff className="w-5 h-5" /></button>
           <button onClick={logout} title="Log Out" className="w-10 h-10 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-700 hover:text-white transition-all"><LogOut className="w-5 h-5" /></button>
         </div>
       </aside>
