@@ -35,6 +35,12 @@ const navItems: { id: AdminView; label: string; icon: React.ElementType; group?:
 const AdminLayout: React.FC = () => {
   const { user, logout } = useAuth();
   const [currentView, setCurrentView] = useState<AdminView>('dashboard');
+  const [feesStudentId, setFeesStudentId] = useState<string | null>(null);
+
+  const navigateTo = (view: string, studentId?: string) => {
+    setCurrentView(view as AdminView);
+    setFeesStudentId(view === 'fees' && studentId ? studentId : null);
+  };
 
   const currentLabel = navItems.find((n) => n.id === currentView)?.label || '';
 
@@ -116,11 +122,11 @@ const AdminLayout: React.FC = () => {
 
         <div className="flex-1 overflow-auto p-6">
           {currentView === 'dashboard' && <Dashboard />}
-          {currentView === 'students' && <StudentManagement onNavigate={setCurrentView} />}
+          {currentView === 'students' && <StudentManagement onNavigate={navigateTo} />}
           {currentView === 'inventory' && <InventoryManagement />}
           {currentView === 'transactions' && <TransactionHistory />}
           {currentView === 'shifts' && <ShiftHistory />}
-          {currentView === 'fees' && <FeesManagement />}
+          {currentView === 'fees' && <FeesManagement focusStudentId={feesStudentId} />}
           {currentView === 'bundles' && <BundleManagement />}
           {currentView === 'admissions' && <PendingAdmissions />}
           {currentView === 'users' && <UserManagement />}

@@ -10,7 +10,7 @@ interface FeeType { id: number; name: string; amount: number; fee_category: stri
 const DEFAULT_CLASSES = ['JSS1A', 'JSS1B', 'JSS2A', 'JSS2B', 'JSS3A', 'JSS3B', 'SS1A', 'SS1B', 'SS2A', 'SS2B', 'SS3A', 'SS3B'];
 const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400';
 
-const StudentManagement: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigate }) => {
+const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: string) => void }> = ({ onNavigate }) => {
   const [students, setStudents] = useState<Student[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -347,7 +347,7 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string) => void }> = ({ 
 
               <button
                 type="button"
-                onClick={() => { setShowEditStudent(false); onNavigate?.('fees'); }}
+                onClick={() => { setShowEditStudent(false); onNavigate?.('fees', selectedStudent?.student_id); }}
                 className="w-full py-2.5 border-2 border-primary-500 text-primary-600 rounded-xl text-sm font-semibold hover:bg-primary-50 flex items-center justify-center gap-2"
               >
                 <ExternalLink className="w-4 h-4" /> Manage Fees &amp; View Ledger

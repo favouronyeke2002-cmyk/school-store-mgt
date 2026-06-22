@@ -1,13 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, ChevronDown, ChevronRight, Users, Tag, X, AlertCircle, CheckCircle, Pencil, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, ChevronDown, ChevronRight, Users, Tag, X, AlertCircle, CheckCircle, Pencil, Trash2, BarChart2 } from 'lucide-react';
 import { feeTypeAPI, studentFeeAPI, studentAPI, settingsAPI } from '../../lib/api';
+import StudentTimeline from './StudentTimeline';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 interface FeeType { id: number; name: string; description: string | null; academic_session: string; term: string | null; amount: number; class_filter: string | null; fee_category: string; applicable_to?: string; }
 interface StudentFee { id: number; student_id: string; student_name: string; student_class: string; admission_type: string; student_status: string; fee_name: string; fee_category: string; academic_session: string; amount_due: number; amount_paid: number; balance: number; }
 
-const FeesManagement: React.FC = () => {
+interface Props { focusStudentId?: string | null; }
+
+const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
   const [tab, setTab] = useState<'types' | 'ledger'>('types');
   const [feeTypes, setFeeTypes] = useState<FeeType[]>([]);
   const [ledger, setLedger] = useState<StudentFee[]>([]);
@@ -64,11 +67,24 @@ const FeesManagement: React.FC = () => {
   const [manageFeeAssigned, setManageFeeAssigned] = useState<any[]>([]);
   const [manageFeeAssignedLoading, setManageFeeAssignedLoading] = useState(false);
 
+  // Timeline (per-student financial history)
+  const [timelineStudent, setTimelineStudent] = useState<{ student_id: string; student_name: string; student_class: string } | null>(null);
+  const focusApplied = useRef(false);
+
   useEffect(() => {
     load();
     studentAPI.getClasses().then(setClasses).catch(console.error);
     settingsAPI.get().then((s) => { if (s?.academic_session) { setCurrentSession(s.academic_session); setSessionFilter(s.academic_session); } if (s?.current_term) { setCurrentTerm(s.current_term); setTermFilter(s.current_term); } }).catch(console.error);
   }, []);
+
+  // When navigated from StudentManagement with a focusStudentId, switch to ledger + open timeline
+  useEffect(() => {
+    if (focusStudentId && !focusApplied.current) {
+      focusApplied.current = true;
+      setTab('ledger');
+      setLedgerSearch(focusStudentId);
+    }
+  }, [focusStudentId]);
 
   const load = () => {
     setLoading(true);
@@ -170,10 +186,16 @@ const FeesManagement: React.FC = () => {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    await feeTypeAPI.delete(deleteTarget.id);
+    const result = await feeTypeAPI.cascadeDelete(deleteTarget.id);
+    if (!result.success) { alert('Delete failed: ' + result.error); return; }
     setShowDeleteConfirm(false);
     setDeleteTarget(null);
     load();
+  };
+
+  const openTimeline = (s: { student_id: string; student_name: string; student_class: string }) => {
+    setOpenActionMenu(null);
+    setTimelineStudent(s);
   };
 
   const openAssign = (ft: FeeType) => { setAssignTarget(ft); setAssignClass(ft.class_filter || ''); setAssignSpecific(''); setAssignError(''); setAssignResult(''); setShowAssign(true); };
@@ -438,7 +460,10 @@ const FeesManagement: React.FC = () => {
                         Actions <ChevronDown className="w-3 h-3" />
                       </button>
                       {openActionMenu === s.student_id && (
-                        <div className="absolute right-4 top-10 z-30 bg-white border border-gray-200 rounded-xl shadow-xl w-44 py-1">
+                        <div className="absolute right-4 top-10 z-30 bg-white border border-gray-200 rounded-xl shadow-xl w-48 py-1">
+                          <button onClick={() => openTimeline(s)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-primary-50 flex items-center gap-2 text-gray-700 hover:text-primary-700">
+                            <BarChart2 className="w-3.5 h-3.5" /> View Timeline
+                          </button>
                           <button onClick={() => openManageFees(s)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-primary-50 flex items-center gap-2 text-gray-700 hover:text-primary-700">
                             <Plus className="w-3.5 h-3.5" /> Manage Fees
                           </button>
@@ -705,13 +730,29 @@ const FeesManagement: React.FC = () => {
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6 text-center">
             <div className="w-14 h-14 bg-danger-100 rounded-full flex items-center justify-center mx-auto mb-4"><Trash2 className="w-7 h-7 text-danger-600" /></div>
             <h2 className="text-lg font-bold mb-2">Delete Fee Type?</h2>
-            <p className="text-sm text-gray-500 mb-5">Delete <strong>{deleteTarget.name}</strong> and all student assignments? This cannot be undone.</p>
+            <p className="text-sm text-gray-500 mb-2">Delete <strong>{deleteTarget.name}</strong>?</p>
+            <div className="bg-warning-50 border border-warning-200 rounded-lg px-3 py-2 text-xs text-warning-800 text-left mb-5">
+              <strong>Cascade effect:</strong> All student fee assignments for this fee type will be removed, and each affected student's outstanding balance will be automatically reduced.
+            </div>
             <div className="flex gap-3">
               <button onClick={() => { setShowDeleteConfirm(false); setDeleteTarget(null); }} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-              <button onClick={handleDelete} className="flex-1 py-2.5 bg-danger-600 text-white rounded-xl text-sm font-semibold hover:bg-danger-700">Delete</button>
+              <button onClick={handleDelete} className="flex-1 py-2.5 bg-danger-600 text-white rounded-xl text-sm font-semibold hover:bg-danger-700">Delete & Cascade</button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Student Financial Timeline Modal */}
+      {timelineStudent && (
+        <StudentTimeline
+          studentId={timelineStudent.student_id}
+          studentName={timelineStudent.student_name}
+          studentClass={timelineStudent.student_class}
+          currentSession={currentSession}
+          currentTerm={currentTerm}
+          onClose={() => setTimelineStudent(null)}
+          onManageFees={() => { setTimelineStudent(null); openManageFees(timelineStudent); }}
+        />
       )}
     </div>
   );

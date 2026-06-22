@@ -330,6 +330,20 @@ export const feeTypeAPI = {
     if (error) throw error;
     return { success: true };
   },
+  async cascadeDelete(id: number): Promise<{ success: boolean; error?: string; studentsAffected: number }> {
+    const { data: sfRows, error: sfErr } = await supabase.from('student_fees').select('student_id, amount_due, amount_paid').eq('fee_type_id', id);
+    if (sfErr) return { success: false, error: sfErr.message, studentsAffected: 0 };
+    const unpaid = (sfRows || []).filter((sf: any) => Number(sf.amount_due) > Number(sf.amount_paid));
+    for (const sf of unpaid) {
+      const delta = Number(sf.amount_due) - Number(sf.amount_paid);
+      const { data: stu } = await supabase.from('students').select('current_fees_owed').eq('student_id', sf.student_id).single();
+      if (stu) await supabase.from('students').update({ current_fees_owed: Math.max(0, Number(stu.current_fees_owed) - delta), updated_at: new Date().toISOString() }).eq('student_id', sf.student_id);
+    }
+    await supabase.from('student_fees').delete().eq('fee_type_id', id);
+    const { error } = await supabase.from('fee_types').delete().eq('id', id);
+    if (error) return { success: false, error: error.message, studentsAffected: unpaid.length };
+    return { success: true, studentsAffected: unpaid.length };
+  },
   // Assign a fee type to students; for 'standard' fees, exclude 'New' admission students
   async assignToStudents(feeTypeId: number, amount: number, classFilter?: string, specificStudentId?: string, feeCategory: 'standard' | 'registration' = 'standard', applicableTo?: string) {
     let query = supabase.from('students').select('student_id, current_fees_owed');
@@ -388,9 +402,9 @@ export const studentFeeAPI = {
     return { success: true };
   },
   async getForStudent(studentId: string) {
-    const { data, error } = await supabase.from('student_fees').select('*, fee_types(name, description, academic_session, fee_category)').eq('student_id', studentId).order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('student_fees').select('*, fee_types(name, description, academic_session, fee_category, term)').eq('student_id', studentId).order('created_at', { ascending: false });
     if (error) throw error;
-    return (data || []).map((sf: any) => ({ ...sf, fee_name: sf.fee_types?.name || 'Unknown', fee_description: sf.fee_types?.description || '', academic_session: sf.fee_types?.academic_session || '', fee_category: sf.fee_types?.fee_category || 'standard', balance: Number(sf.amount_due) - Number(sf.amount_paid) }));
+    return (data || []).map((sf: any) => ({ ...sf, fee_name: sf.fee_types?.name || 'Unknown', fee_description: sf.fee_types?.description || '', academic_session: sf.fee_types?.academic_session || '', fee_category: sf.fee_types?.fee_category || 'standard', term: sf.fee_types?.term || null, balance: Number(sf.amount_due) - Number(sf.amount_paid) }));
   },
   async getAll(filters?: { session?: string }) {
     const { data, error } = await supabase.from('student_fees').select('*, students(name, student_class, admission_type), fee_types(name, academic_session, fee_category)').order('created_at', { ascending: false });
@@ -500,6 +514,19 @@ export const transactionAPI = {
     };
   },
 
+  async getForStudent(studentId: string) {
+    const { data: txns, error } = await supabase.from('transactions').select('*, fee_types(name)').eq('student_id', studentId).order('timestamp', { ascending: false });
+    if (error) throw error;
+    if (!txns || txns.length === 0) return [];
+    const txnIds = txns.map((t: any) => t.transaction_id);
+    const { data: allItems } = await supabase.from('transaction_items').select('*, inventory(item_name)').in('transaction_id', txnIds);
+    const byTxn = new Map<number, any[]>();
+    for (const item of allItems || []) {
+      if (!byTxn.has(item.transaction_id)) byTxn.set(item.transaction_id, []);
+      byTxn.get(item.transaction_id)!.push({ ...item, item_name: item.inventory?.item_name });
+    }
+    return txns.map((t: any) => ({ ...t, fee_type_name: t.fee_types?.name, items: byTxn.get(t.transaction_id) || [] }));
+  },
   async search(filters: { query?: string; startDate?: string; endDate?: string; type?: string; paymentMode?: string }) {
     let q = supabase.from('transactions').select('*, students(name, student_class, student_id)').order('timestamp', { ascending: false }).limit(500);
     if (filters.type) q = q.eq('type', filters.type);
