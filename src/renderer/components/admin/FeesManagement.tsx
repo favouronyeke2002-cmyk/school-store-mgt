@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronDown, ChevronRight, ChevronLeft, Users, Tag, X, AlertCircle, CheckCircle, Pencil, Trash2, BarChart2, Search, Receipt, FileText, GraduationCap } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, ChevronLeft, Users, Tag, X, AlertCircle, CheckCircle, Pencil, Trash2, BarChart2, Search, Receipt, FileText, GraduationCap, RefreshCw } from 'lucide-react';
 import { feeTypeAPI, studentFeeAPI, studentAPI, settingsAPI } from '../../lib/api';
 import StudentTimeline from './StudentTimeline';
 
@@ -70,6 +70,11 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
   // Timeline (per-student financial history)
   const [timelineStudent, setTimelineStudent] = useState<{ student_id: string; student_name: string; student_class: string } | null>(null);
   const focusApplied = useRef(false);
+
+  // Recalibrate balances
+  const [showRecalibrate, setShowRecalibrate] = useState(false);
+  const [recalibrateRunning, setRecalibrateRunning] = useState(false);
+  const [recalibrateResult, setRecalibrateResult] = useState<{ updated: number; orphansRemoved: number } | null>(null);
 
   useEffect(() => {
     load();
@@ -198,6 +203,19 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
     setTimelineStudent(s);
   };
 
+  const runRecalibrate = async () => {
+    setRecalibrateRunning(true);
+    setRecalibrateResult(null);
+    try {
+      const result = await studentFeeAPI.recalibrateAllBalances();
+      setRecalibrateResult(result);
+      load();
+    } catch (e) {
+      alert('Recalibration failed: ' + (e as Error).message);
+    }
+    setRecalibrateRunning(false);
+  };
+
   const openAssign = (ft: FeeType) => { setAssignTarget(ft); setAssignClass(ft.class_filter || ''); setAssignSpecific(''); setAssignError(''); setAssignResult(''); setShowAssign(true); };
 
   const openManageFees = async (s: { student_id: string; student_name: string; student_class: string }) => {
@@ -314,6 +332,13 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
+          <button
+            onClick={() => { setRecalibrateResult(null); setShowRecalibrate(true); }}
+            className="flex items-center gap-2 px-4 py-2 bg-warning-50 text-warning-700 border border-warning-200 rounded-lg text-sm font-semibold hover:bg-warning-100"
+            title="Purge orphaned fee records and recalculate all student balances from scratch"
+          >
+            <RefreshCw className="w-4 h-4" /> Recalibrate Balances
+          </button>
           <button onClick={() => { setForm({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard', applicableTo: 'All Students' }); setFormError(''); setShowCreate(true); }} className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700">
             <Plus className="w-4 h-4" /> New Fee Type
           </button>
@@ -889,6 +914,56 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
               <button onClick={() => { setShowDeleteConfirm(false); setDeleteTarget(null); }} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
               <button onClick={handleDelete} className="flex-1 py-2.5 bg-danger-600 text-white rounded-xl text-sm font-semibold hover:bg-danger-700">Delete & Cascade</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recalibrate Balances Confirm / Result Dialog */}
+      {showRecalibrate && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
+            {recalibrateResult ? (
+              /* Result screen */
+              <>
+                <div className="w-14 h-14 bg-success-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle className="w-7 h-7 text-success-600" />
+                </div>
+                <h2 className="text-lg font-bold text-center mb-1">Recalibration Complete</h2>
+                <p className="text-sm text-gray-400 text-center mb-5">All student balances have been recalculated from the fee ledger.</p>
+                <div className="grid grid-cols-2 gap-3 mb-5">
+                  <div className="bg-success-50 rounded-xl p-3 text-center border border-success-100">
+                    <div className="text-2xl font-extrabold text-success-700">{recalibrateResult.updated}</div>
+                    <div className="text-xs text-success-600 mt-0.5">Students updated</div>
+                  </div>
+                  <div className="bg-warning-50 rounded-xl p-3 text-center border border-warning-100">
+                    <div className="text-2xl font-extrabold text-warning-700">{recalibrateResult.orphansRemoved}</div>
+                    <div className="text-xs text-warning-600 mt-0.5">Orphaned rows removed</div>
+                  </div>
+                </div>
+                <button onClick={() => setShowRecalibrate(false)} className="w-full py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700">Done</button>
+              </>
+            ) : (
+              /* Confirm screen */
+              <>
+                <div className="w-14 h-14 bg-warning-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <RefreshCw className="w-7 h-7 text-warning-600" />
+                </div>
+                <h2 className="text-lg font-bold text-center mb-2">Recalibrate All Balances?</h2>
+                <p className="text-sm text-gray-500 text-center mb-3">This will:</p>
+                <ul className="text-sm text-gray-600 space-y-1.5 mb-5 bg-gray-50 rounded-xl p-4">
+                  <li className="flex items-start gap-2"><span className="text-warning-600 font-bold mt-0.5">1.</span> Delete all orphaned fee rows whose fee type has been removed</li>
+                  <li className="flex items-start gap-2"><span className="text-warning-600 font-bold mt-0.5">2.</span> Recalculate the outstanding balance for every student by summing their actual unpaid fee records</li>
+                  <li className="flex items-start gap-2"><span className="text-warning-600 font-bold mt-0.5">3.</span> Overwrite the stored balance counter with the correct figure</li>
+                </ul>
+                <p className="text-xs text-gray-400 text-center mb-5">This is safe to run any number of times. It will not affect paid amounts or transaction history.</p>
+                <div className="flex gap-3">
+                  <button onClick={() => setShowRecalibrate(false)} disabled={recalibrateRunning} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200 disabled:opacity-40">Cancel</button>
+                  <button onClick={runRecalibrate} disabled={recalibrateRunning} className="flex-1 py-2.5 bg-warning-600 text-white rounded-xl text-sm font-semibold hover:bg-warning-700 disabled:opacity-60 flex items-center justify-center gap-2">
+                    {recalibrateRunning ? <><RefreshCw className="w-4 h-4 animate-spin" /> Running…</> : 'Run Recalibration'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

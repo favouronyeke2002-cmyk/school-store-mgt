@@ -362,17 +362,29 @@ export const feeTypeAPI = {
     const { data: students } = await query;
     if (!students || students.length === 0) return { success: true, count: 0 };
 
+    // SAFEGUARD: check which students already have this fee type assigned
+    // so we never double-increment current_fees_owed
+    const { data: existing } = await supabase
+      .from('student_fees')
+      .select('student_id')
+      .eq('fee_type_id', feeTypeId);
+    const alreadyAssigned = new Set((existing || []).map((sf: any) => sf.student_id));
+
     const rows = students.map((s: any) => ({ student_id: s.student_id, fee_type_id: feeTypeId, amount_due: amount, amount_paid: 0 }));
     const { error } = await supabase.from('student_fees').upsert(rows, { onConflict: 'student_id,fee_type_id', ignoreDuplicates: true });
     if (error) return { success: false, error: error.message };
 
-    // Update each student's current_fees_owed
+    // Only increment current_fees_owed for genuinely NEW assignments
+    let newCount = 0;
     for (const s of students) {
-      const newOwed = Number(s.current_fees_owed || 0) + amount;
-      await supabase.from('students').update({ current_fees_owed: newOwed, updated_at: new Date().toISOString() }).eq('student_id', s.student_id);
+      if (!alreadyAssigned.has(s.student_id)) {
+        const newOwed = Number(s.current_fees_owed || 0) + amount;
+        await supabase.from('students').update({ current_fees_owed: newOwed, updated_at: new Date().toISOString() }).eq('student_id', s.student_id);
+        newCount++;
+      }
     }
 
-    return { success: true, count: rows.length };
+    return { success: true, count: newCount };
   },
 };
 
@@ -406,6 +418,57 @@ export const studentFeeAPI = {
     if (error) throw error;
     return (data || []).map((sf: any) => ({ ...sf, fee_name: sf.fee_types?.name || 'Unknown', fee_description: sf.fee_types?.description || '', academic_session: sf.fee_types?.academic_session || '', fee_category: sf.fee_types?.fee_category || 'standard', term: sf.fee_types?.term || null, balance: Number(sf.amount_due) - Number(sf.amount_paid) }));
   },
+  // Compute the true balance for one student directly from student_fees rows
+  async calculateStudentBalance(studentId: string): Promise<number> {
+    const { data, error } = await supabase
+      .from('student_fees')
+      .select('amount_due, amount_paid')
+      .eq('student_id', studentId);
+    if (error) throw error;
+    return (data || []).reduce((sum: number, sf: any) => sum + Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid)), 0);
+  },
+
+  // One-time cleanup: delete orphaned student_fee rows (fee_type_id deleted from fee_types),
+  // then recalculate and write the correct current_fees_owed for every student.
+  async recalibrateAllBalances(): Promise<{ updated: number; orphansRemoved: number }> {
+    // 1. Valid fee type IDs
+    const { data: feeTypes } = await supabase.from('fee_types').select('id');
+    const validIds = new Set((feeTypes || []).map((ft: any) => ft.id));
+
+    // 2. All student_fees rows
+    const { data: allSFs } = await supabase
+      .from('student_fees')
+      .select('id, student_id, fee_type_id, amount_due, amount_paid');
+
+    // 3. Remove orphaned rows (fee_type deleted or no longer in master list)
+    const orphans = (allSFs || []).filter((sf: any) => !validIds.has(sf.fee_type_id));
+    for (const orphan of orphans) {
+      await supabase.from('student_fees').delete().eq('id', orphan.id);
+    }
+
+    // 4. Compute correct balance per student from valid rows only
+    const validSFs = (allSFs || []).filter((sf: any) => validIds.has(sf.fee_type_id));
+    const balanceMap = new Map<string, number>();
+    for (const sf of validSFs) {
+      const bal = Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid));
+      balanceMap.set(sf.student_id, (balanceMap.get(sf.student_id) || 0) + bal);
+    }
+
+    // 5. Write corrected balances to every student record
+    const { data: students } = await supabase.from('students').select('student_id');
+    let updated = 0;
+    for (const stu of students || []) {
+      const correct = balanceMap.get(stu.student_id) || 0;
+      await supabase
+        .from('students')
+        .update({ current_fees_owed: correct, updated_at: new Date().toISOString() })
+        .eq('student_id', stu.student_id);
+      updated++;
+    }
+
+    return { updated, orphansRemoved: orphans.length };
+  },
+
   async getAll(filters?: { session?: string }) {
     const { data, error } = await supabase.from('student_fees').select('*, students(name, student_class, admission_type), fee_types(name, academic_session, fee_category)').order('created_at', { ascending: false });
     if (error) throw error;
