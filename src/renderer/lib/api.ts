@@ -496,13 +496,13 @@ export const studentFeeAPI = {
     }
     return Array.from(map.values()).map((e) => ({ ...e, outstanding: e.total_billed - e.total_paid })).sort((a, b) => a.name.localeCompare(b.name));
   },
-  async recordPayment(studentFeeId: number, amount: number, studentId: string, shiftId: number, paymentMode: string) {
+  async recordPayment(studentFeeId: number, amount: number, studentId: string, shiftId: number, paymentMode: string, customerName?: string, targetClass?: string) {
     const { data: sf } = await supabase.from('student_fees').select('amount_due, amount_paid, fee_type_id').eq('id', studentFeeId).single();
     if (!sf) throw new Error('Fee record not found');
     const balance = Number(sf.amount_due) - Number(sf.amount_paid);
     if (amount > balance + 0.01) throw new Error(`Cannot pay ₦${amount.toLocaleString('en-NG')} — balance is only ₦${balance.toLocaleString('en-NG')}`);
 
-    await supabase.from('transactions').insert({ student_id: studentId, shift_id: shiftId, type: 'FEES_CASH_COLLECTION', amount_paid: amount, payment_mode: paymentMode, fee_type_id: sf.fee_type_id });
+    await tryInsertTxn({ student_id: studentId, shift_id: shiftId, type: 'FEES_CASH_COLLECTION', amount_paid: amount, payment_mode: paymentMode, fee_type_id: sf.fee_type_id, customer_name: customerName, target_class: targetClass });
     await supabase.from('student_fees').update({ amount_paid: Number(sf.amount_paid) + amount }).eq('id', studentFeeId);
 
     const { data: student } = await supabase.from('students').select('current_fees_owed').eq('student_id', studentId).single();
@@ -511,13 +511,26 @@ export const studentFeeAPI = {
   },
 };
 
+// ─── TRANSACTION INSERT HELPER ────────────────────────────────────────────────
+// Tries to stamp customer_name + target_class into the row; if the columns don't
+// exist yet in the live DB it retries without them (graceful fallback).
+async function tryInsertTxn(payload: Record<string, any>): Promise<{ transaction_id: number }> {
+  const { customer_name, target_class, ...base } = payload;
+  const withSnap = { ...base, customer_name: customer_name ?? null, target_class: target_class ?? null };
+  let { data, error } = await supabase.from('transactions').insert(withSnap).select('transaction_id').single();
+  if (error && (error.message.includes('column') || error.message.includes('does not exist'))) {
+    ({ data, error } = await supabase.from('transactions').insert(base).select('transaction_id').single());
+  }
+  if (error) throw error;
+  return data as { transaction_id: number };
+}
+
 // ─── TRANSACTIONS ─────────────────────────────────────────────────────────────
 export const transactionAPI = {
-  async createPurchase(studentId: string, shiftId: number, items: any[], paymentMode: string) {
+  async createPurchase(studentId: string, shiftId: number, items: any[], paymentMode: string, customerName?: string, targetClass?: string) {
     if (!studentId) throw new Error('Student ID required');
     const totalAmount = items.reduce((sum, item) => sum + item.selling_price * item.quantity, 0);
-    const { data: txn, error: txnError } = await supabase.from('transactions').insert({ student_id: studentId, shift_id: shiftId, type: 'STORE_PURCHASE', amount_paid: totalAmount, payment_mode: paymentMode }).select('transaction_id').single();
-    if (txnError) throw txnError;
+    const txn = await tryInsertTxn({ student_id: studentId, shift_id: shiftId, type: 'STORE_PURCHASE', amount_paid: totalAmount, payment_mode: paymentMode, customer_name: customerName, target_class: targetClass });
 
     const itemRows = items.map((item) => ({ transaction_id: txn.transaction_id, item_id: item.item_id, quantity: item.quantity, unit_price: item.selling_price, total_price: item.selling_price * item.quantity }));
     await supabase.from('transaction_items').insert(itemRows);
@@ -532,18 +545,18 @@ export const transactionAPI = {
   },
 
   // Registration payment for new students: logs as REGISTRATION_PAYMENT, decrements bundled items
-  async createRegistration(studentId: string, shiftId: number, registrationFeeId: number | null, feeAmount: number, bundledItems: any[], paymentMode: string) {
+  async createRegistration(studentId: string, shiftId: number, registrationFeeId: number | null, feeAmount: number, bundledItems: any[], paymentMode: string, customerName?: string, targetClass?: string) {
     if (!studentId) throw new Error('Student ID required');
     const itemsTotal = bundledItems.reduce((s, i) => s + i.selling_price * i.quantity, 0);
     const totalAmount = feeAmount + itemsTotal;
 
     // Create the registration transaction
-    const { data: txn, error: txnError } = await supabase.from('transactions').insert({
+    const txn = await tryInsertTxn({
       student_id: studentId, shift_id: shiftId, type: 'REGISTRATION_PAYMENT', amount_paid: totalAmount, payment_mode: paymentMode,
       fee_type_id: registrationFeeId,
       notes: `Registration: ${bundledItems.length} items + ₦${feeAmount.toLocaleString('en-NG')} reg fee`,
-    }).select('transaction_id').single();
-    if (txnError) throw txnError;
+      customer_name: customerName, target_class: targetClass,
+    });
 
     // Insert transaction items for bundled inventory
     if (bundledItems.length > 0) {
@@ -572,15 +585,22 @@ export const transactionAPI = {
     if (filters?.limit) query = query.limit(filters.limit);
     const { data, error } = await query;
     if (error) throw error;
-    return (data || []).map((t: any) => ({ ...t, student_name: t.students?.name, student_class: t.students?.student_class }));
+    return (data || []).map((t: any) => ({
+      ...t,
+      student_name: t.customer_name || t.students?.name || null,
+      student_class: t.target_class || t.students?.student_class || null,
+    }));
   },
 
   async getDetails(id: number) {
     const { data: txn, error: txnError } = await supabase.from('transactions').select('*, students(name, student_class), fee_types(name)').eq('transaction_id', id).single();
     if (txnError) throw txnError;
     const { data: items } = await supabase.from('transaction_items').select('*, inventory(item_name)').eq('transaction_id', id);
+    // Prefer snapshot columns stamped at checkout; fall back to relational join
+    const customerName = txn.customer_name || txn.students?.name || null;
+    const targetClass = txn.target_class || txn.students?.student_class || null;
     return {
-      transaction: { ...txn, student_name: txn.students?.name, student_class: txn.students?.student_class, fee_type_name: txn.fee_types?.name },
+      transaction: { ...txn, customer_name: customerName, target_class: targetClass, student_name: customerName, student_class: targetClass, fee_type_name: txn.fee_types?.name },
       items: (items || []).map((i: any) => ({ ...i, item_name: i.inventory?.item_name })),
     };
   },
@@ -840,8 +860,10 @@ export const bundlePaymentAPI = {
     amountPaid: number;
     paymentMode: 'Cash' | 'POS_Transfer';
     minPartialFloor: number;
+    customerName?: string;
+    targetClass?: string;
   }) {
-    const { applicantId, bundleId, shiftId, amountPaid, paymentMode, minPartialFloor } = params;
+    const { applicantId, bundleId, shiftId, amountPaid, paymentMode, minPartialFloor, customerName, targetClass } = params;
 
     // Get bundle details
     const bundle = await bundleAPI.getById(bundleId);
@@ -878,7 +900,7 @@ export const bundlePaymentAPI = {
 
     // Create transaction
     const txnType = bundle.bundle_type === 'acceptance' ? 'ACCEPTANCE_FEE' : 'BUNDLE_PURCHASE';
-    const { data: txn, error: txnError } = await supabase.from('transactions').insert({
+    const txn = await tryInsertTxn({
       applicant_id: applicantId,
       shift_id: shiftId,
       type: txnType,
@@ -886,8 +908,9 @@ export const bundlePaymentAPI = {
       payment_mode: paymentMode,
       bundle_id: bundleId,
       notes: `${bundle.name} - ${newTotalPaid >= amountDue ? 'Full' : 'Partial'} Payment`,
-    }).select('transaction_id').single();
-    if (txnError) throw txnError;
+      customer_name: customerName,
+      target_class: targetClass,
+    });
 
     // Decrement bundle items from inventory
     for (const item of bundle.items) {
@@ -932,11 +955,16 @@ export const bundlePaymentAPI = {
     const { applicantId, shiftId, paymentMode } = params;
     const FORM_PRICE = 3000;
 
-    const { data: txn, error: txnError } = await supabase.from('transactions').insert({
+    // Auto-fetch applicant to stamp name/class snapshot
+    const { data: applicantRow } = await supabase.from('applicants').select('first_name, last_name, proposed_class').eq('id', applicantId).single();
+    const customerName = applicantRow ? `${applicantRow.first_name} ${applicantRow.last_name}` : null;
+    const targetClass = applicantRow?.proposed_class || null;
+
+    const txn = await tryInsertTxn({
       applicant_id: applicantId, shift_id: shiftId, type: 'BUNDLE_PURCHASE',
       amount_paid: FORM_PRICE, payment_mode: paymentMode, notes: 'Admission Form Purchase',
-    }).select('transaction_id').single();
-    if (txnError) throw txnError;
+      customer_name: customerName, target_class: targetClass,
+    });
 
     // Find an "Admission Form" inventory item and decrement by 1
     const { data: formItems } = await supabase.from('inventory').select('item_id, stock_quantity, item_name').ilike('item_name', '%admission form%').limit(1);
@@ -962,8 +990,10 @@ export const bundlePaymentAPI = {
     shiftId: number;
     paymentMode: 'Cash' | 'POS_Transfer';
     minPartialFloor: number;
+    customerName?: string;
+    targetClass?: string;
   }) {
-    const { studentFeeId, amount, studentId, shiftId, paymentMode, minPartialFloor } = params;
+    const { studentFeeId, amount, studentId, shiftId, paymentMode, minPartialFloor, customerName, targetClass } = params;
 
     const { data: sf } = await supabase.from('student_fees').select('amount_due, amount_paid, fee_type_id').eq('id', studentFeeId).single();
     if (!sf) throw new Error('Fee record not found');
@@ -978,7 +1008,7 @@ export const bundlePaymentAPI = {
       throw new Error(`Cannot pay ₦${amount.toLocaleString('en-NG')} — balance is only ₦${balance.toLocaleString('en-NG')}`);
     }
 
-    await supabase.from('transactions').insert({ student_id: studentId, shift_id: shiftId, type: 'FEES_CASH_COLLECTION', amount_paid: amount, payment_mode: paymentMode, fee_type_id: sf.fee_type_id });
+    await tryInsertTxn({ student_id: studentId, shift_id: shiftId, type: 'FEES_CASH_COLLECTION', amount_paid: amount, payment_mode: paymentMode, fee_type_id: sf.fee_type_id, customer_name: customerName, target_class: targetClass });
     await supabase.from('student_fees').update({ amount_paid: Number(sf.amount_paid) + amount }).eq('id', studentFeeId);
 
     const { data: student } = await supabase.from('students').select('current_fees_owed').eq('student_id', studentId).single();

@@ -68,8 +68,8 @@ function buildReceiptHtml(settings: any, txn: any, total: number, items: any[], 
   <div class="divider"></div>
   <div class="row"><span>Receipt #${txn.transaction_id}</span><span>${new Date(txn.timestamp).toLocaleDateString()}</span></div>
   <div class="row"><span>Time:</span><span>${new Date(txn.timestamp).toLocaleTimeString()}</span></div>
-  <div class="row"><span>Student:</span><span>${txn.student_name}</span></div>
-  <div class="row"><span>Class:</span><span>${txn.student_class}</span></div>
+  <div class="row"><span>Student:</span><span>${txn.customer_name || txn.student_name || 'Walk-in Applicant'}</span></div>
+  <div class="row"><span>Class:</span><span>${txn.target_class || txn.student_class || 'N/A'}</span></div>
   <div class="divider"></div>
   ${isFees && !isRegistration
     ? `<div class="row"><span>${txn.fee_type_name || 'School Fees'}</span><span>${fmt(total)}</span></div>`
@@ -1027,7 +1027,7 @@ const CashierPOS: React.FC = () => {
     if (!selectedStudent || !activeShift || cart.length === 0 || loading) return;
     setLoading(true);
     try {
-      const result = await transactionAPI.createPurchase(selectedStudent.student_id, activeShift.id, cart, paymentMode);
+      const result = await transactionAPI.createPurchase(selectedStudent.student_id, activeShift.id, cart, paymentMode, selectedStudent.name, selectedStudent.student_class);
       if (result.success) {
         setLastTxn({ ...result, isFees: false, isRegistration: false });
         setShowCheckout(false);
@@ -1054,7 +1054,7 @@ const CashierPOS: React.FC = () => {
       if (discount > 0) {
         await studentFeeAPI.applyDiscount(selectedFee.id, selectedStudent.student_id, discount);
       }
-      const result = await studentFeeAPI.recordPayment(selectedFee.id, amount, selectedStudent.student_id, activeShift.id, feesPayMode);
+      const result = await studentFeeAPI.recordPayment(selectedFee.id, amount, selectedStudent.student_id, activeShift.id, feesPayMode, selectedStudent.name, selectedStudent.student_class);
       if (result.success) {
         const updated = await studentAPI.getById(selectedStudent.student_id);
         if (updated) setSelectedStudent(updated);
@@ -1149,7 +1149,7 @@ const CashierPOS: React.FC = () => {
     setRegProcessing(true);
     setRegError('');
     try {
-      const result = await transactionAPI.createRegistration(selectedStudent.student_id, activeShift.id, registrationFeeId, feeAmount, selectedItems, payMode);
+      const result = await transactionAPI.createRegistration(selectedStudent.student_id, activeShift.id, registrationFeeId, feeAmount, selectedItems, payMode, selectedStudent.name, selectedStudent.student_class);
       if (result.success) {
         setShowRegistration(false);
         // Build receipt data
@@ -1262,6 +1262,7 @@ const CashierPOS: React.FC = () => {
         applicantId: walkInApplicant.id, bundleId: walkInAcceptanceBundle.id, shiftId: activeShift.id,
         amountPaid: walkInAcceptanceBundle.base_price, paymentMode: mode,
         minPartialFloor: schoolSettings?.min_acceptance_partial_floor || 5000,
+        customerName: walkInApplicant.full_name, targetClass: walkInApplicant.proposed_class || undefined,
       });
       if (result.success) {
         setShowWalkInAcceptance(false);
@@ -1284,6 +1285,7 @@ const CashierPOS: React.FC = () => {
         applicantId: walkInApplicant.id, bundleId: walkInRegistrationBundle.id, shiftId: activeShift.id,
         amountPaid: walkInRegistrationBundle.base_price, paymentMode: mode,
         minPartialFloor: schoolSettings?.min_partial_payment_floor || 30000,
+        customerName: walkInApplicant.full_name, targetClass: walkInApplicant.proposed_class || undefined,
       });
       if (result.success) {
         setShowWalkInRegistration(false);
@@ -1317,6 +1319,8 @@ const CashierPOS: React.FC = () => {
         amountPaid: amount,
         paymentMode: bundlePayMode,
         minPartialFloor: minFloor,
+        customerName: walkInApplicant.full_name,
+        targetClass: walkInApplicant.proposed_class || undefined,
       });
       if (result.success) {
         setShowBundlePayment(false);
