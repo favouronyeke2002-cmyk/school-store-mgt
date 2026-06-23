@@ -70,6 +70,12 @@ const SchoolSettings: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
+  // Persist the class list immediately to localStorage + DB so all dropdowns
+  // across the system reflect the change without requiring a page reload.
+  const persistClassList = (list: string[]) => {
+    settingsAPI.save({ class_list: JSON.stringify(list) }).catch(console.error);
+  };
+
   const addClass = () => {
     const name = newClassName.trim().toUpperCase();
     if (!name) return;
@@ -77,6 +83,7 @@ const SchoolSettings: React.FC = () => {
     const updated = [...classList, name].sort();
     setClassList(updated);
     setNewClassName('');
+    persistClassList(updated);
   };
 
   const addArm = () => {
@@ -86,6 +93,7 @@ const SchoolSettings: React.FC = () => {
     const updated = [...classList, armName].sort();
     setClassList(updated);
     setNewArmName('');
+    persistClassList(updated);
   };
 
   const requestRemoveClass = async (cls: string) => {
@@ -108,8 +116,10 @@ const SchoolSettings: React.FC = () => {
       setClassToDelete(null);
       return;
     }
-    setClassList((prev) => prev.filter((c) => c !== classToDelete));
+    const updated = classList.filter((c) => c !== classToDelete);
+    setClassList(updated);
     setClassToDelete(null);
+    persistClassList(updated);
   };
 
   const startEditClass = (cls: string) => { setEditingClass(cls); setEditClassValue(cls); };
@@ -119,8 +129,10 @@ const SchoolSettings: React.FC = () => {
     const newName = editClassValue.trim().toUpperCase();
     if (!newName || newName === editingClass) { setEditingClass(null); return; }
     if (classList.includes(newName)) { setErrorMsg('A class with that name already exists.'); setEditingClass(null); return; }
-    setClassList((prev) => prev.map((c) => c === editingClass ? newName : c).sort());
+    const updated = classList.map((c) => c === editingClass ? newName : c).sort();
+    setClassList(updated);
     setEditingClass(null);
+    persistClassList(updated);
     try { await studentAPI.renameClass(editingClass, newName); } catch { /* DB update best-effort */ }
   };
 

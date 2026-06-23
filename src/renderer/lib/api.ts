@@ -124,10 +124,18 @@ export const studentAPI = {
     if (error) throw error;
     return data || [];
   },
-  async getClasses() {
-    const { data, error } = await supabase.from('students').select('student_class');
-    if (error) throw error;
-    return [...new Set((data || []).map((s: any) => s.student_class))].sort() as string[];
+  async getClasses(): Promise<string[]> {
+    // Always read from the master class list in settings, not from student records.
+    // This ensures deleted classes disappear from all dropdowns immediately after saving settings.
+    const { data } = await supabase.from('school_settings').select('class_list').eq('id', 1).maybeSingle();
+    const raw = data?.class_list || localStorage.getItem(LS_CLASSES) || DEFAULT_CLASS_LIST;
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed.sort() as string[];
+    } catch { /* fall through to student-record fallback */ }
+    // Fallback: derive from existing student records if settings unavailable
+    const { data: students } = await supabase.from('students').select('student_class');
+    return [...new Set((students || []).map((s: any) => s.student_class))].filter(Boolean).sort() as string[];
   },
   async getById(id: string) {
     const { data, error } = await supabase.from('students').select('*').eq('student_id', id).maybeSingle();
