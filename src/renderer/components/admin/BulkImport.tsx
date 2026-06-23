@@ -7,8 +7,32 @@ type ImportType = 'students' | 'inventory';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`;
 
-const STUDENT_TEMPLATE = `student_id,name,class,fees_owed\nSTU-0011,John Doe,JSS1A,15000\nSTU-0012,Jane Smith,JSS2B,0`;
+const STUDENT_TEMPLATE = `student_id,name,class,fees_owed\n,John Doe,JSS1A,15000\n,Jane Smith,JSS2B,0`;
 const INVENTORY_TEMPLATE = `item_name,barcode,cost_price,selling_price,stock_quantity\nExercise Book 80pg,1234567890099,50,120,200\nBallpoint Pen Blue,1234567890100,20,50,100`;
+
+/**
+ * Converts a raw barcode cell value (possibly a JS number or an Excel
+ * scientific-notation string like "1.23E+12") into a plain integer string.
+ */
+function normalizeBarcode(raw: any): string | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw === 'number') {
+    // XLSX returns numeric cells as JS numbers — convert directly to avoid
+    // float-to-string producing scientific notation for large values.
+    return String(Math.round(raw));
+  }
+  const s = String(raw).trim();
+  if (!s) return null;
+  // Detect scientific notation strings: "1.23E+12", "1.23e+12", "1E+13", etc.
+  if (/[Ee][+\-]?\d+/.test(s)) {
+    try {
+      return String(BigInt(Math.round(parseFloat(s))));
+    } catch {
+      return String(Math.round(parseFloat(s)));
+    }
+  }
+  return s;
+}
 
 function parseFile(file: File, type: ImportType): Promise<any[]> {
   return new Promise((resolve, reject) => {
@@ -35,24 +59,30 @@ function parseFile(file: File, type: ImportType): Promise<any[]> {
 
             if (type === 'students') {
               if (h === 'student_id' || h === 'id') {
-                // Normalize: add OIS- prefix if it's just a number
-                const clean = val.startsWith('OIS-') ? val : val.startsWith('STU-') ? val.replace(/^STU-/, 'OIS-') : val ? `OIS-${val.padStart(3, '0')}` : '';
-                obj.student_id = clean;
+                // Empty or old STU- IDs → strip so api auto-generates OIS-XXX
+                if (!val || val.toUpperCase().startsWith('STU-')) {
+                  obj.student_id = '';
+                } else if (val.toUpperCase().startsWith('OIS-')) {
+                  obj.student_id = val.trim();
+                } else {
+                  // Bare number → format as OIS-XXX
+                  obj.student_id = `OIS-${val.trim().padStart(3, '0')}`;
+                }
               }
-              if (h === 'name') obj.name = val;
-              if (h === 'class' || h === 'student_class') obj.student_class = val;
+              if (h === 'name') obj.name = val.trim();
+              if (h === 'class' || h === 'student_class') obj.student_class = val.trim();
               if (h === 'fees' || h === 'fees_owed') obj.fees_owed = parseFloat(val) || 0;
             } else {
-              if (h === 'item_name' || h === 'name') obj.item_name = val;
-              if (h === 'barcode') obj.barcode = val || null;
+              if (h === 'item_name' || h === 'name') obj.item_name = val.trim();
+              if (h === 'barcode') obj.barcode = normalizeBarcode(raw);
               if (h === 'cost_price' || h === 'cost') obj.cost_price = parseFloat(val) || 0;
               if (h === 'selling_price' || h === 'price' || h === 'sell_price') obj.selling_price = parseFloat(val) || 0;
               if (h === 'stock_quantity' || h === 'stock' || h === 'quantity' || h === 'qty') obj.stock_quantity = parseInt(val) || 0;
             }
           });
 
-          // Validate required fields
-          if (type === 'students' && obj.student_id && obj.name && obj.student_class) parsed.push(obj);
+          // Validate required fields — student_id may be empty (auto-generated on insert)
+          if (type === 'students' && obj.name && obj.student_class) parsed.push(obj);
           else if (type === 'inventory' && obj.item_name) parsed.push(obj);
         }
 
@@ -148,7 +178,7 @@ const BulkImport: React.FC = () => {
         </div>
         {type === 'students' && (
           <div className="mt-3 text-xs text-gray-400 bg-gray-50 rounded-lg p-3 space-y-1">
-            <div><strong>student_id</strong>: Required, e.g. STU-0011 (or just 0011 — prefix auto-added)</div>
+            <div><strong>student_id</strong>: Optional — leave blank to auto-assign OIS-001, OIS-002… in sequence. Old STU- IDs are also stripped and auto-replaced.</div>
             <div><strong>name</strong>: Required, student's full name</div>
             <div><strong>class</strong>: Required, e.g. JSS1A, SS2B</div>
             <div><strong>fees_owed</strong>: Optional, numeric amount e.g. 15000</div>
@@ -226,7 +256,7 @@ const BulkImport: React.FC = () => {
                     <td className="px-3 py-2 text-gray-400 text-xs">{i + 1}</td>
                     {type === 'students' ? (
                       <>
-                        <td className="px-3 py-2 font-mono text-xs text-gray-600">{row.student_id}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-gray-600">{row.student_id || <span className="text-gray-300 italic">auto</span>}</td>
                         <td className="px-3 py-2 font-medium">{row.name}</td>
                         <td className="px-3 py-2"><span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs">{row.student_class}</span></td>
                         <td className="px-3 py-2 text-right">{fmt(row.fees_owed || 0)}</td>

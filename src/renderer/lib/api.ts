@@ -201,7 +201,23 @@ export const studentAPI = {
     return { success: true };
   },
   async bulkImport(students: any[]) {
-    const rows = students.map((s) => ({ student_id: s.student_id, name: s.name, student_class: s.student_class, current_fees_owed: Number(s.fees_owed) || 0, admission_type: 'Returning' }));
+    // If any row lacks a student_id, generate sequential OIS-XXX IDs from the current max
+    const needsId = students.some((s) => !s.student_id);
+    let nextId = 1;
+    if (needsId) {
+      const { data: all } = await supabase.from('students').select('student_id');
+      const maxId = (all || []).reduce((max: number, s: any) => {
+        const raw = String(s.student_id).replace(/^OIS-|^STU-/i, '');
+        const n = parseInt(raw);
+        return !isNaN(n) && n > max ? n : max;
+      }, 0);
+      nextId = maxId + 1;
+    }
+    const rows = students.map((s) => {
+      let id = s.student_id || '';
+      if (!id) id = 'OIS-' + String(nextId++).padStart(3, '0');
+      return { student_id: id, name: String(s.name).trim(), student_class: String(s.student_class).trim(), current_fees_owed: Number(s.fees_owed) || 0, admission_type: 'Returning' };
+    });
     const { error } = await supabase.from('students').upsert(rows, { onConflict: 'student_id' });
     if (error) return { success: false, error: error.message };
     return { success: true, count: rows.length };
