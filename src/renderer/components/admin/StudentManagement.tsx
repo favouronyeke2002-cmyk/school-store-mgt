@@ -63,6 +63,12 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
     feeTypeAPI.getAll().then((ft) => setFeeTypes(ft as FeeType[])).catch(console.error);
   }, []);
 
+  useEffect(() => {
+    if (showModal) {
+      feeTypeAPI.getAll().then((ft) => setFeeTypes(ft as FeeType[])).catch(console.error);
+    }
+  }, [showModal]);
+
   const totalPages = Math.ceil(total / pageSize);
 
   const computeFeesOwed = () => formData.selectedFeeIds.reduce((sum, id) => {
@@ -275,11 +281,14 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Initial Fees to Apply</label>
-                <p className="text-xs text-gray-400 mb-2">Select fee templates to apply to this student.</p>
                 {feeTypes.length === 0 ? (
-                  <p className="text-xs text-gray-400 italic">No fee types found. Create fee types in Fees Management first.</p>
+                  <div className="border border-gray-200 rounded-lg px-4 py-3 bg-gray-50">
+                    <p className="text-xs text-gray-400 text-center">No fee types created yet. Set up fees in the <span className="font-medium text-gray-500">Fees &amp; Billing</span> tab first.</p>
+                  </div>
                 ) : filteredFeeTypes.length === 0 ? (
-                  <p className="text-xs text-gray-400 italic">No fees available for the selected class.</p>
+                  <div className="border border-gray-200 rounded-lg px-4 py-3 bg-gray-50">
+                    <p className="text-xs text-gray-400 text-center">No fees available for the selected class.</p>
+                  </div>
                 ) : (
                   <div className="space-y-2 max-h-40 overflow-auto border border-gray-200 rounded-lg p-2">
                     {filteredFeeTypes.map((ft) => (
