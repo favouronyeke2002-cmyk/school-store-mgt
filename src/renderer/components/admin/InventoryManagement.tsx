@@ -61,8 +61,8 @@ const InventoryManagement: React.FC = () => {
     e.preventDefault();
     setAddError('');
     const result = await inventoryAPI.create({
-      itemName: addForm.itemName, costPrice: parseFloat(addForm.costPrice), sellingPrice: parseFloat(addForm.sellingPrice),
-      stockQuantity: parseInt(addForm.stockQuantity) || 0, barcode: addForm.barcode || undefined,
+      itemName: addForm.itemName.trim(), costPrice: parseFloat(addForm.costPrice), sellingPrice: parseFloat(addForm.sellingPrice),
+      stockQuantity: parseInt(addForm.stockQuantity) || 0, barcode: addForm.barcode.trim() || undefined,
       categoryId: addForm.categoryId ? Number(addForm.categoryId) : null,
     });
     if (result.success) { setShowAdd(false); setAddForm(emptyForm); reload(); }
@@ -73,8 +73,8 @@ const InventoryManagement: React.FC = () => {
     e.preventDefault();
     if (!selected) return;
     await inventoryAPI.update(selected.item_id, {
-      itemName: editForm.itemName, costPrice: parseFloat(editForm.costPrice), sellingPrice: parseFloat(editForm.sellingPrice),
-      barcode: editForm.barcode || undefined, categoryId: editForm.categoryId ? Number(editForm.categoryId) : null,
+      itemName: editForm.itemName.trim(), costPrice: parseFloat(editForm.costPrice), sellingPrice: parseFloat(editForm.sellingPrice),
+      barcode: editForm.barcode.trim() || undefined, categoryId: editForm.categoryId ? Number(editForm.categoryId) : null,
     });
     setShowEdit(false);
     reload();
@@ -286,7 +286,7 @@ const InventoryManagement: React.FC = () => {
               </div>
               <div>
                 <label className={labelCls}>Barcode (optional)</label>
-                <input type="text" className={inputCls} value={addForm.barcode} onChange={(e) => setAddForm((p) => ({ ...p, barcode: e.target.value }))} />
+                <input type="text" className={inputCls} value={addForm.barcode} onChange={(e) => setAddForm((p) => ({ ...p, barcode: e.target.value.replace(/\s/g, '') }))} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -335,7 +335,7 @@ const InventoryManagement: React.FC = () => {
               </div>
               <div>
                 <label className={labelCls}>Barcode (optional)</label>
-                <input type="text" className={inputCls} value={editForm.barcode} onChange={(e) => setEditForm((p) => ({ ...p, barcode: e.target.value }))} />
+                <input type="text" className={inputCls} value={editForm.barcode} onChange={(e) => setEditForm((p) => ({ ...p, barcode: e.target.value.replace(/\s/g, '') }))} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
