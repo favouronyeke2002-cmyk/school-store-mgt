@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Upload, Image, AlertCircle, X, Plus, Trash2, GraduationCap, Pencil, CheckCircle } from 'lucide-react';
 import { settingsAPI, studentAPI } from '../../lib/api';
+import { CATEGORY_GROUPS, type CategoryGroup } from '../../lib/feeEngine';
 
 interface Settings {
   school_name: string;
@@ -40,8 +41,10 @@ const SchoolSettings: React.FC = () => {
   const [classDeleteChecking, setClassDeleteChecking] = useState(false);
   const [editingClass, setEditingClass] = useState<string | null>(null);
   const [editClassValue, setEditClassValue] = useState('');
+  const [classCategoryMap, setClassCategoryMap] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    setClassCategoryMap(settingsAPI.getClassCategoryMap());
     settingsAPI.get().then((data) => {
       if (data) {
         setSettings({ ...data, current_term: data.current_term || 'First Term', class_list: data.class_list || JSON.stringify(DEFAULT_CLASSES) });
@@ -55,6 +58,13 @@ const SchoolSettings: React.FC = () => {
       }
     }).catch(console.error).finally(() => setLoading(false));
   }, []);
+
+  const updateCategoryGroup = (cls: string, group: CategoryGroup | '') => {
+    const updated = { ...classCategoryMap };
+    if (group === '') { delete updated[cls]; } else { updated[cls] = group; }
+    setClassCategoryMap(updated);
+    settingsAPI.saveClassCategoryMap(updated).catch(console.error);
+  };
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -334,6 +344,65 @@ const SchoolSettings: React.FC = () => {
               </div>
             </div>
           )}
+        </div>
+
+        {/* ── Class Category Groups ─────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+          <h2 className="font-bold text-gray-900 mb-1">Class Category Groups</h2>
+          <p className="text-xs text-gray-400 mb-4">
+            Assign each class to a billing tier. This drives registration fee pricing for walk-in applicants.
+            <br />
+            <span className="font-semibold text-gray-500">JUNIOR</span>: JSS classes · <span className="font-semibold text-gray-500">SENIOR</span>: SS classes · <span className="font-semibold text-gray-500">REMEDIAL</span>: A.C.E. / Remedial classes
+          </p>
+
+          {classList.length === 0 ? (
+            <p className="text-sm text-gray-400 italic">No classes defined yet. Add classes above first.</p>
+          ) : (
+            <div className="space-y-2">
+              {classList.sort().map((cls) => {
+                const current = (classCategoryMap[cls] || '') as CategoryGroup | '';
+                const groupColors: Record<string, string> = {
+                  JUNIOR:   'bg-blue-600  border-blue-600  text-white',
+                  SENIOR:   'bg-indigo-600 border-indigo-600 text-white',
+                  REMEDIAL: 'bg-amber-600  border-amber-600  text-white',
+                };
+                const unassignedActive = 'bg-gray-200 border-gray-200 text-gray-700';
+                const inactive = 'bg-white border-gray-200 text-gray-500 hover:border-gray-400';
+
+                return (
+                  <div key={cls} className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
+                    <span className="w-24 shrink-0 text-sm font-semibold text-gray-800 font-mono">{cls}</span>
+                    <div className="flex gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => updateCategoryGroup(cls, '')}
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold border-2 transition-all ${current === '' ? unassignedActive : inactive}`}
+                      >
+                        No Group
+                      </button>
+                      {CATEGORY_GROUPS.map((g) => (
+                        <button
+                          key={g}
+                          type="button"
+                          onClick={() => updateCategoryGroup(cls, g)}
+                          className={`px-3 py-1 rounded-lg text-xs font-semibold border-2 transition-all ${current === g ? groupColors[g] : inactive}`}
+                        >
+                          {g}
+                        </button>
+                      ))}
+                    </div>
+                    {current === '' && (
+                      <span className="ml-auto text-xs text-warning-600 flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5" /> Unassigned
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <p className="text-xs text-gray-400 mt-3">Changes are saved instantly — no need to click "Save Settings".</p>
         </div>
 
         {/* Partial Payment Floors */}

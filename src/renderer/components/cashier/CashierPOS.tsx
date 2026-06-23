@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useShift } from '../../context/ShiftContext';
 import { studentAPI, inventoryAPI, transactionAPI, studentFeeAPI, categoryAPI, settingsAPI, feeTypeAPI, bundleAPI, applicantAPI, bundlePaymentAPI, shiftAPI } from '../../lib/api';
+import { getRegistrationFee } from '../../lib/feeEngine';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Student { student_id: string; name: string; student_class: string; current_fees_owed: number; admission_type?: 'Returning' | 'New'; }
@@ -743,6 +744,122 @@ const StudentQuickList: React.FC<{ onSelect: (s: Student) => void }> = ({ onSele
   );
 };
 
+// ─── Walk-In Registration Fee Modal (fee-engine driven) ───────────────────────
+const WalkInRegistrationFeeModal: React.FC<{
+  applicantName: string;
+  proposedClass: string;
+  studentStatus: 'Day' | 'Boarding';
+  classCategoryMap: Record<string, string>;
+  onConfirm: (mode: 'Cash' | 'POS_Transfer', total: number, coachingIncluded: boolean) => void;
+  onCancel: () => void;
+  processing: boolean;
+  error: string;
+}> = ({ applicantName, proposedClass, studentStatus, classCategoryMap, onConfirm, onCancel, processing, error }) => {
+  const [payMode, setPayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
+  const [coachingAddon, setCoachingAddon] = useState(false);
+
+  const fee = getRegistrationFee(proposedClass, studentStatus, classCategoryMap);
+  const total = fee.base + (coachingAddon ? fee.coachingCost : 0);
+  const canProceed = !fee.warning && fee.base > 0;
+
+  const tierColor: Record<string, string> = {
+    JUNIOR: 'bg-blue-100 text-blue-700',
+    SENIOR: 'bg-indigo-100 text-indigo-700',
+    REMEDIAL: 'bg-amber-100 text-amber-700',
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-900">Registration Fee Payment</h2>
+          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="bg-warning-50 border border-warning-200 rounded-xl px-4 py-2.5 mb-4">
+          <p className="text-sm font-semibold text-warning-800">{applicantName}</p>
+          <p className="text-xs text-warning-600 mt-0.5">{proposedClass || 'No class'} · {studentStatus} Student</p>
+        </div>
+
+        {fee.warning && (
+          <div className="bg-danger-50 border border-danger-200 rounded-xl px-4 py-3 mb-4 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-danger-600 shrink-0 mt-0.5" />
+            <p className="text-sm text-danger-700">{fee.warning}</p>
+          </div>
+        )}
+
+        {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{error}</div>}
+
+        {!fee.warning && (
+          <>
+            <div className="bg-gray-50 rounded-xl p-4 mb-4 space-y-2">
+              <div className="flex items-center gap-2 mb-2">
+                {fee.categoryGroup && (
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${tierColor[fee.categoryGroup] || 'bg-gray-100 text-gray-600'}`}>
+                    {fee.categoryGroup} Tier
+                  </span>
+                )}
+                <span className="text-xs text-gray-400">{studentStatus === 'Boarding' ? 'Boarding' : 'Day'} Rate</span>
+              </div>
+
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-700">Base Registration Fee</span>
+                <span className="font-semibold">{fmt(fee.base)}</span>
+              </div>
+
+              {fee.hasCoachingOption && (
+                <label className="flex items-center gap-3 cursor-pointer bg-white border border-gray-200 rounded-lg px-3 py-2 mt-1 hover:border-primary-300 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={coachingAddon}
+                    onChange={(e) => setCoachingAddon(e.target.checked)}
+                    className="rounded accent-primary-600"
+                  />
+                  <div className="flex-1">
+                    <span className="text-sm font-medium text-gray-800">Add Coaching</span>
+                    <span className="text-xs text-gray-400 ml-2">(optional)</span>
+                  </div>
+                  <span className="text-sm font-semibold text-primary-700">+{fmt(fee.coachingCost)}</span>
+                </label>
+              )}
+
+              <div className="flex items-center justify-between border-t pt-2 mt-1">
+                <span className="font-bold text-gray-900">Total (Locked)</span>
+                <span className="text-xl font-extrabold text-primary-600">{fmt(total)}</span>
+              </div>
+              <p className="text-xs text-warning-600 bg-warning-50 rounded px-2 py-1">Amount is fixed — cannot be modified at cashier level</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 mb-5">
+              <button type="button" onClick={() => setPayMode('Cash')}
+                className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${payMode === 'Cash' ? 'bg-success-600 border-success-600 text-white' : 'bg-white border-gray-200 text-gray-600'}`}>
+                Cash
+              </button>
+              <button type="button" onClick={() => setPayMode('POS_Transfer')}
+                className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${payMode === 'POS_Transfer' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600'}`}>
+                POS / Transfer
+              </button>
+            </div>
+          </>
+        )}
+
+        <div className="flex gap-3">
+          <button onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
+          {canProceed && (
+            <button
+              onClick={() => onConfirm(payMode, total, coachingAddon)}
+              disabled={processing}
+              className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50"
+            >
+              {processing ? 'Processing…' : `Confirm ${fmt(total)}`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Walk-In Locked Form Payment Modal ───────────────────────────────────────
 const WalkInFormModal: React.FC<{
   applicantName: string;
@@ -903,6 +1020,9 @@ const CashierPOS: React.FC = () => {
   const [quickEditSaving, setQuickEditSaving] = useState(false);
   const [quickEditError, setQuickEditError] = useState('');
 
+  // Class category map for fee engine
+  const [classCategoryMap, setClassCategoryMap] = useState<Record<string, string>>({});
+
   // Walk-in applicant
   const [showWalkIn, setShowWalkIn] = useState(false);
   const [walkInSaving, setWalkInSaving] = useState(false);
@@ -938,8 +1058,11 @@ const CashierPOS: React.FC = () => {
   const [historySearch, setHistorySearch] = useState('');
   const [historyClass, setHistoryClass] = useState('all');
 
-  // Load school settings on mount
-  useEffect(() => { settingsAPI.get().then(setSchoolSettings).catch(console.error); }, []);
+  // Load school settings + class category map on mount
+  useEffect(() => {
+    settingsAPI.get().then(setSchoolSettings).catch(console.error);
+    setClassCategoryMap(settingsAPI.getClassCategoryMap());
+  }, []);
   // Load classes
   useEffect(() => { studentAPI.getClasses().then(setClasses).catch(console.error); }, []);
   // Load categories
@@ -1222,15 +1345,7 @@ const CashierPOS: React.FC = () => {
       setWalkInAcceptanceBundle(bundle);
       setShowWalkInAcceptance(true);
     } else {
-      // Registration — pick bundle matching applicant's student_status
-      // Bundle applicable_to uses 'Day Only'/'Boarding Only'; student_status uses 'Day'/'Boarding'
-      const status = walkInApplicant.student_status || 'Day';
-      const statusMatch = status === 'Boarding' ? 'Boarding Only' : 'Day Only';
-      const bundle = bundles.find((b) => b.bundle_type === 'registration' && b.is_active && b.applicable_to === statusMatch)
-        || bundles.find((b) => b.bundle_type === 'registration' && b.is_active && (!b.applicable_to || b.applicable_to === 'All Students'))
-        || bundles.find((b) => b.bundle_type === 'registration' && b.is_active);
-      if (!bundle) { setErrorMsg('No active Registration bundle found. Please create one in Bundle Management.'); return; }
-      setWalkInRegistrationBundle(bundle);
+      // Registration — pricing is computed from category_group fee engine; no bundle lookup needed
       setShowWalkInRegistration(true);
     }
   };
@@ -1276,23 +1391,32 @@ const CashierPOS: React.FC = () => {
     setWalkInModalProcessing(false);
   };
 
-  const handleWalkInRegistrationConfirm = async (mode: 'Cash' | 'POS_Transfer') => {
-    if (!walkInApplicant || !walkInRegistrationBundle || !activeShift) return;
+  const handleWalkInRegistrationConfirm = async (mode: 'Cash' | 'POS_Transfer', total: number, coachingIncluded: boolean) => {
+    if (!walkInApplicant || !activeShift) return;
     setWalkInModalProcessing(true);
     setWalkInModalError('');
     try {
-      const result = await bundlePaymentAPI.processBundlePayment({
-        applicantId: walkInApplicant.id, bundleId: walkInRegistrationBundle.id, shiftId: activeShift.id,
-        amountPaid: walkInRegistrationBundle.base_price, paymentMode: mode,
-        minPartialFloor: schoolSettings?.min_partial_payment_floor || 30000,
-        customerName: walkInApplicant.full_name, targetClass: walkInApplicant.proposed_class || undefined,
+      const categoryGroup = classCategoryMap[walkInApplicant.proposed_class || ''] || 'UNKNOWN';
+      const studentStatus = walkInApplicant.student_status || 'Day';
+      const result = await bundlePaymentAPI.processDirectRegistrationPayment({
+        applicantId: walkInApplicant.id, shiftId: activeShift.id,
+        paymentMode: mode, amount: total, categoryGroup, studentStatus, coachingIncluded,
+        customerName: walkInApplicant.full_name,
+        targetClass: walkInApplicant.proposed_class || undefined,
       });
       if (result.success) {
         setShowWalkInRegistration(false);
-        const receiptTxn = { transaction_id: result.transactionId, timestamp: new Date().toISOString(), student_name: walkInApplicant.full_name, student_class: walkInApplicant.proposed_class || 'Applicant', payment_mode: mode, fee_type_name: walkInRegistrationBundle.name };
-        setLastTxn({ isFees: false, isRegistration: true, transaction: receiptTxn, total: walkInRegistrationBundle.base_price, items: result.items || [] });
+        const receiptTxn = {
+          transaction_id: result.transactionId,
+          timestamp: new Date().toISOString(),
+          student_name: walkInApplicant.full_name,
+          student_class: walkInApplicant.proposed_class || 'Applicant',
+          payment_mode: mode,
+          fee_type_name: `Registration Package — ${categoryGroup}`,
+        };
+        setLastTxn({ isFees: false, isRegistration: true, transaction: receiptTxn, total, items: result.items || [] });
         setShowReceipt(true);
-        setWalkInApplicant(null); setWalkInRegistrationBundle(null);
+        setWalkInApplicant(null);
         inventoryAPI.getAll({ categoryId: activeCat, activeOnly: true }).then(setInventory);
       }
     } catch (e) { setWalkInModalError((e as Error).message); }
@@ -2108,14 +2232,15 @@ const CashierPOS: React.FC = () => {
         />
       )}
 
-      {/* ── Walk-In Locked Registration Modal ───────────────────────── */}
-      {showWalkInRegistration && walkInApplicant && walkInRegistrationBundle && (
-        <WalkInBundleModal
-          title="Registration Fee Payment"
+      {/* ── Walk-In Registration Fee Engine Modal ────────────────────── */}
+      {showWalkInRegistration && walkInApplicant && (
+        <WalkInRegistrationFeeModal
           applicantName={walkInApplicant.full_name}
-          bundle={walkInRegistrationBundle}
+          proposedClass={walkInApplicant.proposed_class || ''}
+          studentStatus={walkInApplicant.student_status || 'Day'}
+          classCategoryMap={classCategoryMap}
           onConfirm={handleWalkInRegistrationConfirm}
-          onCancel={() => { setShowWalkInRegistration(false); setWalkInRegistrationBundle(null); setWalkInModalError(''); }}
+          onCancel={() => { setShowWalkInRegistration(false); setWalkInModalError(''); }}
           processing={walkInModalProcessing}
           error={walkInModalError}
         />

@@ -3,6 +3,7 @@ import { supabase } from './supabase';
 // ─── SCHOOL SETTINGS ──────────────────────────────────────────────────────────
 const LS_TERM = 'pos_current_term';
 const LS_CLASSES = 'pos_class_list';
+const LS_CLASS_CATEGORY = 'pos_class_category_map';
 const DEFAULT_CLASS_LIST = '["JSS1A","JSS1B","JSS2A","JSS2B","JSS3A","JSS3B","SS1A","SS1B","SS2A","SS2B","SS3A","SS3B"]';
 
 // Normalize legacy short-form term names to canonical long-form
@@ -27,6 +28,23 @@ export const settingsAPI = {
     if (!result.class_list) result.class_list = localStorage.getItem(LS_CLASSES) || DEFAULT_CLASS_LIST;
     return result;
   },
+
+  // ── Class Category Map helpers ────────────────────────────────────────────
+  getClassCategoryMap(): Record<string, string> {
+    try {
+      const raw = localStorage.getItem(LS_CLASS_CATEGORY);
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  },
+
+  async saveClassCategoryMap(map: Record<string, string>): Promise<void> {
+    const json = JSON.stringify(map);
+    localStorage.setItem(LS_CLASS_CATEGORY, json);
+    // Best-effort save to DB (column may not exist yet)
+    const { error } = await supabase.from('school_settings').upsert({ id: 1, class_category_map: json });
+    if (error) console.warn('class_category_map column not yet in schema — stored locally only');
+  },
+
   async save(updates: { school_name?: string; tagline?: string; phone_number?: string; logo_url?: string | null; academic_session?: string; address?: string; min_partial_payment_floor?: number; min_acceptance_partial_floor?: number; current_term?: string; class_list?: string }) {
     const { current_term, class_list, ...baseUpdates } = updates;
     // Save base fields (always exist in schema)
@@ -1015,6 +1033,46 @@ export const bundlePaymentAPI = {
 
     await applicantAPI.markEligible(applicantId);
     return { success: true, transactionId: txn.transaction_id, total: FORM_PRICE, items };
+  },
+
+  // Process a registration fee directly from the fee engine (no bundle record needed).
+  // Amount + line-items are determined by the category_group fee engine at the UI layer.
+  async processDirectRegistrationPayment(params: {
+    applicantId: number;
+    shiftId: number;
+    paymentMode: 'Cash' | 'POS_Transfer';
+    amount: number;
+    categoryGroup: string;
+    studentStatus: string;
+    coachingIncluded: boolean;
+    customerName?: string;
+    targetClass?: string;
+  }) {
+    const { applicantId, shiftId, paymentMode, amount, categoryGroup, studentStatus, coachingIncluded, customerName, targetClass } = params;
+
+    const baseAmount = coachingIncluded ? amount - 10_000 : amount;
+    const notes = `Registration Fee — ${categoryGroup} (${studentStatus})${coachingIncluded ? ' + Coaching Add-on' : ''}`;
+
+    const txn = await tryInsertTxn({
+      applicant_id: applicantId,
+      shift_id: shiftId,
+      type: 'BUNDLE_PURCHASE',
+      amount_paid: amount,
+      payment_mode: paymentMode,
+      notes,
+      customer_name: customerName ?? null,
+      target_class: targetClass ?? null,
+    });
+
+    const lineItems: { item_name: string; quantity: number; total_price: number }[] = [
+      { item_name: `Registration Package — ${categoryGroup} ${studentStatus}`, quantity: 1, total_price: baseAmount },
+    ];
+    if (coachingIncluded) {
+      lineItems.push({ item_name: 'Coaching Add-on', quantity: 1, total_price: 10_000 });
+    }
+
+    await applicantAPI.markEligible(applicantId);
+    return { success: true, transactionId: txn.transaction_id, total: amount, items: lineItems };
   },
 
   // Process school fees payment for a student with partial payment floor
