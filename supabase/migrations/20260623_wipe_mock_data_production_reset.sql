@@ -32,43 +32,22 @@
 
 BEGIN;
 
--- ── 1. LEAF TABLES (depend on deeper tables; clear first) ────────────────────
+-- ── Single TRUNCATE with CASCADE ─────────────────────────────────────────────
+-- PostgreSQL requires all tables sharing FK relationships to be listed
+-- together in one TRUNCATE statement (or use CASCADE). Listing them
+-- explicitly is safer — CASCADE is added as a fallback for any missed links.
+TRUNCATE TABLE
+  transaction_items,
+  applicant_payments,
+  stock_adjustments,
+  student_fees,
+  transactions,
+  shifts,
+  applicants,
+  students
+RESTART IDENTITY CASCADE;
 
--- Line items that belong to transactions (CASCADE from transactions,
--- but we truncate here first to satisfy the inventory RESTRICT FK)
-TRUNCATE TABLE transaction_items RESTART IDENTITY;
-
--- Applicant partial-payment ledger (child of applicants)
-TRUNCATE TABLE applicant_payments RESTART IDENTITY;
-
--- Manual stock change log (child of inventory, which we keep)
-TRUNCATE TABLE stock_adjustments  RESTART IDENTITY;
-
--- Per-student fee rows (child of students AND fee_types; keep fee_types)
-TRUNCATE TABLE student_fees       RESTART IDENTITY;
-
--- ── 2. MID-LEVEL TABLES ──────────────────────────────────────────────────────
-
--- Master receipt / transaction log
--- student_id is nullable (SET NULL semantics via app logic);
--- all transaction_items already cleared above so no RESTRICT block.
-TRUNCATE TABLE transactions       RESTART IDENTITY;
-
--- Cashier shift records (pos_users is preserved; shifts are transactional)
-TRUNCATE TABLE shifts             RESTART IDENTITY;
-
--- Walk-in applicants (enrolled_student_id FK → students is ON DELETE SET NULL,
--- so this is safe to clear before or after students)
-TRUNCATE TABLE applicants         RESTART IDENTITY;
-
--- ── 3. ROOT STUDENT TABLE ────────────────────────────────────────────────────
-
--- students uses a TEXT primary key (e.g. OIS-0001) — no DB sequence.
--- The application reads all existing IDs and issues the next one, so
--- once this table is empty the very next enrolment becomes OIS-0001.
-DELETE FROM students;
-
--- ── 4. SANITY CHECKS (informational — will appear in SQL Editor output) ──────
+-- ── SANITY CHECKS (informational — appear in SQL Editor output) ──────────────
 
 DO $$
 DECLARE
@@ -115,10 +94,10 @@ BEGIN
 
   -- Abort if anything that should be preserved was accidentally emptied
   IF user_count = 0 THEN
-    RAISE EXCEPTION 'SAFETY CHECK FAILED: pos_users is empty — aborting rollback!';
+    RAISE EXCEPTION 'SAFETY CHECK FAILED: pos_users is empty — rolling back!';
   END IF;
   IF inventory_count = 0 THEN
-    RAISE EXCEPTION 'SAFETY CHECK FAILED: inventory is empty — aborting rollback!';
+    RAISE EXCEPTION 'SAFETY CHECK FAILED: inventory is empty — rolling back!';
   END IF;
 
   RAISE NOTICE 'All checks passed. Reset complete.';
