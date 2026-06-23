@@ -5,7 +5,7 @@ import { bundleAPI, inventoryAPI } from '../../lib/api';
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 interface BundleItem { id: number; item_id: number; item_name: string; selling_price: number; stock_quantity: number; quantity: number; }
-interface Bundle { id: number; name: string; description: string | null; base_price: number; bundle_type: 'acceptance' | 'registration' | 'custom'; is_active: boolean; applicable_to: string; items: BundleItem[]; }
+interface Bundle { id: number; name: string; description: string | null; base_price: number; bundle_type: 'acceptance' | 'registration' | 'custom'; is_active: boolean; applicable_to: string; class_category?: string | null; coaching_addon?: boolean; items: BundleItem[]; }
 interface InventoryItem { item_id: number; item_name: string; selling_price: number; stock_quantity: number; }
 
 type BundleFormState = {
@@ -14,6 +14,8 @@ type BundleFormState = {
   basePrice: string;
   bundleType: 'acceptance' | 'registration' | 'custom';
   applicableTo: string;
+  classCategory: string;
+  coachingAddon: boolean;
   items: { itemId: number; quantity: number }[];
 };
 
@@ -108,6 +110,37 @@ const BundleForm: React.FC<BundleFormProps> = ({ form, setForm, error, saving, i
       </div>
 
       <div>
+        <label className="text-sm font-medium text-gray-700 mb-1 block">Applicable Class Category <span className="text-danger-500">*</span></label>
+        <select
+          value={form.classCategory}
+          onChange={(e) => setForm((p) => ({ ...p, classCategory: e.target.value, coachingAddon: false }))}
+          className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+        >
+          <option value="">— Not Specified —</option>
+          <option value="JUNIOR">Junior Secondary (JSS1–3)</option>
+          <option value="SENIOR">Senior Secondary (SS1–3)</option>
+          <option value="REMEDIAL">Remedial / A.C.E. Class</option>
+        </select>
+        <p className="text-xs text-gray-400 mt-1">Links this bundle to the correct class tier in the Walk-In Registration checkout.</p>
+      </div>
+
+      {form.applicableTo === 'Boarding Only' && (form.classCategory === 'JUNIOR' || form.classCategory === 'SENIOR') && (
+        <div className="flex items-center justify-between bg-primary-50 border border-primary-200 rounded-xl px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-primary-800">Include Optional Coaching Fee</p>
+            <p className="text-xs text-primary-600 mt-0.5">Exposes a +₦10,000 coaching checkbox for boarding students at checkout</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setForm((p) => ({ ...p, coachingAddon: !p.coachingAddon }))}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${form.coachingAddon ? 'bg-primary-600' : 'bg-gray-300'}`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${form.coachingAddon ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+        </div>
+      )}
+
+      <div>
         <label className="text-sm font-medium text-gray-700 mb-2 block">Bundle Items *</label>
         <div className="space-y-2 mb-3">
           {form.items.map((item) => {
@@ -156,7 +189,7 @@ const BundleForm: React.FC<BundleFormProps> = ({ form, setForm, error, saving, i
 };
 
 const emptyForm: BundleFormState = {
-  name: '', description: '', basePrice: '', bundleType: 'registration', applicableTo: 'All Students', items: [],
+  name: '', description: '', basePrice: '', bundleType: 'registration', applicableTo: 'All Students', classCategory: '', coachingAddon: false, items: [],
 };
 
 const BundleManagement: React.FC = () => {
@@ -201,6 +234,8 @@ const BundleManagement: React.FC = () => {
       basePrice: String(b.base_price),
       bundleType: b.bundle_type,
       applicableTo: b.applicable_to || 'All Students',
+      classCategory: b.class_category || '',
+      coachingAddon: b.coaching_addon || false,
       items: b.items.map((i) => ({ itemId: i.item_id, quantity: i.quantity })),
     });
     setError('');
@@ -221,6 +256,8 @@ const BundleManagement: React.FC = () => {
       basePrice: parseFloat(form.basePrice),
       bundleType: form.bundleType,
       applicableTo: form.applicableTo,
+      classCategory: form.classCategory || null,
+      coachingAddon: form.coachingAddon,
       items: form.items,
     });
     if (result.success) {
@@ -245,6 +282,8 @@ const BundleManagement: React.FC = () => {
       basePrice: parseFloat(form.basePrice),
       bundleType: form.bundleType,
       applicableTo: form.applicableTo,
+      classCategory: form.classCategory || null,
+      coachingAddon: form.coachingAddon,
       items: form.items,
     });
     if (result.success) {
@@ -299,6 +338,14 @@ const BundleManagement: React.FC = () => {
                         {!b.is_active && <span className="text-xs bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full">Inactive</span>}
                         {b.applicable_to && b.applicable_to !== 'All Students' && (
                           <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{b.applicable_to}</span>
+                        )}
+                        {b.class_category && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${b.class_category === 'JUNIOR' ? 'bg-blue-100 text-blue-700' : b.class_category === 'SENIOR' ? 'bg-violet-100 text-violet-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {b.class_category === 'JUNIOR' ? 'JSS1–3' : b.class_category === 'SENIOR' ? 'SS1–3' : 'Remedial'}
+                          </span>
+                        )}
+                        {b.coaching_addon && (
+                          <span className="text-xs bg-success-100 text-success-700 px-2 py-0.5 rounded-full">+Coaching</span>
                         )}
                       </div>
                       {b.description && <p className="text-sm text-gray-500 mb-2">{b.description}</p>}

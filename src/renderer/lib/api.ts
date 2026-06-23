@@ -802,26 +802,42 @@ export const bundleAPI = {
   async getAll() {
     const { data, error } = await supabase.from('bundles').select('*, bundle_items(*, inventory(item_id, item_name, selling_price, stock_quantity))').order('created_at', { ascending: false });
     if (error) throw error;
-    return (data || []).map((b: any) => ({ ...b, applicable_to: b.applicable_to || 'All Students', items: mapBundleItems(b.bundle_items) }));
+    return (data || []).map((b: any) => ({
+      ...b,
+      applicable_to: b.applicable_to || 'All Students',
+      class_category: b.class_category || null,
+      coaching_addon: b.coaching_addon || false,
+      items: mapBundleItems(b.bundle_items),
+    }));
   },
   async getById(id: number) {
     const { data, error } = await supabase.from('bundles').select('*, bundle_items(*, inventory(item_id, item_name, selling_price, stock_quantity))').eq('id', id).single();
     if (error) throw error;
-    return { ...data, applicable_to: data.applicable_to || 'All Students', items: mapBundleItems(data.bundle_items) };
+    return {
+      ...data,
+      applicable_to: data.applicable_to || 'All Students',
+      class_category: data.class_category || null,
+      coaching_addon: data.coaching_addon || false,
+      items: mapBundleItems(data.bundle_items),
+    };
   },
-  async create(data: { name: string; description?: string; basePrice: number; bundleType: 'acceptance' | 'registration' | 'custom'; applicableTo?: string; items: { itemId: number; quantity: number }[] }) {
-    const payload = { name: data.name, description: data.description || null, base_price: data.basePrice, bundle_type: data.bundleType, applicable_to: data.applicableTo || 'All Students' };
-    const { data: res, error } = await supabase.from('bundles').insert(payload).select('id').single();
-    if (error) return { success: false, error: error.message };
-    const bundle = res as any;
+  async create(data: { name: string; description?: string; basePrice: number; bundleType: 'acceptance' | 'registration' | 'custom'; applicableTo?: string; classCategory?: string | null; coachingAddon?: boolean; items: { itemId: number; quantity: number }[] }) {
+    const basePayload = { name: data.name, description: data.description || null, base_price: data.basePrice, bundle_type: data.bundleType, applicable_to: data.applicableTo || 'All Students' };
+    const fullPayload = { ...basePayload, class_category: data.classCategory || null, coaching_addon: data.coachingAddon ?? false };
+    let res = await supabase.from('bundles').insert(fullPayload).select('id').single();
+    if (res.error) res = await supabase.from('bundles').insert(basePayload).select('id').single();
+    if (res.error) return { success: false, error: res.error.message };
+    const bundle = res.data as any;
     const itemRows = data.items.map((i) => ({ bundle_id: bundle.id, item_id: i.itemId, quantity: i.quantity }));
     const { error: itemError } = await supabase.from('bundle_items').insert(itemRows);
     if (itemError) return { success: false, error: itemError.message };
     return { success: true, id: bundle.id };
   },
-  async update(id: number, data: { name: string; description?: string; basePrice: number; bundleType: 'acceptance' | 'registration' | 'custom'; applicableTo?: string; isActive?: boolean; items: { itemId: number; quantity: number }[] }) {
-    const payload = { name: data.name, description: data.description || null, base_price: data.basePrice, bundle_type: data.bundleType, is_active: data.isActive ?? true, applicable_to: data.applicableTo || 'All Students' };
-    const { error } = await supabase.from('bundles').update(payload).eq('id', id);
+  async update(id: number, data: { name: string; description?: string; basePrice: number; bundleType: 'acceptance' | 'registration' | 'custom'; applicableTo?: string; classCategory?: string | null; coachingAddon?: boolean; isActive?: boolean; items: { itemId: number; quantity: number }[] }) {
+    const basePayload = { name: data.name, description: data.description || null, base_price: data.basePrice, bundle_type: data.bundleType, is_active: data.isActive ?? true, applicable_to: data.applicableTo || 'All Students' };
+    const fullPayload = { ...basePayload, class_category: data.classCategory || null, coaching_addon: data.coachingAddon ?? false };
+    let { error } = await supabase.from('bundles').update(fullPayload).eq('id', id);
+    if (error) ({ error } = await supabase.from('bundles').update(basePayload).eq('id', id));
     if (error) return { success: false, error: error.message };
     // Delete existing items and re-insert
     await supabase.from('bundle_items').delete().eq('bundle_id', id);
