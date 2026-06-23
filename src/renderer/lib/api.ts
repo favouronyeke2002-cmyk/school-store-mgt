@@ -5,13 +5,25 @@ const LS_TERM = 'pos_current_term';
 const LS_CLASSES = 'pos_class_list';
 const DEFAULT_CLASS_LIST = '["JSS1A","JSS1B","JSS2A","JSS2B","JSS3A","JSS3B","SS1A","SS1B","SS2A","SS2B","SS3A","SS3B"]';
 
+// Normalize legacy short-form term names to canonical long-form
+function normalizeTerm(term: string | null | undefined): string {
+  if (!term) return 'First Term';
+  const t = term.trim().toLowerCase();
+  if (t === '1st term' || t === '1st term' || t === 'term 1' || t === 'term1') return 'First Term';
+  if (t === '2nd term' || t === 'term 2' || t === 'term2') return 'Second Term';
+  if (t === '3rd term' || t === 'term 3' || t === 'term3') return 'Third Term';
+  return term; // already canonical (e.g. "First Term")
+}
+
 export const settingsAPI = {
   async get() {
     const { data, error } = await supabase.from('school_settings').select('*').eq('id', 1).maybeSingle();
     if (error) throw error;
     const result: any = data ? { ...data } : {};
     // Merge localStorage fallbacks for columns that may not exist in schema yet
-    if (!result.current_term) result.current_term = localStorage.getItem(LS_TERM) || 'First Term';
+    const rawTerm = result.current_term || localStorage.getItem(LS_TERM);
+    result.current_term = normalizeTerm(rawTerm);
+    localStorage.setItem(LS_TERM, result.current_term); // overwrite any stale short-form value
     if (!result.class_list) result.class_list = localStorage.getItem(LS_CLASSES) || DEFAULT_CLASS_LIST;
     return result;
   },

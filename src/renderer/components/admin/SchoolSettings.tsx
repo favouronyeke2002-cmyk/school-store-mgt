@@ -259,7 +259,7 @@ const SchoolSettings: React.FC = () => {
               </button>
             ))}
           </div>
-          <p className="text-xs text-primary-600 font-medium mt-3">Currently active: <strong>{settings.current_term || '1st Term'}</strong></p>
+          <p className="text-xs text-primary-600 font-medium mt-3">Currently active: <strong>{settings.current_term || 'First Term'}</strong></p>
         </div>
 
         {/* Class Management */}
