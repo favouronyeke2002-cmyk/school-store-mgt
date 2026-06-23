@@ -706,6 +706,11 @@ export const userAPI = {
     if (error) throw error;
     return { success: true };
   },
+  async resetPin(id: number, pin: string) {
+    const { error } = await supabase.from('pos_users').update({ pin }).eq('id', id);
+    if (error) throw error;
+    return { success: true };
+  },
 };
 
 // ─── BUNDLES ──────────────────────────────────────────────────────────────────
