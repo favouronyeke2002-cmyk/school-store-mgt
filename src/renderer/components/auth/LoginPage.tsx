@@ -114,10 +114,6 @@ const LoginPage: React.FC = () => {
           </form>
         )}
 
-        <div className="mt-6 text-center text-xs text-gray-400">
-          <p>Default credentials:</p>
-          <p className="mt-1">Admin: admin123 | Cashier PIN: 1234</p>
-        </div>
       </div>
     </div>
   );
