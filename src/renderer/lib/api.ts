@@ -306,7 +306,14 @@ export const inventoryAPI = {
     return { success: true };
   },
   async bulkImport(items: any[]) {
-    const rows = items.map((i) => ({ item_name: i.item_name, barcode: i.barcode || null, cost_price: Number(i.cost_price) || 0, selling_price: Number(i.selling_price) || 0, stock_quantity: Number(i.stock_quantity) || 0 }));
+    const genBarcode = () => String(Math.floor(Math.random() * 900000000000) + 100000000000);
+    const rows = items.map((i) => ({
+      item_name: i.item_name,
+      barcode: i.barcode || genBarcode(),
+      cost_price: Number(i.cost_price) || 0,
+      selling_price: Number(i.selling_price) || 0,
+      stock_quantity: Number(i.stock_quantity) || 0,
+    }));
     const { error } = await supabase.from('inventory').upsert(rows, { onConflict: 'barcode' });
     if (error) return { success: false, error: error.message };
     return { success: true, count: rows.length };

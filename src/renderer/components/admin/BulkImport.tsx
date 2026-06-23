@@ -187,7 +187,7 @@ const BulkImport: React.FC = () => {
         {type === 'inventory' && (
           <div className="mt-3 text-xs text-gray-400 bg-gray-50 rounded-lg p-3 space-y-1">
             <div><strong>item_name</strong>: Required, product name</div>
-            <div><strong>barcode</strong>: Optional, unique barcode (items without barcodes are always inserted)</div>
+            <div><strong>barcode</strong>: Optional — leave blank or let Excel corrupt it; a random 12-digit barcode is auto-assigned on import</div>
             <div><strong>cost_price</strong>: Required, purchase cost e.g. 50</div>
             <div><strong>selling_price</strong>: Required, selling price e.g. 120</div>
             <div><strong>stock_quantity</strong>: Optional, initial stock count</div>

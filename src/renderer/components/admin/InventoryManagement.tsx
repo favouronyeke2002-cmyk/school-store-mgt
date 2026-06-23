@@ -11,6 +11,7 @@ const emptyForm: FormData = { itemName: '', costPrice: '', sellingPrice: '', sto
 
 const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400';
 const labelCls = 'text-sm font-medium text-gray-700 mb-1 block';
+const generateBarcode = () => String(Math.floor(Math.random() * 900000000000) + 100000000000);
 
 const InventoryManagement: React.FC = () => {
   const [inventory, setInventory] = useState<Item[]>([]);
@@ -285,7 +286,10 @@ const InventoryManagement: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className={labelCls}>Barcode (optional)</label>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-medium text-gray-700">Barcode (optional)</span>
+                  <button type="button" onClick={() => setAddForm((p) => ({ ...p, barcode: generateBarcode() }))} className="text-xs text-primary-600 hover:text-primary-700 font-medium">🎲 Auto-Generate</button>
+                </div>
                 <input type="text" className={inputCls} value={addForm.barcode} onChange={(e) => setAddForm((p) => ({ ...p, barcode: e.target.value.replace(/\s/g, '') }))} />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -334,7 +338,10 @@ const InventoryManagement: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className={labelCls}>Barcode (optional)</label>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-medium text-gray-700">Barcode (optional)</span>
+                  <button type="button" onClick={() => setEditForm((p) => ({ ...p, barcode: generateBarcode() }))} className="text-xs text-primary-600 hover:text-primary-700 font-medium">🎲 Auto-Generate</button>
+                </div>
                 <input type="text" className={inputCls} value={editForm.barcode} onChange={(e) => setEditForm((p) => ({ ...p, barcode: e.target.value.replace(/\s/g, '') }))} />
               </div>
               <div className="grid grid-cols-2 gap-3">
