@@ -397,11 +397,12 @@ const QuickAddStudentModal: React.FC<{
 // ─── Walk-In Applicant Modal ──────────────────────────────────────────────────
 const WalkInApplicantModal: React.FC<{
   classes: string[];
+  classCategoryMap: Record<string, string>;
   onSave: (data: { firstName: string; lastName: string; proposedClass: string; studentStatus: 'Day' | 'Boarding' }) => void;
   onCancel: () => void;
   saving: boolean;
   error: string;
-}> = ({ classes, onSave, onCancel, saving, error }) => {
+}> = ({ classes, classCategoryMap, onSave, onCancel, saving, error }) => {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [proposedClass, setProposedClass] = useState(classes[0] || '');
@@ -441,7 +442,18 @@ const WalkInApplicantModal: React.FC<{
             <label className="text-sm font-medium text-gray-700 mb-1 block">Proposed Class</label>
             <select value={proposedClass} onChange={(e) => setProposedClass(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
               {classes.length === 0 && <option value="">No classes available</option>}
-              {classes.map((c) => <option key={c} value={c}>{c}</option>)}
+              {(() => {
+                const groups: Record<string, string[]> = { JUNIOR: [], SENIOR: [], REMEDIAL: [], '': [] };
+                classes.forEach((c) => { const g = classCategoryMap[c] || ''; (groups[g] || groups['']).push(c); });
+                const labels: Record<string, string> = { JUNIOR: 'Junior Secondary (JSS1–3)', SENIOR: 'Senior Secondary (SS1–3)', REMEDIAL: 'Remedial / A.C.E. Class', '': 'Unassigned' };
+                return (['JUNIOR', 'SENIOR', 'REMEDIAL', ''] as const).flatMap((g) =>
+                  groups[g].length === 0 ? [] : [
+                    <optgroup key={g} label={labels[g]}>
+                      {groups[g].map((c) => <option key={c} value={c}>{c}</option>)}
+                    </optgroup>
+                  ]
+                );
+              })()}
             </select>
           </div>
           <div>
@@ -743,25 +755,46 @@ const StudentQuickList: React.FC<{ onSelect: (s: Student) => void }> = ({ onSele
   );
 };
 
-// ─── Walk-In Registration Fee Modal (fee-engine driven) ───────────────────────
+// Hardcoded fallback prices (used when no configured bundle exists for the tier)
+const FALLBACK_FEES: Record<string, Record<'Day' | 'Boarding', number>> = {
+  JUNIOR:   { Day: 306_000, Boarding: 448_600 },
+  SENIOR:   { Day: 323_300, Boarding: 467_300 },
+  REMEDIAL: { Day: 350_500, Boarding: 503_100 },
+};
+const COACHING_FEE_AMOUNT = 10_000;
+
+// ─── Walk-In Registration Fee Modal ──────────────────────────────────────────
 const WalkInRegistrationFeeModal: React.FC<{
   applicantName: string;
   proposedClass: string;
   studentStatus: 'Day' | 'Boarding';
   matchedBundle: Bundle | null;
+  categoryGroup: string | null;
   onConfirm: (mode: 'Cash' | 'POS_Transfer', total: number, coachingIncluded: boolean) => void;
   onCancel: () => void;
   processing: boolean;
   error: string;
-}> = ({ applicantName, proposedClass, studentStatus, matchedBundle, onConfirm, onCancel, processing, error }) => {
+}> = ({ applicantName, proposedClass, studentStatus, matchedBundle, categoryGroup, onConfirm, onCancel, processing, error }) => {
   const [payMode, setPayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
   const [coachingAddon, setCoachingAddon] = useState(false);
 
-  const COACHING_FEE = 10_000;
-  const base = matchedBundle?.base_price ?? 0;
-  const hasCoaching = !!matchedBundle?.coaching_addon;
+  const COACHING_FEE = COACHING_FEE_AMOUNT;
+  const fallbackPrices = categoryGroup ? FALLBACK_FEES[categoryGroup] : null;
+
+  const isBundleMode = !!matchedBundle;
+  const isFallbackMode = !matchedBundle && !!fallbackPrices;
+  const canProceed = isBundleMode || isFallbackMode;
+
+  const base = isBundleMode
+    ? matchedBundle!.base_price
+    : (fallbackPrices ? fallbackPrices[studentStatus] : 0);
+
+  // Coaching: bundle mode = driven by bundle.coaching_addon; fallback mode = Junior/Senior only (never Remedial)
+  const hasCoaching = isBundleMode
+    ? !!matchedBundle!.coaching_addon
+    : (isFallbackMode && categoryGroup !== 'REMEDIAL');
+
   const total = base + (coachingAddon ? COACHING_FEE : 0);
-  const canProceed = !!matchedBundle;
 
   const tierColor: Record<string, string> = {
     JUNIOR: 'bg-blue-100 text-blue-700',
@@ -787,29 +820,39 @@ const WalkInRegistrationFeeModal: React.FC<{
           <p className="text-xs text-warning-600 mt-0.5">{proposedClass || 'No class'} · {studentStatus} Student</p>
         </div>
 
-        {!matchedBundle && (
+        {/* Hard error: class has no category assigned at all */}
+        {!matchedBundle && !fallbackPrices && (
           <div className="bg-danger-50 border border-danger-200 rounded-xl px-4 py-3 mb-4 flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-danger-600 shrink-0 mt-0.5" />
             <p className="text-sm text-danger-700">
-              No active Registration bundle found for this class tier and residency type.
-              Please create one in <strong>Bundle Management</strong> with the matching Class Category and Student Status.
+              This class has no category group assigned. Go to <strong>Admin → School Settings → Class Category Groups</strong> and assign JUNIOR, SENIOR, or REMEDIAL to this class first.
             </p>
+          </div>
+        )}
+
+        {/* Soft warning: category known but no bundle configured yet — using hardcoded fallback */}
+        {!matchedBundle && isFallbackMode && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 mb-4 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700">No Registration bundle configured for <strong>{categoryGroup}</strong> · {studentStatus}. Using official baseline price. Create a bundle in <strong>Bundle Management</strong> to include inventory items.</p>
           </div>
         )}
 
         {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{error}</div>}
 
-        {matchedBundle && (
+        {canProceed && (
           <>
             <div className="bg-gray-50 rounded-xl p-4 mb-4 space-y-2">
               <div className="flex items-center gap-2 mb-2">
-                {matchedBundle.class_category && (
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${tierColor[matchedBundle.class_category] || 'bg-gray-100 text-gray-600'}`}>
-                    {tierLabel[matchedBundle.class_category] || matchedBundle.class_category}
+                {(matchedBundle?.class_category || categoryGroup) && (
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${tierColor[matchedBundle?.class_category || categoryGroup || ''] || 'bg-gray-100 text-gray-600'}`}>
+                    {tierLabel[matchedBundle?.class_category || categoryGroup || ''] || (matchedBundle?.class_category || categoryGroup)}
                   </span>
                 )}
-                <span className="text-xs text-gray-500 font-medium">{matchedBundle.name}</span>
-                <span className="text-xs text-gray-400">{studentStatus === 'Boarding' ? '· Boarding' : '· Day'}</span>
+                {matchedBundle
+                  ? <><span className="text-xs text-gray-500 font-medium">{matchedBundle.name}</span><span className="text-xs text-gray-400">{studentStatus === 'Boarding' ? '· Boarding' : '· Day'}</span></>
+                  : <span className="text-xs text-gray-500">Official Baseline Price</span>
+                }
               </div>
 
               <div className="flex justify-between text-sm">
@@ -817,7 +860,7 @@ const WalkInRegistrationFeeModal: React.FC<{
                 <span className="font-semibold">{fmt(base)}</span>
               </div>
 
-              {matchedBundle.items.length > 0 && (
+              {matchedBundle && matchedBundle.items.length > 0 && (
                 <div className="border-t pt-2 mt-1 space-y-1">
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Included Items</p>
                   {matchedBundle.items.map((item) => (
@@ -1066,6 +1109,7 @@ const CashierPOS: React.FC = () => {
   const [walkInAcceptanceBundle, setWalkInAcceptanceBundle] = useState<Bundle | null>(null);
   const [showWalkInRegistration, setShowWalkInRegistration] = useState(false);
   const [walkInRegistrationBundle, setWalkInRegistrationBundle] = useState<Bundle | null>(null);
+  const [walkInCategoryGroup, setWalkInCategoryGroup] = useState<string | null>(null);
   const [walkInModalProcessing, setWalkInModalProcessing] = useState(false);
   const [walkInModalError, setWalkInModalError] = useState('');
 
@@ -1374,6 +1418,7 @@ const CashierPOS: React.FC = () => {
       const regBundle = bundles.find(
         (b) => b.bundle_type === 'registration' && b.is_active && b.class_category === categoryGroup && b.applicable_to === statusFilter
       ) || null;
+      setWalkInCategoryGroup(categoryGroup);
       setWalkInRegistrationBundle(regBundle);
       setShowWalkInRegistration(true);
     }
@@ -2215,6 +2260,7 @@ const CashierPOS: React.FC = () => {
       {showWalkIn && (
         <WalkInApplicantModal
           classes={classes}
+          classCategoryMap={classCategoryMap}
           onSave={handleWalkInCreate}
           onCancel={() => { setShowWalkIn(false); setWalkInError(''); }}
           saving={walkInSaving}
@@ -2268,8 +2314,9 @@ const CashierPOS: React.FC = () => {
           proposedClass={walkInApplicant.proposed_class || ''}
           studentStatus={walkInApplicant.student_status || 'Day'}
           matchedBundle={walkInRegistrationBundle}
+          categoryGroup={walkInCategoryGroup}
           onConfirm={handleWalkInRegistrationConfirm}
-          onCancel={() => { setShowWalkInRegistration(false); setWalkInModalError(''); }}
+          onCancel={() => { setShowWalkInRegistration(false); setWalkInCategoryGroup(null); setWalkInModalError(''); }}
           processing={walkInModalProcessing}
           error={walkInModalError}
         />

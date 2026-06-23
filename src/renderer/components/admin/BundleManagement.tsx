@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, X, Package, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, Package, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import { bundleAPI, inventoryAPI } from '../../lib/api';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -192,11 +192,14 @@ const emptyForm: BundleFormState = {
   name: '', description: '', basePrice: '', bundleType: 'registration', applicableTo: 'All Students', classCategory: '', coachingAddon: false, items: [],
 };
 
+const MIGRATION_SQL = `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS class_category text;\nALTER TABLE bundles ADD COLUMN IF NOT EXISTS coaching_addon boolean DEFAULT false;`;
+
 const BundleManagement: React.FC = () => {
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedBundle, setExpandedBundle] = useState<number | null>(null);
+  const [schemaMissing, setSchemaMissing] = useState(false);
 
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -219,6 +222,9 @@ const BundleManagement: React.FC = () => {
   };
 
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    bundleAPI.checkSchemaHasCategory().then((ok) => setSchemaMissing(!ok));
+  }, []);
 
   const openCreate = () => {
     setForm(emptyForm);
@@ -312,6 +318,19 @@ const BundleManagement: React.FC = () => {
           <Plus className="w-4 h-4" /> New Bundle
         </button>
       </div>
+
+      {schemaMissing && (
+        <div className="bg-warning-50 border border-warning-200 rounded-xl px-4 py-3 mb-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-4 h-4 text-warning-600 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-warning-800">Database migration required for Class Category</p>
+              <p className="text-xs text-warning-600 mt-0.5 mb-2">The <code className="bg-warning-100 px-1 rounded">class_category</code> column is not yet in your Supabase <code className="bg-warning-100 px-1 rounded">bundles</code> table. Category choices are saved locally for now. Run this SQL in your <strong>Supabase dashboard → SQL Editor</strong> to persist them permanently:</p>
+              <pre className="bg-warning-100 text-warning-900 text-xs font-mono rounded-lg px-3 py-2 overflow-auto whitespace-pre select-all cursor-text border border-warning-200">{MIGRATION_SQL}</pre>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center h-48"><div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>
