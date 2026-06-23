@@ -28,12 +28,8 @@ A complete offline desktop Point of Sale (POS) and School Store Management appli
 - Automatic triggers enforce data integrity
 - Row-level security patterns
 
-## Default Credentials
 
-- **Admin**: Password: `admin123`
-- **Cashier**: PIN: `1234`
 
-*(Change these immediately after first login)*
 
 ## Installation
 
