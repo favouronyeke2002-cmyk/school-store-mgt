@@ -107,6 +107,7 @@ const TransactionHistory: React.FC = () => {
 
       {/* Table */}
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
@@ -145,6 +146,7 @@ const TransactionHistory: React.FC = () => {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Details Modal */}
@@ -170,6 +172,7 @@ const TransactionHistory: React.FC = () => {
             {details.items?.length > 0 && (
               <div className="mb-4">
                 <div className="text-sm font-medium mb-2">Items</div>
+                <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="border-b">
                     <tr><th className="py-2 text-left">Item</th><th className="py-2 text-right">Qty</th><th className="py-2 text-right">Price</th><th className="py-2 text-right">Total</th></tr>
@@ -185,6 +188,7 @@ const TransactionHistory: React.FC = () => {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
             <div className="border-t-2 pt-4 flex justify-between items-center text-lg font-bold">

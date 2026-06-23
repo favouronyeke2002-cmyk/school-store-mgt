@@ -82,16 +82,16 @@ const Dashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
         <div>
-          <h1 className="text-2xl font-extrabold text-gray-900">Sales Summary</h1>
+          <h1 className="text-xl sm:text-2xl font-extrabold text-gray-900">Sales Summary</h1>
           <p className="text-sm text-gray-400 mt-0.5">Store performance overview</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="flex bg-gray-100 rounded-lg p-1">
             {[7, 30, 90].map((d) => (
               <button key={d} onClick={() => setPeriod(d)} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${period === d ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
-                {d === 7 ? '7 days' : d === 30 ? '30 days' : '90 days'}
+                {d === 7 ? '7d' : d === 30 ? '30d' : '90d'}
               </button>
             ))}
           </div>
@@ -103,7 +103,8 @@ const Dashboard: React.FC = () => {
 
       {/* Top stat strip (Loyverse-style) */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="grid grid-cols-5 divide-x">
+        <div className="overflow-x-auto">
+        <div className="grid grid-cols-5 divide-x min-w-[480px]">
           {[
             { label: 'Gross Sales', value: fmt(stats?.storeRevenue || 0), color: 'text-gray-900' },
             { label: 'Fees Collected', value: fmt(stats?.feesCollected || 0), color: 'text-gray-900' },
@@ -117,10 +118,11 @@ const Dashboard: React.FC = () => {
             </div>
           ))}
         </div>
+        </div>
       </div>
 
       {/* Secondary stat cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Outstanding Fees" value={fmt(stats?.uncollectedFees || 0)} color="text-danger-700" icon={<AlertCircle className="w-5 h-5 text-danger-500" />} sub="Unpaid across all students" />
         <StatCard label="Transactions" value={(stats?.transactionCount || 0).toLocaleString()} color="text-gray-900" icon={<ShoppingBag className="w-5 h-5 text-primary-500" />} />
         <StatCard label="Profit Margin" value={`${stats?.profitMargin || 0}%`} color={Number(stats?.profitMargin) >= 0 ? 'text-success-700' : 'text-danger-700'} icon={<TrendingUp className="w-5 h-5 text-success-500" />} />
@@ -161,7 +163,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Two-column: Revenue by Class + Top Products */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Revenue by class */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
           <h2 className="font-bold text-gray-900 mb-4">Revenue by Class</h2>

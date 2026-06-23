@@ -61,6 +61,7 @@ const ShiftHistory: React.FC = () => {
 
       {/* Table */}
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
@@ -102,6 +103,7 @@ const ShiftHistory: React.FC = () => {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Details Modal */}
@@ -132,6 +134,7 @@ const ShiftHistory: React.FC = () => {
               {transactions.length === 0 ? (
                 <div className="text-center text-gray-400 py-4">No transactions</div>
               ) : (
+                <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="border-b">
                     <tr><th className="py-2 text-left">ID</th><th className="py-2 text-left">Student</th><th className="py-2 text-left">Type</th><th className="py-2 text-left">Payment</th><th className="py-2 text-right">Amount</th></tr>
@@ -151,6 +154,7 @@ const ShiftHistory: React.FC = () => {
                     <tr><td colSpan={4} className="py-2">Total Cash Sales</td><td className="py-2 text-right">{formatCurrency(transactions.filter((t: any) => t.payment_mode === 'Cash').reduce((s: number, t: any) => s + t.amount_paid, 0))}</td></tr>
                   </tfoot>
                 </table>
+                </div>
               )}
             </div>
           </div>

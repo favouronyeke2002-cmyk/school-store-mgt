@@ -845,6 +845,7 @@ const CashierPOS: React.FC = () => {
 
   const [tab, setTab] = useState<SideTab>('sale');
   const [saleMode, setSaleMode] = useState<SaleMode>('store');
+  const [cartOpen, setCartOpen] = useState(false);
 
   // School settings for receipts
   const [schoolSettings, setSchoolSettings] = useState<any>(null);
@@ -1779,11 +1780,17 @@ const CashierPOS: React.FC = () => {
             )}
           </div>
 
+          {/* Mobile cart backdrop */}
+          {cartOpen && <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setCartOpen(false)} />}
+
           {/* ── Cart Panel (right) ──────────────────────────────────── */}
-          <div className="w-80 bg-white border-l flex flex-col shrink-0">
+          <div className={`${cartOpen ? 'fixed bottom-0 left-0 right-0 max-h-[85vh] z-50 flex flex-col rounded-t-2xl' : 'hidden'} md:relative md:flex md:bottom-auto md:left-auto md:right-auto md:max-h-none md:z-auto md:rounded-none md:w-80 bg-white border-l md:flex-col shrink-0`}>
             <div className="px-5 py-4 border-b flex items-center justify-between">
               <div className="flex items-center gap-2"><ShoppingCart className="w-4 h-4 text-gray-500" /><h2 className="font-bold text-gray-900">Cart</h2></div>
-              {cart.length > 0 && <span className="bg-primary-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">{cart.length}</span>}
+              <div className="flex items-center gap-2">
+                {cart.length > 0 && <span className="bg-primary-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">{cart.length}</span>}
+                <button className="md:hidden p-1 text-gray-400 hover:text-gray-600" onClick={() => setCartOpen(false)}><X className="w-4 h-4" /></button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-auto px-3 py-3">
@@ -1833,6 +1840,17 @@ const CashierPOS: React.FC = () => {
         </div>
       )}
 
+      {/* ── Mobile floating cart button (sale tab only) ──────────────── */}
+      {tab === 'sale' && (
+        <button
+          className="md:hidden fixed bottom-5 right-5 z-40 flex items-center gap-2 bg-success-600 text-white px-4 py-3 rounded-2xl shadow-xl font-bold text-sm"
+          onClick={() => setCartOpen(true)}
+        >
+          <ShoppingCart className="w-5 h-5" />
+          {cart.length > 0 ? `${cart.length} item${cart.length > 1 ? 's' : ''} · ${fmt(cartTotal)}` : 'Cart'}
+        </button>
+      )}
+
       {/* ── SHIFT LOG TAB ────────────────────────────────────────────── */}
       {tab === 'history' && (
         <div className="flex-1 overflow-auto p-6">
@@ -1853,7 +1871,7 @@ const CashierPOS: React.FC = () => {
             </select>
           </div>
 
-          <div className="grid grid-cols-3 gap-4 mb-5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
             {[
               { label: 'Opening Cash', val: fmt(activeShift.opening_cash) },
               { label: 'Cash Sales', val: fmt(shiftCash), color: 'text-success-700' },
@@ -1873,6 +1891,7 @@ const CashierPOS: React.FC = () => {
             {filteredHistory.length === 0 ? (
               <div className="text-center py-12 text-gray-400 text-sm">No transactions found</div>
             ) : (
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50"><tr>
                   {['Time', 'Student', 'Type', 'Method', 'Amount', ''].map((h) => (
@@ -1892,6 +1911,7 @@ const CashierPOS: React.FC = () => {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         </div>

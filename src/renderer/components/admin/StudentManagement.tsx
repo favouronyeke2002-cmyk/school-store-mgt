@@ -184,6 +184,7 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
       </div>
 
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
@@ -221,6 +222,7 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {totalPages > 1 && (
@@ -393,6 +395,7 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
             {history.length === 0 ? (
               <div className="text-center py-8 text-gray-400">No transactions found</div>
             ) : (
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
@@ -421,6 +424,7 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
                   </tr>
                 </tfoot>
               </table>
+              </div>
             )}
           </div>
         </div>
