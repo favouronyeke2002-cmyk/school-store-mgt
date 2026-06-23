@@ -27,7 +27,7 @@
 --    • First real applicant id    → 1
 --    • All other cleared serials  → 1
 --    • students.student_id is app-generated (TEXT, no sequence);
---      once the table is empty the app will issue OIS-0001 next.
+--      once the table is empty the app will issue OIS-001 next.
 -- ============================================================
 
 BEGIN;

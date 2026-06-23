@@ -246,7 +246,7 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Student ID <span className="text-gray-400 font-normal">(optional)</span></label>
-                <input type="text" value={formData.studentId} onChange={(e) => setFormData({ ...formData, studentId: e.target.value.replace(/\s/g, '') })} className={inputCls} placeholder="Auto-generated as OIS-XXXX if empty" />
+                <input type="text" value={formData.studentId} onChange={(e) => setFormData({ ...formData, studentId: e.target.value.replace(/\s/g, '') })} className={inputCls} placeholder="Auto-generated as OIS-XXX if empty" />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Full Name <span className="text-danger-500">*</span></label>

@@ -35,8 +35,8 @@ function parseFile(file: File, type: ImportType): Promise<any[]> {
 
             if (type === 'students') {
               if (h === 'student_id' || h === 'id') {
-                // Normalize: add STU- prefix if it's just a number
-                const clean = val.startsWith('STU-') ? val : val ? `STU-${val.padStart(4, '0')}` : '';
+                // Normalize: add OIS- prefix if it's just a number
+                const clean = val.startsWith('OIS-') ? val : val.startsWith('STU-') ? val.replace(/^STU-/, 'OIS-') : val ? `OIS-${val.padStart(3, '0')}` : '';
                 obj.student_id = clean;
               }
               if (h === 'name') obj.name = val;

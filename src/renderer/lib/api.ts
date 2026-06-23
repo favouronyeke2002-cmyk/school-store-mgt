@@ -163,7 +163,7 @@ export const studentAPI = {
         const n = parseInt(raw);
         return !isNaN(n) && n > max ? n : max;
       }, 0);
-      id = 'OIS-' + String(maxId + 1).padStart(4, '0');
+      id = 'OIS-' + String(maxId + 1).padStart(3, '0');
     }
     // Try with student_status first, fall back without if column missing
     const base = { student_id: id, name: data.name, student_class: data.studentClass, current_fees_owed: data.feesOwed || 0, admission_type: data.admissionType || 'Returning' };
