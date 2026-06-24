@@ -1,0 +1,1462 @@
+[1G[0K⠙[1G[0K
+> school-pos-system@1.0.0 client
+> vite
+
+[1G[0K⠙[1G[0K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m1029[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5000[22m/[39m
+  [32m➜[39m  [1mNetwork[22m: [36mhttp://172.24.0.2:[1m5000[22m/[39m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[2m12:30:06 PM[22m [31m[1m[vite][22m[39m Pre-transform error: /home/runner/workspace/src/renderer/components/admin/StudentManagement.tsx: Unexpected token (2:1)
+
+[0m [90m 1 |[39m [36mimport[39m [33mReact[39m[33m,[39m { useState[33m,[39m useEffect } [36mfrom[39m [32m'react'[39m[33m;[39m
+[31m[1m>[22m[39m[90m 2 |[39m [33m<<[39m[33m<<[39m[33m<<[39m[33m<[39m [33mHEAD[39m
+ [90m   |[39m  [31m[1m^[22m[39m
+ [90m 3 |[39m [36mimport[39m { [33mChevronLeft[39m[33m,[39m [33mChevronRight[39m[33m,[39m [33mTrash2[39m[33m,[39m [33mPencil[39m[33m,[39m [33mX[39m[33m,[39m [33mUserPlus[39m[33m,[39m [33mAlertCircle[39m[33m,[39m [33mExternalLink[39m[33m,[39m [33mCheckCircle[39m } [36mfrom[39m [32m'lucide-react'[39m[33m;[39m
+ [90m 4 |[39m [36mimport[39m { studentAPI[33m,[39m feeTypeAPI[33m,[39m settingsAPI } [36mfrom[39m [32m'../../lib/api'[39m[33m;[39m
+ [90m 5 |[39m [33m===[39m[33m===[39m[33m=[39m[0m
+[2m12:30:06 PM[22m [31m[1m[vite][22m[39m Pre-transform error: /home/runner/workspace/src/renderer/components/admin/InventoryManagement.tsx: Unexpected token (2:1)
+
+[0m [90m 1 |[39m [36mimport[39m [33mReact[39m[33m,[39m { useState[33m,[39m useEffect } [36mfrom[39m [32m'react'[39m[33m;[39m
+[31m[1m>[22m[39m[90m 2 |[39m [33m<<[39m[33m<<[39m[33m<<[39m[33m<[39m [33mHEAD[39m
+ [90m   |[39m  [31m[1m^[22m[39m
+ [90m 3 |[39m [36mimport[39m { [33mPlus[39m[33m,[39m [33mPencil[39m[33m,[39m [33mX[39m[33m,[39m [33mTag[39m[33m,[39m [33mAlertCircle[39m[33m,[39m [33mTrash2[39m[33m,[39m [33mArchive[39m } [36mfrom[39m [32m'lucide-react'[39m[33m;[39m
+ [90m 4 |[39m [33m===[39m[33m===[39m[33m=[39m
+ [90m 5 |[39m [36mimport[39m { [33mPlus[39m[33m,[39m [33mPencil[39m[33m,[39m [33mX[39m[33m,[39m [33mTag[39m[33m,[39m [33mAlertCircle[39m } [36mfrom[39m [32m'lucide-react'[39m[33m;[39m[0m
+[2m12:30:06 PM[22m [31m[1m[vite][22m[39m Pre-transform error: /home/runner/workspace/src/renderer/components/admin/FeesManagement.tsx: Unexpected token (8:1)
+
+[0m [90m  6 |[39m [36mconst[39m fmt [33m=[39m (n[33m:[39m number) [33m=>[39m [32m`₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`[39m[33m;[39m
+ [90m  7 |[39m
+[31m[1m>[22m[39m[90m  8 |[39m [33m<<[39m[33m<<[39m[33m<<[39m[33m<[39m [33mHEAD[39m
+ [90m    |[39m  [31m[1m^[22m[39m
+ [90m  9 |[39m [36minterface[39m [33mFeeType[39m { id[33m:[39m number[33m;[39m name[33m:[39m string[33m;[39m description[33m:[39m string [33m|[39m [36mnull[39m[33m;[39m academic_session[33m:[39m string[33m;[39m term[33m:[39m string [33m|[39m [36mnull[39m[33m;[39m amount[33m:[39m number[33m;[39m class_filter[33m:[39m string [33m|[39m [36mnull[39m[33m;[39m fee_category[33m:[39m string[33m;[39m applicable_to[33m?[39m[33m:[39m string[33m;[39m }
+ [90m 10 |[39m [36minterface[39m [33mStudentFee[39m { id[33m:[39m number[33m;[39m student_id[33m:[39m string[33m;[39m student_name[33m:[39m string[33m;[39m student_class[33m:[39m string[33m;[39m admission_type[33m:[39m string[33m;[39m student_status[33m:[39m string[33m;[39m fee_name[33m:[39m string[33m;[39m fee_category[33m:[39m string[33m;[39m academic_session[33m:[39m string[33m;[39m amount_due[33m:[39m number[33m;[39m amount_paid[33m:[39m number[33m;[39m balance[33m:[39m number[33m;[39m }
+ [90m 11 |[39m [33m===[39m[33m===[39m[33m=[39m[0m
+[2m12:30:06 PM[22m [31m[1m[vite][22m[39m Pre-transform error: /home/runner/workspace/src/renderer/components/admin/SchoolSettings.tsx: Unexpected token (2:1)
+
+[0m [90m 1 |[39m [36mimport[39m [33mReact[39m[33m,[39m { useState[33m,[39m useEffect } [36mfrom[39m [32m'react'[39m[33m;[39m
+[31m[1m>[22m[39m[90m 2 |[39m [33m<<[39m[33m<<[39m[33m<<[39m[33m<[39m [33mHEAD[39m
+ [90m   |[39m  [31m[1m^[22m[39m
+ [90m 3 |[39m [36mimport[39m { [33mSave[39m[33m,[39m [33mUpload[39m[33m,[39m [33mImage[39m[33m,[39m [33mAlertCircle[39m[33m,[39m [33mX[39m[33m,[39m [33mPlus[39m[33m,[39m [33mTrash2[39m[33m,[39m [33mGraduationCap[39m[33m,[39m [33mPencil[39m[33m,[39m [33mCheckCircle[39m } [36mfrom[39m [32m'lucide-react'[39m[33m;[39m
+ [90m 4 |[39m [36mimport[39m { settingsAPI[33m,[39m studentAPI } [36mfrom[39m [32m'../../lib/api'[39m[33m;[39m
+ [90m 5 |[39m [33m===[39m[33m===[39m[33m=[39m[0m
+[2m12:30:06 PM[22m [31m[1m[vite][22m[39m Pre-transform error: /home/runner/workspace/src/renderer/components/admin/BundleManagement.tsx: Unexpected token (176:1)
+
+[0m [90m 174 |[39m   [36mconst[39m [error[33m,[39m setError] [33m=[39m useState([32m''[39m)[33m;[39m
+ [90m 175 |[39m
+[31m[1m>[22m[39m[90m 176 |[39m [33m<<[39m[33m<<[39m[33m<<[39m[33m<[39m [33mHEAD[39m
+ [90m     |[39m  [31m[1m^[22m[39m
+ [90m 177 |[39m   [36mconst[39m [form[33m,[39m setForm] [33m=[39m useState[33m<[39m[33mBundleFormState[39m[33m>[39m(emptyForm)[33m;[39m
+ [90m 178 |[39m [33m===[39m[33m===[39m[33m=[39m
+ [90m 179 |[39m   [90m// Form state[39m[0m
+[2m12:30:06 PM[22m [31m[1m[vite][22m[39m Pre-transform error: /home/runner/workspace/src/renderer/components/cashier/CashierPOS.tsx: Unexpected token (5:0)
+
+[0m [90m 3 |[39m   [33mShoppingCart[39m[33m,[39m [33mUsers[39m[33m,[39m [33mClock[39m[33m,[39m [33mLogOut[39m[33m,[39m [33mSearch[39m[33m,[39m [33mPlus[39m[33m,[39m [33mMinus[39m[33m,[39m
+ [90m 4 |[39m   [33mTrash2[39m[33m,[39m [33mCreditCard[39m[33m,[39m [33mBanknote[39m[33m,[39m [33mAlertTriangle[39m[33m,[39m [33mCheckCircle[39m[33m,[39m
+[31m[1m>[22m[39m[90m 5 |[39m [33m<<[39m[33m<<[39m[33m<<[39m[33m<[39m [33mHEAD[39m
+ [90m   |[39m [31m[1m^[22m[39m
+ [90m 6 |[39m   [33mPackage[39m[33m,[39m [33mUser[39m[33m,[39m [33mRefreshCw[39m[33m,[39m [33mX[39m[33m,[39m [33mTag[39m[33m,[39m [33mChevronLeft[39m[33m,[39m [33mChevronRight[39m[33m,[39m [33mPrinter[39m[33m,[39m [33mUserPlus[39m[33m,[39m [33mLayers[39m[33m,[39m [33mUserCheck[39m[33m,[39m [33mPencil[39m[33m,[39m
+ [90m 7 |[39m   [33mFileText[39m[33m,[39m [33mPowerOff[39m
+ [90m 8 |[39m [33m===[39m[33m===[39m[33m=[39m[0m
+[2m12:30:06 PM[22m [31m[1m[vite][22m[39m Pre-transform error: Transform failed with 1 error:
+/home/runner/workspace/src/renderer/lib/api.ts:8:0: ERROR: Unexpected "<<"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:30:06 PM[22m [31m[1m[vite][22m[39m Pre-transform error: Transform failed with 1 error:
+/home/runner/workspace/src/renderer/lib/api.ts:8:0: ERROR: Unexpected "<<" [33m(x2)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:30:06 PM[22m [31m[1m[vite][22m[39m Pre-transform error: Transform failed with 1 error:
+/home/runner/workspace/src/renderer/lib/api.ts:8:0: ERROR: Unexpected "<<" [33m(x3)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:30:06 PM[22m [31m[1m[vite][22m[39m Pre-transform error: Transform failed with 1 error:
+/home/runner/workspace/src/renderer/lib/api.ts:8:0: ERROR: Unexpected "<<" [33m(x4)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:30:06 PM[22m [31m[1m[vite][22m[39m Pre-transform error: Transform failed with 1 error:
+/home/runner/workspace/src/renderer/lib/api.ts:8:0: ERROR: Unexpected "<<" [33m(x5)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:30:06 PM[22m [31m[1m[vite][22m[39m Pre-transform error: Transform failed with 1 error:
+/home/runner/workspace/src/renderer/lib/api.ts:8:0: ERROR: Unexpected "<<" [33m(x6)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:30:06 PM[22m [31m[1m[vite][22m[39m Pre-transform error: Transform failed with 1 error:
+/home/runner/workspace/src/renderer/lib/api.ts:8:0: ERROR: Unexpected "<<" [33m(x7)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:30:06 PM[22m [31m[1m[vite][22m[39m Pre-transform error: Transform failed with 1 error:
+/home/runner/workspace/src/renderer/lib/api.ts:8:0: ERROR: Unexpected "<<" [33m(x8)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:30:06 PM[22m [31m[1m[vite][22m[39m Pre-transform error: Transform failed with 1 error:
+/home/runner/workspace/src/renderer/lib/api.ts:8:0: ERROR: Unexpected "<<" [33m(x9)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:30:06 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+/home/runner/workspace/src/renderer/lib/api.ts:8:0: ERROR: Unexpected "<<"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36m/home/runner/workspace/src/renderer/lib/api.ts[39m:8:0
+[33m  
+  [33mUnexpected "<<"[33m
+  6  |  const DEFAULT_CLASS_LIST = '["JSS1A","JSS1B","JSS2A","JSS2B","JSS3A","JSS3B","SS1A","SS1B","SS2A","SS2B","SS3A","SS3B"]';
+  7  |  
+  8  |  <<<<<<< HEAD
+     |  ^
+  9  |  // Normalize legacy short-form term names to canonical long-form
+  10 |  function normalizeTerm(term: string | null | undefined): string {
+  [39m
+      at failureErrorWithLog (/home/runner/workspace/node_modules/vite/node_modules/esbuild/lib/main.js:1472:15)
+      at /home/runner/workspace/node_modules/vite/node_modules/esbuild/lib/main.js:755:50
+      at responseCallbacks.<computed> (/home/runner/workspace/node_modules/vite/node_modules/esbuild/lib/main.js:622:9)
+      at handleIncomingPacket (/home/runner/workspace/node_modules/vite/node_modules/esbuild/lib/main.js:677:12)
+      at Socket.readFromStdout (/home/runner/workspace/node_modules/vite/node_modules/esbuild/lib/main.js:600:7)
+      at Socket.emit (node:events:517:28)
+      at addChunk (node:internal/streams/readable:368:12)
+      at readableAddChunk (node:internal/streams/readable:341:9)
+      at Readable.push (node:internal/streams/readable:278:10)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:190:23)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:30:06 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: /home/runner/workspace/src/renderer/components/cashier/CashierPOS.tsx: Unexpected token (5:0)
+
+[0m [90m 3 |[31m   [33mShoppingCart[31m[33m,[31m [33mUsers[31m[33m,[31m [33mClock[31m[33m,[31m [33mLogOut[31m[33m,[31m [33mSearch[31m[33m,[31m [33mPlus[31m[33m,[31m [33mMinus[31m[33m,[31m
+ [90m 4 |[31m   [33mTrash2[31m[33m,[31m [33mCreditCard[31m[33m,[31m [33mBanknote[31m[33m,[31m [33mAlertTriangle[31m[33m,[31m [33mCheckCircle[31m[33m,[31m
+[31m[1m>[22m[31m[90m 5 |[31m [33m<<[31m[33m<<[31m[33m<<[31m[33m<[31m [33mHEAD[31m
+ [90m   |[31m [31m[1m^[22m[31m
+ [90m 6 |[31m   [33mPackage[31m[33m,[31m [33mUser[31m[33m,[31m [33mRefreshCw[31m[33m,[31m [33mX[31m[33m,[31m [33mTag[31m[33m,[31m [33mChevronLeft[31m[33m,[31m [33mChevronRight[31m[33m,[31m [33mPrinter[31m[33m,[31m [33mUserPlus[31m[33m,[31m [33mLayers[31m[33m,[31m [33mUserCheck[31m[33m,[31m [33mPencil[31m[33m,[31m
+ [90m 7 |[31m   [33mFileText[31m[33m,[31m [33mPowerOff[31m
+ [90m 8 |[31m [33m===[31m[33m===[31m[33m=[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36m/home/runner/workspace/src/renderer/components/cashier/CashierPOS.tsx[39m:5:0
+[33m  3  |    ShoppingCart, Users, Clock, LogOut, Search, Plus, Minus,
+  4  |    Trash2, CreditCard, Banknote, AlertTriangle, CheckCircle,
+  5  |  <<<<<<< HEAD
+     |  ^
+  6  |    Package, User, RefreshCw, X, Tag, ChevronLeft, ChevronRight, Printer, UserPlus, Layers, UserCheck, Pencil,
+  7  |    FileText, PowerOff[39m
+      at constructor (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6616:19)
+      at TypeScriptParserMixin.unexpected (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6636:16)
+      at TypeScriptParserMixin.parseIdentifierName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12220:12)
+      at TypeScriptParserMixin.parseIdentifier (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12198:23)
+      at TypeScriptParserMixin.parseModuleExportName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14140:17)
+      at TypeScriptParserMixin.parseNamedImportSpecifiers (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14414:33)
+      at TypeScriptParserMixin.parseImportSpecifiersAndAfter (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14259:37)
+      at TypeScriptParserMixin.parseImport (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14252:17)
+      at TypeScriptParserMixin.parseImport (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9370:26)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12893:27)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9525:18)
+      at TypeScriptParserMixin.parseStatementLike (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12784:17)
+      at TypeScriptParserMixin.parseModuleItem (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12761:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13333:36)
+      at TypeScriptParserMixin.parseBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13326:10)
+      at TypeScriptParserMixin.parseProgram (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12639:10)
+      at TypeScriptParserMixin.parseTopLevel (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12629:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14505:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10143:18)
+      at parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14539:38)
+      at parser (/home/runner/workspace/node_modules/@babel/core/lib/parser/index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (/home/runner/workspace/node_modules/@babel/core/lib/transformation/normalize-file.js:51:37)
+      at normalizeFile.next (<anonymous>)
+      at run (/home/runner/workspace/node_modules/@babel/core/lib/transformation/index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (/home/runner/workspace/node_modules/@babel/core/lib/transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (/home/runner/workspace/node_modules/gensync/index.js:261:32)
+      at /home/runner/workspace/node_modules/gensync/index.js:273:13
+      at async.call.result.err.err (/home/runner/workspace/node_modules/gensync/index.js:223:11)
+      at /home/runner/workspace/node_modules/gensync/index.js:189:28
+      at /home/runner/workspace/node_modules/@babel/core/lib/gensync-utils/async.js:67:7
+      at /home/runner/workspace/node_modules/gensync/index.js:113:33
+      at step (/home/runner/workspace/node_modules/gensync/index.js:287:14)
+      at /home/runner/workspace/node_modules/gensync/index.js:273:13
+      at async.call.result.err.err (/home/runner/workspace/node_modules/gensync/index.js:223:11)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:30:07 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: /home/runner/workspace/src/renderer/components/admin/InventoryManagement.tsx: Unexpected token (2:1)
+
+[0m [90m 1 |[31m [36mimport[31m [33mReact[31m[33m,[31m { useState[33m,[31m useEffect } [36mfrom[31m [32m'react'[31m[33m;[31m
+[31m[1m>[22m[31m[90m 2 |[31m [33m<<[31m[33m<<[31m[33m<<[31m[33m<[31m [33mHEAD[31m
+ [90m   |[31m  [31m[1m^[22m[31m
+ [90m 3 |[31m [36mimport[31m { [33mPlus[31m[33m,[31m [33mPencil[31m[33m,[31m [33mX[31m[33m,[31m [33mTag[31m[33m,[31m [33mAlertCircle[31m[33m,[31m [33mTrash2[31m[33m,[31m [33mArchive[31m } [36mfrom[31m [32m'lucide-react'[31m[33m;[31m
+ [90m 4 |[31m [33m===[31m[33m===[31m[33m=[31m
+ [90m 5 |[31m [36mimport[31m { [33mPlus[31m[33m,[31m [33mPencil[31m[33m,[31m [33mX[31m[33m,[31m [33mTag[31m[33m,[31m [33mAlertCircle[31m } [36mfrom[31m [32m'lucide-react'[31m[33m;[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36m/home/runner/workspace/src/renderer/components/admin/InventoryManagement.tsx[39m:2:1
+[33m  1  |  import React, { useState, useEffect } from 'react';
+  2  |  <<<<<<< HEAD
+     |   ^
+  3  |  import { Plus, Pencil, X, Tag, AlertCircle, Trash2, Archive } from 'lucide-react';
+  4  |  =======[39m
+      at constructor (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6616:19)
+      at TypeScriptParserMixin.unexpected (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6636:16)
+      at TypeScriptParserMixin.jsxParseIdentifier (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4581:12)
+      at TypeScriptParserMixin.jsxParseNamespacedName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4588:23)
+      at TypeScriptParserMixin.jsxParseElementName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4597:21)
+      at TypeScriptParserMixin.jsxParseOpeningElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4673:22)
+      at TypeScriptParserMixin.jsxParseElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4698:33)
+      at TypeScriptParserMixin.jsxParseElement (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4761:17)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4771:19)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:39
+      at TypeScriptParserMixin.tryParse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6924:20)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:18)
+      at TypeScriptParserMixin.parseExpressionBase (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10801:23)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12438:16)
+      at TypeScriptParserMixin.parseExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:17)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12912:23)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9525:18)
+      at TypeScriptParserMixin.parseStatementLike (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12784:17)
+      at TypeScriptParserMixin.parseModuleItem (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12761:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13333:36)
+      at TypeScriptParserMixin.parseBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13326:10)
+      at TypeScriptParserMixin.parseProgram (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12639:10)
+      at TypeScriptParserMixin.parseTopLevel (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12629:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14505:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10143:18)
+      at parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14539:38)
+      at parser (/home/runner/workspace/node_modules/@babel/core/lib/parser/index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (/home/runner/workspace/node_modules/@babel/core/lib/transformation/normalize-file.js:51:37)
+      at normalizeFile.next (<anonymous>)
+      at run (/home/runner/workspace/node_modules/@babel/core/lib/transformation/index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (/home/runner/workspace/node_modules/@babel/core/lib/transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (/home/runner/workspace/node_modules/gensync/index.js:261:32)
+      at /home/runner/workspace/node_modules/gensync/index.js:273:13
+      at async.call.result.err.err (/home/runner/workspace/node_modules/gensync/index.js:223:11)
+      at /home/runner/workspace/node_modules/gensync/index.js:189:28
+      at /home/runner/workspace/node_modules/@babel/core/lib/gensync-utils/async.js:67:7
+      at /home/runner/workspace/node_modules/gensync/index.js:113:33
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:30:07 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: /home/runner/workspace/src/renderer/components/admin/StudentManagement.tsx: Unexpected token (2:1)
+
+[0m [90m 1 |[31m [36mimport[31m [33mReact[31m[33m,[31m { useState[33m,[31m useEffect } [36mfrom[31m [32m'react'[31m[33m;[31m
+[31m[1m>[22m[31m[90m 2 |[31m [33m<<[31m[33m<<[31m[33m<<[31m[33m<[31m [33mHEAD[31m
+ [90m   |[31m  [31m[1m^[22m[31m
+ [90m 3 |[31m [36mimport[31m { [33mChevronLeft[31m[33m,[31m [33mChevronRight[31m[33m,[31m [33mTrash2[31m[33m,[31m [33mPencil[31m[33m,[31m [33mX[31m[33m,[31m [33mUserPlus[31m[33m,[31m [33mAlertCircle[31m[33m,[31m [33mExternalLink[31m[33m,[31m [33mCheckCircle[31m } [36mfrom[31m [32m'lucide-react'[31m[33m;[31m
+ [90m 4 |[31m [36mimport[31m { studentAPI[33m,[31m feeTypeAPI[33m,[31m settingsAPI } [36mfrom[31m [32m'../../lib/api'[31m[33m;[31m
+ [90m 5 |[31m [33m===[31m[33m===[31m[33m=[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36m/home/runner/workspace/src/renderer/components/admin/StudentManagement.tsx[39m:2:1
+[33m  1  |  import React, { useState, useEffect } from 'react';
+  2  |  <<<<<<< HEAD
+     |   ^
+  3  |  import { ChevronLeft, ChevronRight, Trash2, Pencil, X, UserPlus, AlertCircle, ExternalLink, CheckCircle } from 'lucide-react';
+  4  |  import { studentAPI, feeTypeAPI, settingsAPI } from '../../lib/api';[39m
+      at constructor (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6616:19)
+      at TypeScriptParserMixin.unexpected (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6636:16)
+      at TypeScriptParserMixin.jsxParseIdentifier (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4581:12)
+      at TypeScriptParserMixin.jsxParseNamespacedName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4588:23)
+      at TypeScriptParserMixin.jsxParseElementName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4597:21)
+      at TypeScriptParserMixin.jsxParseOpeningElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4673:22)
+      at TypeScriptParserMixin.jsxParseElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4698:33)
+      at TypeScriptParserMixin.jsxParseElement (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4761:17)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4771:19)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:39
+      at TypeScriptParserMixin.tryParse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6924:20)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:18)
+      at TypeScriptParserMixin.parseExpressionBase (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10801:23)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12438:16)
+      at TypeScriptParserMixin.parseExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:17)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12912:23)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9525:18)
+      at TypeScriptParserMixin.parseStatementLike (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12784:17)
+      at TypeScriptParserMixin.parseModuleItem (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12761:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13333:36)
+      at TypeScriptParserMixin.parseBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13326:10)
+      at TypeScriptParserMixin.parseProgram (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12639:10)
+      at TypeScriptParserMixin.parseTopLevel (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12629:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14505:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10143:18)
+      at parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14539:38)
+      at parser (/home/runner/workspace/node_modules/@babel/core/lib/parser/index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (/home/runner/workspace/node_modules/@babel/core/lib/transformation/normalize-file.js:51:37)
+      at normalizeFile.next (<anonymous>)
+      at run (/home/runner/workspace/node_modules/@babel/core/lib/transformation/index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (/home/runner/workspace/node_modules/@babel/core/lib/transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (/home/runner/workspace/node_modules/gensync/index.js:261:32)
+      at /home/runner/workspace/node_modules/gensync/index.js:273:13
+      at async.call.result.err.err (/home/runner/workspace/node_modules/gensync/index.js:223:11)
+      at /home/runner/workspace/node_modules/gensync/index.js:189:28
+      at /home/runner/workspace/node_modules/@babel/core/lib/gensync-utils/async.js:67:7
+      at /home/runner/workspace/node_modules/gensync/index.js:113:33
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:30:07 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: /home/runner/workspace/src/renderer/components/admin/FeesManagement.tsx: Unexpected token (8:1)
+
+[0m [90m  6 |[31m [36mconst[31m fmt [33m=[31m (n[33m:[31m number) [33m=>[31m [32m`₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`[31m[33m;[31m
+ [90m  7 |[31m
+[31m[1m>[22m[31m[90m  8 |[31m [33m<<[31m[33m<<[31m[33m<<[31m[33m<[31m [33mHEAD[31m
+ [90m    |[31m  [31m[1m^[22m[31m
+ [90m  9 |[31m [36minterface[31m [33mFeeType[31m { id[33m:[31m number[33m;[31m name[33m:[31m string[33m;[31m description[33m:[31m string [33m|[31m [36mnull[31m[33m;[31m academic_session[33m:[31m string[33m;[31m term[33m:[31m string [33m|[31m [36mnull[31m[33m;[31m amount[33m:[31m number[33m;[31m class_filter[33m:[31m string [33m|[31m [36mnull[31m[33m;[31m fee_category[33m:[31m string[33m;[31m applicable_to[33m?[31m[33m:[31m string[33m;[31m }
+ [90m 10 |[31m [36minterface[31m [33mStudentFee[31m { id[33m:[31m number[33m;[31m student_id[33m:[31m string[33m;[31m student_name[33m:[31m string[33m;[31m student_class[33m:[31m string[33m;[31m admission_type[33m:[31m string[33m;[31m student_status[33m:[31m string[33m;[31m fee_name[33m:[31m string[33m;[31m fee_category[33m:[31m string[33m;[31m academic_session[33m:[31m string[33m;[31m amount_due[33m:[31m number[33m;[31m amount_paid[33m:[31m number[33m;[31m balance[33m:[31m number[33m;[31m }
+ [90m 11 |[31m [33m===[31m[33m===[31m[33m=[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36m/home/runner/workspace/src/renderer/components/admin/FeesManagement.tsx[39m:8:1
+[33m  6  |  const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  7  |  
+  8  |  <<<<<<< HEAD
+     |   ^
+  9  |  interface FeeType { id: number; name: string; description: string | null; academic_session: string; term: string | null; amount: number; class_filter: string | null; fee_category: string; applicable_to?: string; }
+  10 |  interface StudentFee { id: number; student_id: string; student_name: string; student_class: string; admission_type: string; student_status: string; fee_name: string; fee_category: string; academic_session: string; amount_due: number; amount_paid: number; balance: number; }[39m
+      at constructor (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6616:19)
+      at TypeScriptParserMixin.unexpected (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6636:16)
+      at TypeScriptParserMixin.jsxParseIdentifier (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4581:12)
+      at TypeScriptParserMixin.jsxParseNamespacedName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4588:23)
+      at TypeScriptParserMixin.jsxParseElementName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4597:21)
+      at TypeScriptParserMixin.jsxParseOpeningElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4673:22)
+      at TypeScriptParserMixin.jsxParseElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4698:33)
+      at TypeScriptParserMixin.jsxParseElement (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4761:17)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4771:19)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:39
+      at TypeScriptParserMixin.tryParse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6924:20)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:18)
+      at TypeScriptParserMixin.parseExpressionBase (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10801:23)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12438:16)
+      at TypeScriptParserMixin.parseExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:17)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12912:23)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9525:18)
+      at TypeScriptParserMixin.parseStatementLike (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12784:17)
+      at TypeScriptParserMixin.parseModuleItem (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12761:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13333:36)
+      at TypeScriptParserMixin.parseBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13326:10)
+      at TypeScriptParserMixin.parseProgram (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12639:10)
+      at TypeScriptParserMixin.parseTopLevel (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12629:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14505:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10143:18)
+      at parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14539:38)
+      at parser (/home/runner/workspace/node_modules/@babel/core/lib/parser/index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (/home/runner/workspace/node_modules/@babel/core/lib/transformation/normalize-file.js:51:37)
+      at normalizeFile.next (<anonymous>)
+      at run (/home/runner/workspace/node_modules/@babel/core/lib/transformation/index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (/home/runner/workspace/node_modules/@babel/core/lib/transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (/home/runner/workspace/node_modules/gensync/index.js:261:32)
+      at /home/runner/workspace/node_modules/gensync/index.js:273:13
+      at async.call.result.err.err (/home/runner/workspace/node_modules/gensync/index.js:223:11)
+      at /home/runner/workspace/node_modules/gensync/index.js:189:28
+      at /home/runner/workspace/node_modules/@babel/core/lib/gensync-utils/async.js:67:7
+      at /home/runner/workspace/node_modules/gensync/index.js:113:33
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:30:07 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: /home/runner/workspace/src/renderer/components/admin/SchoolSettings.tsx: Unexpected token (2:1)
+
+[0m [90m 1 |[31m [36mimport[31m [33mReact[31m[33m,[31m { useState[33m,[31m useEffect } [36mfrom[31m [32m'react'[31m[33m;[31m
+[31m[1m>[22m[31m[90m 2 |[31m [33m<<[31m[33m<<[31m[33m<<[31m[33m<[31m [33mHEAD[31m
+ [90m   |[31m  [31m[1m^[22m[31m
+ [90m 3 |[31m [36mimport[31m { [33mSave[31m[33m,[31m [33mUpload[31m[33m,[31m [33mImage[31m[33m,[31m [33mAlertCircle[31m[33m,[31m [33mX[31m[33m,[31m [33mPlus[31m[33m,[31m [33mTrash2[31m[33m,[31m [33mGraduationCap[31m[33m,[31m [33mPencil[31m[33m,[31m [33mCheckCircle[31m } [36mfrom[31m [32m'lucide-react'[31m[33m;[31m
+ [90m 4 |[31m [36mimport[31m { settingsAPI[33m,[31m studentAPI } [36mfrom[31m [32m'../../lib/api'[31m[33m;[31m
+ [90m 5 |[31m [33m===[31m[33m===[31m[33m=[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36m/home/runner/workspace/src/renderer/components/admin/SchoolSettings.tsx[39m:2:1
+[33m  1  |  import React, { useState, useEffect } from 'react';
+  2  |  <<<<<<< HEAD
+     |   ^
+  3  |  import { Save, Upload, Image, AlertCircle, X, Plus, Trash2, GraduationCap, Pencil, CheckCircle } from 'lucide-react';
+  4  |  import { settingsAPI, studentAPI } from '../../lib/api';[39m
+      at constructor (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6616:19)
+      at TypeScriptParserMixin.unexpected (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6636:16)
+      at TypeScriptParserMixin.jsxParseIdentifier (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4581:12)
+      at TypeScriptParserMixin.jsxParseNamespacedName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4588:23)
+      at TypeScriptParserMixin.jsxParseElementName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4597:21)
+      at TypeScriptParserMixin.jsxParseOpeningElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4673:22)
+      at TypeScriptParserMixin.jsxParseElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4698:33)
+      at TypeScriptParserMixin.jsxParseElement (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4761:17)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4771:19)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:39
+      at TypeScriptParserMixin.tryParse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6924:20)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:18)
+      at TypeScriptParserMixin.parseExpressionBase (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10801:23)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12438:16)
+      at TypeScriptParserMixin.parseExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:17)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12912:23)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9525:18)
+      at TypeScriptParserMixin.parseStatementLike (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12784:17)
+      at TypeScriptParserMixin.parseModuleItem (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12761:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13333:36)
+      at TypeScriptParserMixin.parseBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13326:10)
+      at TypeScriptParserMixin.parseProgram (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12639:10)
+      at TypeScriptParserMixin.parseTopLevel (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12629:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14505:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10143:18)
+      at parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14539:38)
+      at parser (/home/runner/workspace/node_modules/@babel/core/lib/parser/index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (/home/runner/workspace/node_modules/@babel/core/lib/transformation/normalize-file.js:51:37)
+      at normalizeFile.next (<anonymous>)
+      at run (/home/runner/workspace/node_modules/@babel/core/lib/transformation/index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (/home/runner/workspace/node_modules/@babel/core/lib/transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (/home/runner/workspace/node_modules/gensync/index.js:261:32)
+      at /home/runner/workspace/node_modules/gensync/index.js:273:13
+      at async.call.result.err.err (/home/runner/workspace/node_modules/gensync/index.js:223:11)
+      at /home/runner/workspace/node_modules/gensync/index.js:189:28
+      at /home/runner/workspace/node_modules/@babel/core/lib/gensync-utils/async.js:67:7
+      at /home/runner/workspace/node_modules/gensync/index.js:113:33
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:30:07 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: /home/runner/workspace/src/renderer/components/admin/BundleManagement.tsx: Unexpected token (176:1)
+
+[0m [90m 174 |[31m   [36mconst[31m [error[33m,[31m setError] [33m=[31m useState([32m''[31m)[33m;[31m
+ [90m 175 |[31m
+[31m[1m>[22m[31m[90m 176 |[31m [33m<<[31m[33m<<[31m[33m<<[31m[33m<[31m [33mHEAD[31m
+ [90m     |[31m  [31m[1m^[22m[31m
+ [90m 177 |[31m   [36mconst[31m [form[33m,[31m setForm] [33m=[31m useState[33m<[31m[33mBundleFormState[31m[33m>[31m(emptyForm)[33m;[31m
+ [90m 178 |[31m [33m===[31m[33m===[31m[33m=[31m
+ [90m 179 |[31m   [90m// Form state[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36m/home/runner/workspace/src/renderer/components/admin/BundleManagement.tsx[39m:176:1
+[33m  174|    const [error, setError] = useState('');
+  175|  
+  176|  <<<<<<< HEAD
+     |   ^
+  177|    const [form, setForm] = useState<BundleFormState>(emptyForm);
+  178|  =======[39m
+      at constructor (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6616:19)
+      at TypeScriptParserMixin.unexpected (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6636:16)
+      at TypeScriptParserMixin.jsxParseIdentifier (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4581:12)
+      at TypeScriptParserMixin.jsxParseNamespacedName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4588:23)
+      at TypeScriptParserMixin.jsxParseElementName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4597:21)
+      at TypeScriptParserMixin.jsxParseOpeningElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4673:22)
+      at TypeScriptParserMixin.jsxParseElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4698:33)
+      at TypeScriptParserMixin.jsxParseElement (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4761:17)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4771:19)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:39
+      at TypeScriptParserMixin.tryParse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6924:20)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:18)
+      at TypeScriptParserMixin.parseExpressionBase (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10801:23)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12438:16)
+      at TypeScriptParserMixin.parseExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:17)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12912:23)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9525:18)
+      at TypeScriptParserMixin.parseStatementLike (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12784:17)
+      at TypeScriptParserMixin.parseStatementListItem (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12764:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13333:61)
+      at TypeScriptParserMixin.parseBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13326:10)
+      at TypeScriptParserMixin.parseBlock (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13314:10)
+      at TypeScriptParserMixin.parseFunctionBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12117:24)
+      at TypeScriptParserMixin.parseArrowExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12092:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11704:12)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11348:23)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4776:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9803:20)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10817:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12438:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10817:17)
+      at TypeScriptParserMixin.parseVar (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13401:91)
+
+[31mCould not open BundleManagement.tsx in the editor.[39m
+[31mThe editor process exited with an error: spawn vi ENOENT ('vi' command does not exist in 'PATH').[39m
+
+
+[31mCould not open BundleManagement.tsx in the editor.[39m
+[31mThe editor process exited with an error: spawn vi ENOENT ('vi' command does not exist in 'PATH').[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:31:05 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+/home/runner/workspace/src/renderer/lib/api.ts:8:0: ERROR: Unexpected "<<"[39m
+  Plugin: [35mvite:esbuild[39m
+  File: [36m/home/runner/workspace/src/renderer/lib/api.ts[39m:8:0
+[33m  
+  [33mUnexpected "<<"[33m
+  6  |  const DEFAULT_CLASS_LIST = '["JSS1A","JSS1B","JSS2A","JSS2B","JSS3A","JSS3B","SS1A","SS1B","SS2A","SS2B","SS3A","SS3B"]';
+  7  |  
+  8  |  <<<<<<< HEAD
+     |  ^
+  9  |  // Normalize legacy short-form term names to canonical long-form
+  10 |  function normalizeTerm(term: string | null | undefined): string {
+  [39m
+      at failureErrorWithLog (/home/runner/workspace/node_modules/vite/node_modules/esbuild/lib/main.js:1472:15)
+      at /home/runner/workspace/node_modules/vite/node_modules/esbuild/lib/main.js:755:50
+      at responseCallbacks.<computed> (/home/runner/workspace/node_modules/vite/node_modules/esbuild/lib/main.js:622:9)
+      at handleIncomingPacket (/home/runner/workspace/node_modules/vite/node_modules/esbuild/lib/main.js:677:12)
+      at Socket.readFromStdout (/home/runner/workspace/node_modules/vite/node_modules/esbuild/lib/main.js:600:7)
+      at Socket.emit (node:events:517:28)
+      at addChunk (node:internal/streams/readable:368:12)
+      at readableAddChunk (node:internal/streams/readable:341:9)
+      at Readable.push (node:internal/streams/readable:278:10)
+      at Pipe.onStreamRead (node:internal/stream_base_commons:190:23)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:31:05 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: /home/runner/workspace/src/renderer/components/admin/StudentManagement.tsx: Unexpected token (2:1)
+
+[0m [90m 1 |[31m [36mimport[31m [33mReact[31m[33m,[31m { useState[33m,[31m useEffect } [36mfrom[31m [32m'react'[31m[33m;[31m
+[31m[1m>[22m[31m[90m 2 |[31m [33m<<[31m[33m<<[31m[33m<<[31m[33m<[31m [33mHEAD[31m
+ [90m   |[31m  [31m[1m^[22m[31m
+ [90m 3 |[31m [36mimport[31m { [33mChevronLeft[31m[33m,[31m [33mChevronRight[31m[33m,[31m [33mTrash2[31m[33m,[31m [33mPencil[31m[33m,[31m [33mX[31m[33m,[31m [33mUserPlus[31m[33m,[31m [33mAlertCircle[31m[33m,[31m [33mExternalLink[31m[33m,[31m [33mCheckCircle[31m } [36mfrom[31m [32m'lucide-react'[31m[33m;[31m
+ [90m 4 |[31m [36mimport[31m { studentAPI[33m,[31m feeTypeAPI[33m,[31m settingsAPI } [36mfrom[31m [32m'../../lib/api'[31m[33m;[31m
+ [90m 5 |[31m [33m===[31m[33m===[31m[33m=[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36m/home/runner/workspace/src/renderer/components/admin/StudentManagement.tsx[39m:2:1
+[33m  1  |  import React, { useState, useEffect } from 'react';
+  2  |  <<<<<<< HEAD
+     |   ^
+  3  |  import { ChevronLeft, ChevronRight, Trash2, Pencil, X, UserPlus, AlertCircle, ExternalLink, CheckCircle } from 'lucide-react';
+  4  |  import { studentAPI, feeTypeAPI, settingsAPI } from '../../lib/api';[39m
+      at constructor (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6616:19)
+      at TypeScriptParserMixin.unexpected (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6636:16)
+      at TypeScriptParserMixin.jsxParseIdentifier (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4581:12)
+      at TypeScriptParserMixin.jsxParseNamespacedName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4588:23)
+      at TypeScriptParserMixin.jsxParseElementName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4597:21)
+      at TypeScriptParserMixin.jsxParseOpeningElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4673:22)
+      at TypeScriptParserMixin.jsxParseElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4698:33)
+      at TypeScriptParserMixin.jsxParseElement (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4761:17)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4771:19)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:39
+      at TypeScriptParserMixin.tryParse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6924:20)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:18)
+      at TypeScriptParserMixin.parseExpressionBase (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10801:23)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12438:16)
+      at TypeScriptParserMixin.parseExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:17)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12912:23)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9525:18)
+      at TypeScriptParserMixin.parseStatementLike (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12784:17)
+      at TypeScriptParserMixin.parseModuleItem (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12761:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13333:36)
+      at TypeScriptParserMixin.parseBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13326:10)
+      at TypeScriptParserMixin.parseProgram (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12639:10)
+      at TypeScriptParserMixin.parseTopLevel (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12629:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14505:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10143:18)
+      at parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14539:38)
+      at parser (/home/runner/workspace/node_modules/@babel/core/lib/parser/index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (/home/runner/workspace/node_modules/@babel/core/lib/transformation/normalize-file.js:51:37)
+      at normalizeFile.next (<anonymous>)
+      at run (/home/runner/workspace/node_modules/@babel/core/lib/transformation/index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (/home/runner/workspace/node_modules/@babel/core/lib/transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (/home/runner/workspace/node_modules/gensync/index.js:261:32)
+      at /home/runner/workspace/node_modules/gensync/index.js:273:13
+      at async.call.result.err.err (/home/runner/workspace/node_modules/gensync/index.js:223:11)
+      at /home/runner/workspace/node_modules/gensync/index.js:189:28
+      at /home/runner/workspace/node_modules/@babel/core/lib/gensync-utils/async.js:67:7
+      at /home/runner/workspace/node_modules/gensync/index.js:113:33
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:31:05 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: /home/runner/workspace/src/renderer/components/admin/InventoryManagement.tsx: Unexpected token (2:1)
+
+[0m [90m 1 |[31m [36mimport[31m [33mReact[31m[33m,[31m { useState[33m,[31m useEffect } [36mfrom[31m [32m'react'[31m[33m;[31m
+[31m[1m>[22m[31m[90m 2 |[31m [33m<<[31m[33m<<[31m[33m<<[31m[33m<[31m [33mHEAD[31m
+ [90m   |[31m  [31m[1m^[22m[31m
+ [90m 3 |[31m [36mimport[31m { [33mPlus[31m[33m,[31m [33mPencil[31m[33m,[31m [33mX[31m[33m,[31m [33mTag[31m[33m,[31m [33mAlertCircle[31m[33m,[31m [33mTrash2[31m[33m,[31m [33mArchive[31m } [36mfrom[31m [32m'lucide-react'[31m[33m;[31m
+ [90m 4 |[31m [33m===[31m[33m===[31m[33m=[31m
+ [90m 5 |[31m [36mimport[31m { [33mPlus[31m[33m,[31m [33mPencil[31m[33m,[31m [33mX[31m[33m,[31m [33mTag[31m[33m,[31m [33mAlertCircle[31m } [36mfrom[31m [32m'lucide-react'[31m[33m;[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36m/home/runner/workspace/src/renderer/components/admin/InventoryManagement.tsx[39m:2:1
+[33m  1  |  import React, { useState, useEffect } from 'react';
+  2  |  <<<<<<< HEAD
+     |   ^
+  3  |  import { Plus, Pencil, X, Tag, AlertCircle, Trash2, Archive } from 'lucide-react';
+  4  |  =======[39m
+      at constructor (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6616:19)
+      at TypeScriptParserMixin.unexpected (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6636:16)
+      at TypeScriptParserMixin.jsxParseIdentifier (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4581:12)
+      at TypeScriptParserMixin.jsxParseNamespacedName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4588:23)
+      at TypeScriptParserMixin.jsxParseElementName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4597:21)
+      at TypeScriptParserMixin.jsxParseOpeningElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4673:22)
+      at TypeScriptParserMixin.jsxParseElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4698:33)
+      at TypeScriptParserMixin.jsxParseElement (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4761:17)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4771:19)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:39
+      at TypeScriptParserMixin.tryParse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6924:20)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:18)
+      at TypeScriptParserMixin.parseExpressionBase (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10801:23)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12438:16)
+      at TypeScriptParserMixin.parseExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:17)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12912:23)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9525:18)
+      at TypeScriptParserMixin.parseStatementLike (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12784:17)
+      at TypeScriptParserMixin.parseModuleItem (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12761:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13333:36)
+      at TypeScriptParserMixin.parseBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13326:10)
+      at TypeScriptParserMixin.parseProgram (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12639:10)
+      at TypeScriptParserMixin.parseTopLevel (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12629:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14505:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10143:18)
+      at parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14539:38)
+      at parser (/home/runner/workspace/node_modules/@babel/core/lib/parser/index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (/home/runner/workspace/node_modules/@babel/core/lib/transformation/normalize-file.js:51:37)
+      at normalizeFile.next (<anonymous>)
+      at run (/home/runner/workspace/node_modules/@babel/core/lib/transformation/index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (/home/runner/workspace/node_modules/@babel/core/lib/transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (/home/runner/workspace/node_modules/gensync/index.js:261:32)
+      at /home/runner/workspace/node_modules/gensync/index.js:273:13
+      at async.call.result.err.err (/home/runner/workspace/node_modules/gensync/index.js:223:11)
+      at /home/runner/workspace/node_modules/gensync/index.js:189:28
+      at /home/runner/workspace/node_modules/@babel/core/lib/gensync-utils/async.js:67:7
+      at /home/runner/workspace/node_modules/gensync/index.js:113:33
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:31:06 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: /home/runner/workspace/src/renderer/components/admin/FeesManagement.tsx: Unexpected token (8:1)
+
+[0m [90m  6 |[31m [36mconst[31m fmt [33m=[31m (n[33m:[31m number) [33m=>[31m [32m`₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`[31m[33m;[31m
+ [90m  7 |[31m
+[31m[1m>[22m[31m[90m  8 |[31m [33m<<[31m[33m<<[31m[33m<<[31m[33m<[31m [33mHEAD[31m
+ [90m    |[31m  [31m[1m^[22m[31m
+ [90m  9 |[31m [36minterface[31m [33mFeeType[31m { id[33m:[31m number[33m;[31m name[33m:[31m string[33m;[31m description[33m:[31m string [33m|[31m [36mnull[31m[33m;[31m academic_session[33m:[31m string[33m;[31m term[33m:[31m string [33m|[31m [36mnull[31m[33m;[31m amount[33m:[31m number[33m;[31m class_filter[33m:[31m string [33m|[31m [36mnull[31m[33m;[31m fee_category[33m:[31m string[33m;[31m applicable_to[33m?[31m[33m:[31m string[33m;[31m }
+ [90m 10 |[31m [36minterface[31m [33mStudentFee[31m { id[33m:[31m number[33m;[31m student_id[33m:[31m string[33m;[31m student_name[33m:[31m string[33m;[31m student_class[33m:[31m string[33m;[31m admission_type[33m:[31m string[33m;[31m student_status[33m:[31m string[33m;[31m fee_name[33m:[31m string[33m;[31m fee_category[33m:[31m string[33m;[31m academic_session[33m:[31m string[33m;[31m amount_due[33m:[31m number[33m;[31m amount_paid[33m:[31m number[33m;[31m balance[33m:[31m number[33m;[31m }
+ [90m 11 |[31m [33m===[31m[33m===[31m[33m=[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36m/home/runner/workspace/src/renderer/components/admin/FeesManagement.tsx[39m:8:1
+[33m  6  |  const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  7  |  
+  8  |  <<<<<<< HEAD
+     |   ^
+  9  |  interface FeeType { id: number; name: string; description: string | null; academic_session: string; term: string | null; amount: number; class_filter: string | null; fee_category: string; applicable_to?: string; }
+  10 |  interface StudentFee { id: number; student_id: string; student_name: string; student_class: string; admission_type: string; student_status: string; fee_name: string; fee_category: string; academic_session: string; amount_due: number; amount_paid: number; balance: number; }[39m
+      at constructor (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6616:19)
+      at TypeScriptParserMixin.unexpected (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6636:16)
+      at TypeScriptParserMixin.jsxParseIdentifier (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4581:12)
+      at TypeScriptParserMixin.jsxParseNamespacedName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4588:23)
+      at TypeScriptParserMixin.jsxParseElementName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4597:21)
+      at TypeScriptParserMixin.jsxParseOpeningElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4673:22)
+      at TypeScriptParserMixin.jsxParseElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4698:33)
+      at TypeScriptParserMixin.jsxParseElement (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4761:17)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4771:19)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:39
+      at TypeScriptParserMixin.tryParse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6924:20)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:18)
+      at TypeScriptParserMixin.parseExpressionBase (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10801:23)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12438:16)
+      at TypeScriptParserMixin.parseExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:17)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12912:23)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9525:18)
+      at TypeScriptParserMixin.parseStatementLike (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12784:17)
+      at TypeScriptParserMixin.parseModuleItem (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12761:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13333:36)
+      at TypeScriptParserMixin.parseBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13326:10)
+      at TypeScriptParserMixin.parseProgram (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12639:10)
+      at TypeScriptParserMixin.parseTopLevel (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12629:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14505:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10143:18)
+      at parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14539:38)
+      at parser (/home/runner/workspace/node_modules/@babel/core/lib/parser/index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (/home/runner/workspace/node_modules/@babel/core/lib/transformation/normalize-file.js:51:37)
+      at normalizeFile.next (<anonymous>)
+      at run (/home/runner/workspace/node_modules/@babel/core/lib/transformation/index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (/home/runner/workspace/node_modules/@babel/core/lib/transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (/home/runner/workspace/node_modules/gensync/index.js:261:32)
+      at /home/runner/workspace/node_modules/gensync/index.js:273:13
+      at async.call.result.err.err (/home/runner/workspace/node_modules/gensync/index.js:223:11)
+      at /home/runner/workspace/node_modules/gensync/index.js:189:28
+      at /home/runner/workspace/node_modules/@babel/core/lib/gensync-utils/async.js:67:7
+      at /home/runner/workspace/node_modules/gensync/index.js:113:33
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:31:06 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: /home/runner/workspace/src/renderer/components/admin/SchoolSettings.tsx: Unexpected token (2:1)
+
+[0m [90m 1 |[31m [36mimport[31m [33mReact[31m[33m,[31m { useState[33m,[31m useEffect } [36mfrom[31m [32m'react'[31m[33m;[31m
+[31m[1m>[22m[31m[90m 2 |[31m [33m<<[31m[33m<<[31m[33m<<[31m[33m<[31m [33mHEAD[31m
+ [90m   |[31m  [31m[1m^[22m[31m
+ [90m 3 |[31m [36mimport[31m { [33mSave[31m[33m,[31m [33mUpload[31m[33m,[31m [33mImage[31m[33m,[31m [33mAlertCircle[31m[33m,[31m [33mX[31m[33m,[31m [33mPlus[31m[33m,[31m [33mTrash2[31m[33m,[31m [33mGraduationCap[31m[33m,[31m [33mPencil[31m[33m,[31m [33mCheckCircle[31m } [36mfrom[31m [32m'lucide-react'[31m[33m;[31m
+ [90m 4 |[31m [36mimport[31m { settingsAPI[33m,[31m studentAPI } [36mfrom[31m [32m'../../lib/api'[31m[33m;[31m
+ [90m 5 |[31m [33m===[31m[33m===[31m[33m=[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36m/home/runner/workspace/src/renderer/components/admin/SchoolSettings.tsx[39m:2:1
+[33m  1  |  import React, { useState, useEffect } from 'react';
+  2  |  <<<<<<< HEAD
+     |   ^
+  3  |  import { Save, Upload, Image, AlertCircle, X, Plus, Trash2, GraduationCap, Pencil, CheckCircle } from 'lucide-react';
+  4  |  import { settingsAPI, studentAPI } from '../../lib/api';[39m
+      at constructor (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6616:19)
+      at TypeScriptParserMixin.unexpected (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6636:16)
+      at TypeScriptParserMixin.jsxParseIdentifier (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4581:12)
+      at TypeScriptParserMixin.jsxParseNamespacedName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4588:23)
+      at TypeScriptParserMixin.jsxParseElementName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4597:21)
+      at TypeScriptParserMixin.jsxParseOpeningElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4673:22)
+      at TypeScriptParserMixin.jsxParseElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4698:33)
+      at TypeScriptParserMixin.jsxParseElement (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4761:17)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4771:19)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:39
+      at TypeScriptParserMixin.tryParse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6924:20)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:18)
+      at TypeScriptParserMixin.parseExpressionBase (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10801:23)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12438:16)
+      at TypeScriptParserMixin.parseExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:17)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12912:23)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9525:18)
+      at TypeScriptParserMixin.parseStatementLike (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12784:17)
+      at TypeScriptParserMixin.parseModuleItem (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12761:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13333:36)
+      at TypeScriptParserMixin.parseBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13326:10)
+      at TypeScriptParserMixin.parseProgram (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12639:10)
+      at TypeScriptParserMixin.parseTopLevel (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12629:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14505:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10143:18)
+      at parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14539:38)
+      at parser (/home/runner/workspace/node_modules/@babel/core/lib/parser/index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (/home/runner/workspace/node_modules/@babel/core/lib/transformation/normalize-file.js:51:37)
+      at normalizeFile.next (<anonymous>)
+      at run (/home/runner/workspace/node_modules/@babel/core/lib/transformation/index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (/home/runner/workspace/node_modules/@babel/core/lib/transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (/home/runner/workspace/node_modules/gensync/index.js:261:32)
+      at /home/runner/workspace/node_modules/gensync/index.js:273:13
+      at async.call.result.err.err (/home/runner/workspace/node_modules/gensync/index.js:223:11)
+      at /home/runner/workspace/node_modules/gensync/index.js:189:28
+      at /home/runner/workspace/node_modules/@babel/core/lib/gensync-utils/async.js:67:7
+      at /home/runner/workspace/node_modules/gensync/index.js:113:33
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:31:06 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: /home/runner/workspace/src/renderer/components/admin/BundleManagement.tsx: Unexpected token (176:1)
+
+[0m [90m 174 |[31m   [36mconst[31m [error[33m,[31m setError] [33m=[31m useState([32m''[31m)[33m;[31m
+ [90m 175 |[31m
+[31m[1m>[22m[31m[90m 176 |[31m [33m<<[31m[33m<<[31m[33m<<[31m[33m<[31m [33mHEAD[31m
+ [90m     |[31m  [31m[1m^[22m[31m
+ [90m 177 |[31m   [36mconst[31m [form[33m,[31m setForm] [33m=[31m useState[33m<[31m[33mBundleFormState[31m[33m>[31m(emptyForm)[33m;[31m
+ [90m 178 |[31m [33m===[31m[33m===[31m[33m=[31m
+ [90m 179 |[31m   [90m// Form state[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36m/home/runner/workspace/src/renderer/components/admin/BundleManagement.tsx[39m:176:1
+[33m  174|    const [error, setError] = useState('');
+  175|  
+  176|  <<<<<<< HEAD
+     |   ^
+  177|    const [form, setForm] = useState<BundleFormState>(emptyForm);
+  178|  =======[39m
+      at constructor (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6616:19)
+      at TypeScriptParserMixin.unexpected (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6636:16)
+      at TypeScriptParserMixin.jsxParseIdentifier (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4581:12)
+      at TypeScriptParserMixin.jsxParseNamespacedName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4588:23)
+      at TypeScriptParserMixin.jsxParseElementName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4597:21)
+      at TypeScriptParserMixin.jsxParseOpeningElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4673:22)
+      at TypeScriptParserMixin.jsxParseElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4698:33)
+      at TypeScriptParserMixin.jsxParseElement (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4761:17)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4771:19)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:39
+      at TypeScriptParserMixin.tryParse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6924:20)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:18)
+      at TypeScriptParserMixin.parseExpressionBase (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10801:23)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12438:16)
+      at TypeScriptParserMixin.parseExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:17)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12912:23)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9525:18)
+      at TypeScriptParserMixin.parseStatementLike (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12784:17)
+      at TypeScriptParserMixin.parseStatementListItem (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12764:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13333:61)
+      at TypeScriptParserMixin.parseBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13326:10)
+      at TypeScriptParserMixin.parseBlock (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13314:10)
+      at TypeScriptParserMixin.parseFunctionBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12117:24)
+      at TypeScriptParserMixin.parseArrowExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12092:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11704:12)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11348:23)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4776:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9803:20)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10817:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12438:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10817:17)
+      at TypeScriptParserMixin.parseVar (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13401:91)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:31:07 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: /home/runner/workspace/src/renderer/components/cashier/CashierPOS.tsx: Unexpected token (5:0)
+
+[0m [90m 3 |[31m   [33mShoppingCart[31m[33m,[31m [33mUsers[31m[33m,[31m [33mClock[31m[33m,[31m [33mLogOut[31m[33m,[31m [33mSearch[31m[33m,[31m [33mPlus[31m[33m,[31m [33mMinus[31m[33m,[31m
+ [90m 4 |[31m   [33mTrash2[31m[33m,[31m [33mCreditCard[31m[33m,[31m [33mBanknote[31m[33m,[31m [33mAlertTriangle[31m[33m,[31m [33mCheckCircle[31m[33m,[31m
+[31m[1m>[22m[31m[90m 5 |[31m [33m<<[31m[33m<<[31m[33m<<[31m[33m<[31m [33mHEAD[31m
+ [90m   |[31m [31m[1m^[22m[31m
+ [90m 6 |[31m   [33mPackage[31m[33m,[31m [33mUser[31m[33m,[31m [33mRefreshCw[31m[33m,[31m [33mX[31m[33m,[31m [33mTag[31m[33m,[31m [33mChevronLeft[31m[33m,[31m [33mChevronRight[31m[33m,[31m [33mPrinter[31m[33m,[31m [33mUserPlus[31m[33m,[31m [33mLayers[31m[33m,[31m [33mUserCheck[31m[33m,[31m [33mPencil[31m[33m,[31m
+ [90m 7 |[31m   [33mFileText[31m[33m,[31m [33mPowerOff[31m
+ [90m 8 |[31m [33m===[31m[33m===[31m[33m=[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36m/home/runner/workspace/src/renderer/components/cashier/CashierPOS.tsx[39m:5:0
+[33m  3  |    ShoppingCart, Users, Clock, LogOut, Search, Plus, Minus,
+  4  |    Trash2, CreditCard, Banknote, AlertTriangle, CheckCircle,
+  5  |  <<<<<<< HEAD
+     |  ^
+  6  |    Package, User, RefreshCw, X, Tag, ChevronLeft, ChevronRight, Printer, UserPlus, Layers, UserCheck, Pencil,
+  7  |    FileText, PowerOff[39m
+      at constructor (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6616:19)
+      at TypeScriptParserMixin.unexpected (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6636:16)
+      at TypeScriptParserMixin.parseIdentifierName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12220:12)
+      at TypeScriptParserMixin.parseIdentifier (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12198:23)
+      at TypeScriptParserMixin.parseModuleExportName (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14140:17)
+      at TypeScriptParserMixin.parseNamedImportSpecifiers (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14414:33)
+      at TypeScriptParserMixin.parseImportSpecifiersAndAfter (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14259:37)
+      at TypeScriptParserMixin.parseImport (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14252:17)
+      at TypeScriptParserMixin.parseImport (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9370:26)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12893:27)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9525:18)
+      at TypeScriptParserMixin.parseStatementLike (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12784:17)
+      at TypeScriptParserMixin.parseModuleItem (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12761:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13333:36)
+      at TypeScriptParserMixin.parseBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13326:10)
+      at TypeScriptParserMixin.parseProgram (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12639:10)
+      at TypeScriptParserMixin.parseTopLevel (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12629:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14505:25)
+      at TypeScriptParserMixin.parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10143:18)
+      at parse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:14539:38)
+      at parser (/home/runner/workspace/node_modules/@babel/core/lib/parser/index.js:41:34)
+      at parser.next (<anonymous>)
+      at normalizeFile (/home/runner/workspace/node_modules/@babel/core/lib/transformation/normalize-file.js:51:37)
+      at normalizeFile.next (<anonymous>)
+      at run (/home/runner/workspace/node_modules/@babel/core/lib/transformation/index.js:22:50)
+      at run.next (<anonymous>)
+      at transform (/home/runner/workspace/node_modules/@babel/core/lib/transform.js:22:33)
+      at transform.next (<anonymous>)
+      at step (/home/runner/workspace/node_modules/gensync/index.js:261:32)
+      at /home/runner/workspace/node_modules/gensync/index.js:273:13
+      at async.call.result.err.err (/home/runner/workspace/node_modules/gensync/index.js:223:11)
+      at /home/runner/workspace/node_modules/gensync/index.js:189:28
+      at /home/runner/workspace/node_modules/@babel/core/lib/gensync-utils/async.js:67:7
+      at /home/runner/workspace/node_modules/gensync/index.js:113:33
+      at step (/home/runner/workspace/node_modules/gensync/index.js:287:14)
+      at /home/runner/workspace/node_modules/gensync/index.js:273:13
+      at async.call.result.err.err (/home/runner/workspace/node_modules/gensync/index.js:223:11)
+
+[31mCould not open CashierPOS.tsx in the editor.[39m
+[31mThe editor process exited with an error: spawn vi ENOENT ('vi' command does not exist in 'PATH').[39m
+
+
+[31mCould not open CashierPOS.tsx in the editor.[39m
+[31mThe editor process exited with an error: spawn vi ENOENT ('vi' command does not exist in 'PATH').[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:34:38 PM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/StudentManagement.tsx, /src/renderer/styles/index.css[22m

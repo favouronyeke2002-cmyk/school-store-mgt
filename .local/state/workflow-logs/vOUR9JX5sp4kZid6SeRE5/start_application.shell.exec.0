@@ -1,0 +1,729 @@
+[1G[0K⠙[1G[0K
+> school-pos-system@1.0.0 client
+> vite
+
+[1G[0K⠙[1G[0K
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m635[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5000[22m/[39m
+  [32m➜[39m  [1mNetwork[22m: [36mhttp://172.24.0.2:[1m5000[22m/[39m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m11:57:40 PM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/BundleManagement.tsx, /src/renderer/styles/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m11:58:26 PM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/context/ShiftContext.tsx, /src/renderer/styles/index.css, /src/renderer/context/AuthContext.tsx, /src/renderer/components/admin/Dashboard.tsx, /src/renderer/components/admin/StudentManagement.tsx, /src/renderer/components/admin/InventoryManagement.tsx, /src/renderer/components/admin/TransactionHistory.tsx, /src/renderer/components/admin/UserManagement.tsx, /src/renderer/components/cashier/CashierPOS.tsx, /src/renderer/components/admin/BulkImport.tsx, /src/renderer/components/admin/FeesManagement.tsx, /src/renderer/components/admin/SchoolSettings.tsx, /src/renderer/components/admin/BundleManagement.tsx, /src/renderer/components/admin/PendingAdmissions.tsx, /src/renderer/components/admin/ShiftHistory.tsx[22m
+[2m11:58:28 PM[22m [36m[1m[vite][22m[39m [33mhmr invalidate [39m[2m/src/renderer/context/ShiftContext.tsx[22m Could not Fast Refresh ("default" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m11:58:28 PM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/App.tsx, /src/renderer/styles/index.css, /src/renderer/components/cashier/CashierPOS.tsx[22m
+[2m11:58:28 PM[22m [36m[1m[vite][22m[39m [33mhmr invalidate [39m[2m/src/renderer/context/AuthContext.tsx[22m Could not Fast Refresh ("default" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m11:58:28 PM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/App.tsx, /src/renderer/styles/index.css, /src/renderer/components/auth/LoginPage.tsx, /src/renderer/components/admin/AdminLayout.tsx, /src/renderer/components/cashier/CashierPOS.tsx[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m11:58:40 PM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/StudentManagement.tsx, /src/renderer/styles/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m11:59:00 PM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/StudentManagement.tsx, /src/renderer/styles/index.css[22m [33m(x2)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m11:59:03 PM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/FeesManagement.tsx, /src/renderer/styles/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m11:59:29 PM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/StudentManagement.tsx, /src/renderer/styles/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m11:59:39 PM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/StudentManagement.tsx, /src/renderer/styles/index.css[22m [33m(x2)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m11:59:59 PM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/StudentManagement.tsx, /src/renderer/styles/index.css[22m [33m(x3)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:00:00 AM[22m [31m[1m[vite][22m[39m [31mInternal server error: /home/runner/workspace/src/renderer/components/admin/StudentManagement.tsx: Unexpected token, expected "}" (280:11)
+
+[0m [90m 278 |[31m         [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m
+ [90m 279 |[31m       )}
+[31m[1m>[22m[31m[90m 280 |[31m       [33m<[31m[33m/[31m[33m>[31m) [33m:[31m (
+ [90m     |[31m            [31m[1m^[22m[31m
+ [90m 281 |[31m         [90m/* ── Fee Ledger Tab ── */[31m
+ [90m 282 |[31m         [33m<[31m[33mdiv[31m[33m>[31m
+ [90m 283 |[31m           [33m<[31m[33mdiv[31m className[33m=[31m[32m"flex gap-3 mb-4 flex-wrap"[31m[33m>[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36m/home/runner/workspace/src/renderer/components/admin/StudentManagement.tsx[39m:280:11
+[33m  278|          </div>
+  279|        )}
+  280|        </>) : (
+     |             ^
+  281|          /* ── Fee Ledger Tab ── */
+  282|          <div>[39m
+      at constructor (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6616:19)
+      at TypeScriptParserMixin.unexpected (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6636:16)
+      at TypeScriptParserMixin.expect (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6916:12)
+      at TypeScriptParserMixin.jsxParseExpressionContainer (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4649:10)
+      at TypeScriptParserMixin.jsxParseElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4723:36)
+      at TypeScriptParserMixin.jsxParseElement (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4761:17)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4771:19)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:39
+      at TypeScriptParserMixin.tryParse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6924:20)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:18)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10817:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12443:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10817:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12510:17)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11692:28)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11348:23)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4776:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9803:20)
+      at TypeScriptParserMixin.parseExpressionBase (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10801:23)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12438:16)
+      at TypeScriptParserMixin.parseExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:17)
+      at TypeScriptParserMixin.parseReturnStatement (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13159:28)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12815:21)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9525:18)
+      at TypeScriptParserMixin.parseStatementLike (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12784:17)
+      at TypeScriptParserMixin.parseStatementListItem (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12764:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13333:61)
+      at TypeScriptParserMixin.parseBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13326:10)
+      at TypeScriptParserMixin.parseBlock (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13314:10)
+      at TypeScriptParserMixin.parseFunctionBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12117:24)
+      at TypeScriptParserMixin.parseArrowExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12092:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11704:12)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:00:05 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/StudentManagement.tsx, /src/renderer/styles/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:00:05 AM[22m [31m[1m[vite][22m[39m [31mInternal server error: /home/runner/workspace/src/renderer/components/admin/StudentManagement.tsx: Unexpected token, expected "}" (286:11)
+
+[0m [90m 284 |[31m         [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m
+ [90m 285 |[31m       )}
+[31m[1m>[22m[31m[90m 286 |[31m       [33m<[31m[33m/[31m[33m>[31m) [33m:[31m (
+ [90m     |[31m            [31m[1m^[22m[31m
+ [90m 287 |[31m         [90m/* ── Fee Ledger Tab ── */[31m
+ [90m 288 |[31m         [33m<[31m[33mdiv[31m[33m>[31m
+ [90m 289 |[31m           [33m<[31m[33mdiv[31m className[33m=[31m[32m"flex gap-3 mb-4 flex-wrap"[31m[33m>[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36m/home/runner/workspace/src/renderer/components/admin/StudentManagement.tsx[39m:286:11
+[33m  284|          </div>
+  285|        )}
+  286|        </>) : (
+     |             ^
+  287|          /* ── Fee Ledger Tab ── */
+  288|          <div>[39m
+      at constructor (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:365:19)
+      at TypeScriptParserMixin.raise (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6616:19)
+      at TypeScriptParserMixin.unexpected (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6636:16)
+      at TypeScriptParserMixin.expect (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6916:12)
+      at TypeScriptParserMixin.jsxParseExpressionContainer (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4649:10)
+      at TypeScriptParserMixin.jsxParseElementAt (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4723:36)
+      at TypeScriptParserMixin.jsxParseElement (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4761:17)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4771:19)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:39
+      at TypeScriptParserMixin.tryParse (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:6924:20)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9792:18)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10817:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12443:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10817:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12510:17)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11692:28)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11348:23)
+      at TypeScriptParserMixin.parseExprAtom (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:4776:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11098:23)
+      at TypeScriptParserMixin.parseUpdate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11083:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11063:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9854:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10916:61)
+      at TypeScriptParserMixin.parseExprOps (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10921:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10898:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10848:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9803:20)
+      at TypeScriptParserMixin.parseExpressionBase (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10801:23)
+      at /home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:39
+      at TypeScriptParserMixin.allowInAnd (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12438:16)
+      at TypeScriptParserMixin.parseExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:10797:17)
+      at TypeScriptParserMixin.parseReturnStatement (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13159:28)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12815:21)
+      at TypeScriptParserMixin.parseStatementContent (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:9525:18)
+      at TypeScriptParserMixin.parseStatementLike (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12784:17)
+      at TypeScriptParserMixin.parseStatementListItem (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12764:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13333:61)
+      at TypeScriptParserMixin.parseBlockBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13326:10)
+      at TypeScriptParserMixin.parseBlock (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:13314:10)
+      at TypeScriptParserMixin.parseFunctionBody (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12117:24)
+      at TypeScriptParserMixin.parseArrowExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:12092:10)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (/home/runner/workspace/node_modules/@babel/parser/lib/index.js:11704:12)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:00:43 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/StudentManagement.tsx, /src/renderer/styles/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:01:41 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/StudentManagement.tsx, /src/renderer/styles/index.css[22m [33m(x2)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:01:43 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/FeesManagement.tsx, /src/renderer/styles/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:01:45 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/SchoolSettings.tsx, /src/renderer/styles/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:02:22 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/FeesManagement.tsx, /src/renderer/styles/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:02:26 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/SchoolSettings.tsx, /src/renderer/styles/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:04:11 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/context/ShiftContext.tsx, /src/renderer/styles/index.css, /src/renderer/context/AuthContext.tsx, /src/renderer/components/admin/Dashboard.tsx, /src/renderer/components/admin/StudentManagement.tsx, /src/renderer/components/admin/InventoryManagement.tsx, /src/renderer/components/admin/TransactionHistory.tsx, /src/renderer/components/admin/UserManagement.tsx, /src/renderer/components/cashier/CashierPOS.tsx, /src/renderer/components/admin/BulkImport.tsx, /src/renderer/components/admin/FeesManagement.tsx, /src/renderer/components/admin/SchoolSettings.tsx, /src/renderer/components/admin/BundleManagement.tsx, /src/renderer/components/admin/PendingAdmissions.tsx, /src/renderer/components/admin/ShiftHistory.tsx[22m
+[2m12:04:14 AM[22m [36m[1m[vite][22m[39m [33mhmr invalidate [39m[2m/src/renderer/context/ShiftContext.tsx[22m Could not Fast Refresh ("default" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m12:04:14 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/App.tsx, /src/renderer/styles/index.css, /src/renderer/components/cashier/CashierPOS.tsx[22m
+[2m12:04:14 AM[22m [36m[1m[vite][22m[39m [33mhmr invalidate [39m[2m/src/renderer/context/AuthContext.tsx[22m Could not Fast Refresh ("default" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m12:04:14 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/App.tsx, /src/renderer/styles/index.css, /src/renderer/components/auth/LoginPage.tsx, /src/renderer/components/admin/AdminLayout.tsx, /src/renderer/components/cashier/CashierPOS.tsx[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:05:00 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/SchoolSettings.tsx, /src/renderer/styles/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:05:12 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/FeesManagement.tsx, /src/renderer/styles/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:05:41 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/context/ShiftContext.tsx, /src/renderer/styles/index.css, /src/renderer/context/AuthContext.tsx, /src/renderer/components/admin/Dashboard.tsx, /src/renderer/components/admin/StudentManagement.tsx, /src/renderer/components/admin/InventoryManagement.tsx, /src/renderer/components/admin/TransactionHistory.tsx, /src/renderer/components/admin/UserManagement.tsx, /src/renderer/components/cashier/CashierPOS.tsx, /src/renderer/components/admin/BulkImport.tsx, /src/renderer/components/admin/FeesManagement.tsx, /src/renderer/components/admin/SchoolSettings.tsx, /src/renderer/components/admin/BundleManagement.tsx, /src/renderer/components/admin/PendingAdmissions.tsx, /src/renderer/components/admin/ShiftHistory.tsx[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:05:43 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/SchoolSettings.tsx, /src/renderer/styles/index.css[22m
+[2m12:05:44 AM[22m [36m[1m[vite][22m[39m [33mhmr invalidate [39m[2m/src/renderer/context/ShiftContext.tsx[22m Could not Fast Refresh ("default" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m12:05:44 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/App.tsx, /src/renderer/styles/index.css, /src/renderer/components/cashier/CashierPOS.tsx[22m
+[2m12:05:44 AM[22m [36m[1m[vite][22m[39m [33mhmr invalidate [39m[2m/src/renderer/context/AuthContext.tsx[22m Could not Fast Refresh ("default" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m12:05:44 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/App.tsx, /src/renderer/styles/index.css, /src/renderer/components/auth/LoginPage.tsx, /src/renderer/components/admin/AdminLayout.tsx, /src/renderer/components/cashier/CashierPOS.tsx[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:06:16 AM[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/renderer/components/admin/FeesManagement.tsx, /src/renderer/styles/index.css[22m
