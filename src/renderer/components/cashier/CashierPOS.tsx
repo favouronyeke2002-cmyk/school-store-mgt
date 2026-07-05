@@ -3,11 +3,11 @@ import {
   ShoppingCart, Users, Clock, LogOut, Search, Plus, Minus,
   Trash2, CreditCard, Banknote, AlertTriangle, CheckCircle,
   Package, User, RefreshCw, X, Tag, ChevronLeft, ChevronRight, Printer, UserPlus, Layers, UserCheck, Pencil,
-  FileText, PowerOff
+  FileText, PowerOff, Wallet, AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useShift } from '../../context/ShiftContext';
-import { studentAPI, inventoryAPI, transactionAPI, studentFeeAPI, categoryAPI, settingsAPI, feeTypeAPI, bundleAPI, applicantAPI, bundlePaymentAPI, shiftAPI } from '../../lib/api';
+import { studentAPI, inventoryAPI, transactionAPI, studentFeeAPI, categoryAPI, settingsAPI, feeTypeAPI, bundleAPI, applicantAPI, bundlePaymentAPI, shiftAPI, expenseAPI } from '../../lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Student { student_id: string; name: string; student_class: string; current_fees_owed: number; admission_type?: 'Returning' | 'New'; }
@@ -558,6 +558,156 @@ const BundlePaymentModal: React.FC<{
             <button type="button" onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
             <button type="submit" disabled={processing || isBelowFloor || parseFloat(amount) <= 0} className="flex-1 py-2.5 bg-success-600 text-white rounded-xl text-sm font-semibold hover:bg-success-700 disabled:opacity-50">
               {processing ? 'Processing…' : `Pay ${fmt(parseFloat(amount) || 0)}`}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ─── Add Expense Modal ───────────────────────────────────────────────────────
+const EXPENSE_CATEGORIES = [
+  'Water Tanker',
+  'Generator Fuel',
+  'Kitchen Supplies',
+  'Repairs',
+  'Salaries',
+  'Other',
+] as const;
+
+const AddExpenseModal: React.FC<{
+  shiftId: number;
+  openingCash: number;
+  currentCashSales: number;
+  onConfirm: (data: { category: string; amount: number; paymentMode: 'Cash Drawer' | 'Bank Transfer'; description: string }) => void;
+  onCancel: () => void;
+  saving: boolean;
+  error: string;
+}> = ({ shiftId, openingCash, currentCashSales, onConfirm, onCancel, saving, error }) => {
+  const [category, setCategory] = useState<string>('Other');
+  const [amount, setAmount] = useState('');
+  const [paymentMode, setPaymentMode] = useState<'Cash Drawer' | 'Bank Transfer'>('Cash Drawer');
+  const [description, setDescription] = useState('');
+  const [showWarning, setShowWarning] = useState(false);
+
+  const amountNum = parseFloat(amount) || 0;
+  const expectedCash = openingCash + currentCashSales;
+  const remainingCash = expectedCash - amountNum;
+  const isNegative = paymentMode === 'Cash Drawer' && remainingCash < 0;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!category || amountNum <= 0) return;
+    if (paymentMode === 'Cash Drawer' && !showWarning) {
+      setShowWarning(true);
+      return;
+    }
+    onConfirm({ category, amount: amountNum, paymentMode, description: description.trim() });
+  };
+
+  const handlePaymentModeChange = (mode: 'Cash Drawer' | 'Bank Transfer') => {
+    setPaymentMode(mode);
+    setShowWarning(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 max-h-[90vh] overflow-auto">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-danger-100 rounded-xl flex items-center justify-center"><Wallet className="w-5 h-5 text-danger-600" /></div>
+            <h2 className="text-lg font-bold">Record Expense</h2>
+          </div>
+          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+        </div>
+
+        {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{error}</div>}
+
+        {/* Cash drawer summary warning */}
+        {paymentMode === 'Cash Drawer' && (
+          <div className={`rounded-xl p-4 mb-4 ${showWarning ? 'bg-warning-50 border border-warning-200' : 'bg-gray-50 border border-gray-200'}`}>
+            <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Cash Drawer Impact</div>
+            <div className="space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Opening Cash</span>
+                <span className="font-medium">{fmt(openingCash)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">+ Cash Sales</span>
+                <span className="font-medium text-success-600">+ {fmt(currentCashSales)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">= Expected Cash</span>
+                <span className="font-bold">{fmt(expectedCash)}</span>
+              </div>
+              {amountNum > 0 && (
+                <>
+                  <div className="border-t border-dashed my-2 border-gray-300" />
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">- Expense</span>
+                    <span className="font-medium text-danger-600">- {fmt(amountNum)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-semibold text-gray-700">Remaining</span>
+                    <span className={`font-bold ${isNegative ? 'text-danger-600' : 'text-gray-900'}`}>{fmt(remainingCash)}</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Warning confirmation */}
+        {showWarning && paymentMode === 'Cash Drawer' && (
+          <div className="bg-warning-50 border border-warning-300 rounded-xl p-4 mb-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-warning-600 shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <div className="font-semibold text-warning-800">This expense will be deducted from your shift's expected cash.</div>
+              <div className="text-warning-700 mt-1">This reduces the amount you are expected to turn in at close of shift.</div>
+            </div>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-1 block">Category *</label>
+            <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
+              {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-1 block">Amount *</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-gray-500">N</span>
+              <input type="number" min="0" step="100" value={amount} onChange={(e) => { setAmount(e.target.value); setShowWarning(false); }} className="w-full pl-8 pr-3 py-3 border-2 border-gray-200 rounded-xl text-xl font-bold focus:outline-none focus:border-primary-400" placeholder="0.00" />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-2 block">Payment Mode *</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => handlePaymentModeChange('Cash Drawer')} className={`flex items-center justify-center gap-2 py-3 rounded-xl font-semibold border-2 transition-all text-sm ${paymentMode === 'Cash Drawer' ? 'bg-warning-600 border-warning-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-warning-400'}`}>
+                <Banknote className="w-4 h-4" />
+                Cash Drawer
+              </button>
+              <button type="button" onClick={() => handlePaymentModeChange('Bank Transfer')} className={`flex items-center justify-center gap-2 py-3 rounded-xl font-semibold border-2 transition-all text-sm ${paymentMode === 'Bank Transfer' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-primary-400'}`}>
+                <CreditCard className="w-4 h-4" />
+                Bank Transfer
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-1 block">Description (Optional)</label>
+            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" placeholder="e.g. Fuel for generator, Water for kitchen" />
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
+            <button type="submit" disabled={saving || amountNum <= 0 || isNegative} className="flex-1 py-2.5 bg-danger-600 text-white rounded-xl text-sm font-semibold hover:bg-danger-700 disabled:opacity-50">
+              {saving ? 'Recording…' : showWarning ? 'Confirm Expense' : 'Record Expense'}
             </button>
           </div>
         </form>
@@ -1124,6 +1274,12 @@ const CashierPOS: React.FC = () => {
   const [historySearch, setHistorySearch] = useState('');
   const [historyClass, setHistoryClass] = useState('all');
 
+  // Expenses
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [expenseSaving, setExpenseSaving] = useState(false);
+  const [expenseError, setExpenseError] = useState('');
+  const [shiftExpenses, setShiftExpenses] = useState<any[]>([]);
+
   // Load school settings + class category map on mount
   useEffect(() => {
     settingsAPI.get().then(setSchoolSettings).catch(console.error);
@@ -1169,10 +1325,11 @@ const CashierPOS: React.FC = () => {
     }
   }, [selectedStudent, saleMode]);
 
-  // Shift history
+  // Shift history + expenses
   useEffect(() => {
     if (tab === 'history' && activeShift) {
       transactionAPI.getHistory({}).then((d) => setHistoryTxns(d.filter((t: any) => t.shift_id === activeShift.id))).catch(console.error);
+      expenseAPI.getExpensesByShift(activeShift.id).then(setShiftExpenses).catch(console.error);
     }
   }, [tab, activeShift]);
 
@@ -1382,6 +1539,34 @@ const CashierPOS: React.FC = () => {
     } catch (e) { setErrorMsg('Failed to load receipt: ' + (e as Error).message); }
   };
 
+  // Expense handlers
+  const handleAddExpense = async (data: { category: string; amount: number; paymentMode: 'Cash Drawer' | 'Bank Transfer'; description: string }) => {
+    if (!activeShift) return;
+    setExpenseSaving(true);
+    setExpenseError('');
+    try {
+      const result = await expenseAPI.addExpense({
+        shiftId: data.paymentMode === 'Cash Drawer' ? activeShift.id : undefined,
+        category: data.category,
+        amount: data.amount,
+        paymentMode: data.paymentMode,
+        description: data.description,
+        createdBy: user?.id,
+      });
+      if (result.success) {
+        setShowExpenseModal(false);
+        // Reload expenses
+        const expenses = await expenseAPI.getExpensesByShift(activeShift.id);
+        setShiftExpenses(expenses);
+      } else {
+        setExpenseError(result.error || 'Failed to record expense');
+      }
+    } catch (e) {
+      setExpenseError((e as Error).message);
+    }
+    setExpenseSaving(false);
+  };
+
   // Walk-in applicant handlers
   const handleWalkInCreate = async (data: { firstName: string; lastName: string; proposedClass: string; studentStatus: 'Day' | 'Boarding' }) => {
     setWalkInSaving(true);
@@ -1575,6 +1760,7 @@ const CashierPOS: React.FC = () => {
           </button>
         ))}
         <div className="mt-auto flex flex-col items-center gap-2">
+          <button onClick={() => { setShowExpenseModal(true); setExpenseError(''); }} title="Record Expense" className="w-10 h-10 rounded-lg flex items-center justify-center text-gray-400 hover:bg-warning-600 hover:text-white transition-all"><Wallet className="w-5 h-5" /></button>
           <button onClick={handleShiftCloseRequest} title="Close Shift" className="w-10 h-10 rounded-lg flex items-center justify-center text-gray-400 hover:bg-danger-700 hover:text-white transition-all"><PowerOff className="w-5 h-5" /></button>
           <button onClick={logout} title="Log Out" className="w-10 h-10 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-700 hover:text-white transition-all"><LogOut className="w-5 h-5" /></button>
         </div>
@@ -2058,7 +2244,13 @@ const CashierPOS: React.FC = () => {
         <div className="flex-1 overflow-auto p-6">
           <div className="flex items-center justify-between mb-5">
             <div><h1 className="text-xl font-bold">Shift Log</h1><p className="text-sm text-gray-400">Shift #{activeShift.id} · {new Date(activeShift.opened_at).toLocaleString()}</p></div>
-            <button onClick={() => transactionAPI.getHistory({}).then((d) => setHistoryTxns(d.filter((t: any) => t.shift_id === activeShift.id)))} className="flex items-center gap-2 px-3 py-2 bg-white border rounded-lg text-sm hover:bg-gray-50"><RefreshCw className="w-4 h-4" /> Refresh</button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { setShowExpenseModal(true); setExpenseError(''); }} className="flex items-center gap-2 px-3 py-2 bg-warning-600 text-white rounded-lg text-sm font-semibold hover:bg-warning-700"><Wallet className="w-4 h-4" /> Record Expense</button>
+              <button onClick={() => {
+                transactionAPI.getHistory({}).then((d) => setHistoryTxns(d.filter((t: any) => t.shift_id === activeShift.id)));
+                expenseAPI.getExpensesByShift(activeShift.id).then(setShiftExpenses);
+              }} className="flex items-center gap-2 px-3 py-2 bg-white border rounded-lg text-sm hover:bg-gray-50"><RefreshCw className="w-4 h-4" /> Refresh</button>
+            </div>
           </div>
 
           {/* Search bar for shift log */}
@@ -2073,11 +2265,45 @@ const CashierPOS: React.FC = () => {
             </select>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+          {/* Expected Cash Calculation Card */}
+          <div className="bg-white rounded-xl shadow-sm border overflow-hidden mb-5">
+            <div className="px-5 py-4 border-b bg-gray-50">
+              <h2 className="font-bold text-gray-900">Expected Cash Calculation</h2>
+              <p className="text-xs text-gray-500">How your expected closing cash is computed</p>
+            </div>
+            <div className="p-5 space-y-3 text-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500">Opening Cash (Float)</span>
+                <span className="font-bold">{fmt(activeShift.opening_cash)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500">+ Total Cash Sales</span>
+                <span className="font-bold text-success-600">+ {fmt(shiftCash)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500">= Cash in Drawer (before expenses)</span>
+                <span className="font-bold">{fmt(activeShift.opening_cash + shiftCash)}</span>
+              </div>
+              <div className="border-t border-dashed pt-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500">- Cash Expenses</span>
+                  <span className="font-bold text-danger-600">- {fmt(shiftExpenses.filter((e: any) => e.payment_mode === 'Cash Drawer').reduce((s: number, e: any) => s + Number(e.amount), 0))}</span>
+                </div>
+              </div>
+              <div className="border-t-2 pt-3 flex justify-between items-center bg-primary-50 -mx-5 px-5 py-3">
+                <span className="font-bold text-gray-900">Expected Closing Cash</span>
+                <span className="text-2xl font-extrabold text-primary-600">{fmt(activeShift.opening_cash + shiftCash - shiftExpenses.filter((e: any) => e.payment_mode === 'Cash Drawer').reduce((s: number, e: any) => s + Number(e.amount), 0))}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Stats cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-5">
             {[
               { label: 'Opening Cash', val: fmt(activeShift.opening_cash) },
               { label: 'Cash Sales', val: fmt(shiftCash), color: 'text-success-700' },
               { label: 'POS / Transfer', val: fmt(shiftPOS), color: 'text-primary-700' },
+              { label: 'Cash Expenses', val: fmt(shiftExpenses.filter((e: any) => e.payment_mode === 'Cash Drawer').reduce((s: number, e: any) => s + Number(e.amount), 0)), color: 'text-danger-700' },
             ].map((s) => (
               <div key={s.label} className="bg-white rounded-xl p-5 shadow-sm border">
                 <div className="text-xs text-gray-400 font-semibold uppercase mb-1">{s.label}</div>
@@ -2085,6 +2311,43 @@ const CashierPOS: React.FC = () => {
               </div>
             ))}
           </div>
+
+          {/* Expenses list */}
+          {shiftExpenses.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border overflow-hidden mb-5">
+              <div className="px-5 py-4 border-b flex items-center justify-between">
+                <h2 className="font-bold">Expenses ({shiftExpenses.length})</h2>
+                <span className="text-sm font-bold text-danger-600">Total: {fmt(shiftExpenses.reduce((s: number, e: any) => s + Number(e.amount), 0))}</span>
+              </div>
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Category</th>
+                    <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Payment</th>
+                    <th className="text-right px-4 py-2 text-xs font-medium text-gray-500 uppercase">Amount</th>
+                    <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Description</th>
+                    <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shiftExpenses.map((e: any) => (
+                    <tr key={e.id} className="border-t hover:bg-gray-50">
+                      <td className="px-4 py-3 font-medium">{e.category}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${e.payment_mode === 'Cash Drawer' ? 'bg-warning-100 text-warning-700' : 'bg-primary-100 text-primary-700'}`}>
+                          {e.payment_mode}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-danger-600">{fmt(Number(e.amount))}</td>
+                      <td className="px-4 py-3 text-gray-500">{e.description || '—'}</td>
+                      <td className="px-4 py-3 text-gray-400 text-xs">{new Date(e.created_at).toLocaleTimeString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
             <div className="px-5 py-4 border-b flex items-center justify-between">
               <h2 className="font-bold">Transactions ({filteredHistory.length})</h2>
@@ -2319,6 +2582,19 @@ const CashierPOS: React.FC = () => {
           onCancel={() => { setShowWalkInRegistration(false); setWalkInCategoryGroup(null); setWalkInModalError(''); }}
           processing={walkInModalProcessing}
           error={walkInModalError}
+        />
+      )}
+
+      {/* ── Add Expense Modal ───────────────────────────────────────── */}
+      {showExpenseModal && activeShift && (
+        <AddExpenseModal
+          shiftId={activeShift.id}
+          openingCash={activeShift.opening_cash}
+          currentCashSales={shiftCash}
+          onConfirm={handleAddExpense}
+          onCancel={() => { setShowExpenseModal(false); setExpenseError(''); }}
+          saving={expenseSaving}
+          error={expenseError}
         />
       )}
     </div>

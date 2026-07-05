@@ -211,11 +211,21 @@ export const shiftAPI = {
       .select("amount_paid")
       .eq("shift_id", shiftId)
       .eq("payment_mode", "Cash");
-    const totalCash = (cashTxns || []).reduce(
+    const totalCashSales = (cashTxns || []).reduce(
       (s: number, t: any) => s + Number(t.amount_paid),
       0,
     );
-    return Number(shift?.opening_cash || 0) + totalCash;
+    // Subtract cash expenses from the drawer
+    const { data: cashExpenses } = await supabase
+      .from("expenses")
+      .select("amount")
+      .eq("shift_id", shiftId)
+      .eq("payment_mode", "Cash Drawer");
+    const totalCashExpenses = (cashExpenses || []).reduce(
+      (s: number, e: any) => s + Number(e.amount),
+      0,
+    );
+    return Number(shift?.opening_cash || 0) + totalCashSales - totalCashExpenses;
   },
 };
 
@@ -2185,5 +2195,131 @@ export const bundlePaymentAPI = {
         .eq("student_id", studentId);
 
     return { success: true, newBalance: balance - amount };
+  },
+};
+
+// ─── EXPENSES ─────────────────────────────────────────────────────────────────
+export const expenseAPI = {
+  // Add a new expense record
+  async addExpense(params: {
+    shiftId?: number;
+    category: string;
+    amount: number;
+    paymentMode: "Cash Drawer" | "Bank Transfer";
+    description?: string;
+    createdBy?: number;
+  }) {
+    const { shiftId, category, amount, paymentMode, description, createdBy } = params;
+    const { data, error } = await supabase
+      .from("expenses")
+      .insert({
+        shift_id: shiftId || null,
+        category,
+        amount,
+        payment_mode: paymentMode,
+        description: description || null,
+        created_by: createdBy || null,
+      })
+      .select("id")
+      .single();
+    if (error) return { success: false, error: error.message };
+    return { success: true, id: (data as any).id };
+  },
+
+  // Get all expenses for a specific shift
+  async getExpensesByShift(shiftId: number) {
+    const { data, error } = await supabase
+      .from("expenses")
+      .select("*")
+      .eq("shift_id", shiftId)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return (data || []).map((e: any) => ({
+      ...e,
+      payment_mode: e.payment_mode,
+    }));
+  },
+
+  // Get total cash expenses for a shift (for expected cash calculation)
+  async getCashExpensesByShift(shiftId: number) {
+    const { data, error } = await supabase
+      .from("expenses")
+      .select("amount")
+      .eq("shift_id", shiftId)
+      .eq("payment_mode", "Cash Drawer");
+    if (error) throw error;
+    return (data || []).reduce((sum: number, e: any) => sum + Number(e.amount), 0);
+  },
+
+  // Get expense summary grouped by category for a date range
+  async getExpensesSummary(startDate?: string, endDate?: string) {
+    let query = supabase
+      .from("expenses")
+      .select("category, amount, payment_mode, created_at");
+    if (startDate) query = query.gte("created_at", startDate);
+    if (endDate) query = query.lte("created_at", endDate);
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const grouped: Record<string, { total: number; count: number; cashTotal: number; bankTotal: number }> = {};
+    for (const e of data || []) {
+      const cat = e.category;
+      if (!grouped[cat]) {
+        grouped[cat] = { total: 0, count: 0, cashTotal: 0, bankTotal: 0 };
+      }
+      grouped[cat].total += Number(e.amount);
+      grouped[cat].count += 1;
+      if (e.payment_mode === "Cash Drawer") {
+        grouped[cat].cashTotal += Number(e.amount);
+      } else {
+        grouped[cat].bankTotal += Number(e.amount);
+      }
+    }
+    return Object.entries(grouped).map(([category, vals]) => ({
+      category,
+      ...vals,
+    }));
+  },
+
+  // Get term expenses summary for dashboard analytics
+  async getTermExpensesSummary() {
+    // Get expenses for the current academic term (last 3 months typically)
+    const { data, error } = await supabase
+      .from("expenses")
+      .select("category, amount, payment_mode, created_at")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+
+    const byCategory: Record<string, number> = {};
+    let totalCash = 0;
+    let totalBank = 0;
+    let grandTotal = 0;
+
+    for (const e of data || []) {
+      const cat = e.category;
+      const amt = Number(e.amount);
+      byCategory[cat] = (byCategory[cat] || 0) + amt;
+      grandTotal += amt;
+      if (e.payment_mode === "Cash Drawer") {
+        totalCash += amt;
+      } else {
+        totalBank += amt;
+      }
+    }
+
+    return {
+      byCategory: Object.entries(byCategory).map(([category, total]) => ({ category, total })),
+      totalCash,
+      totalBank,
+      grandTotal,
+      count: (data || []).length,
+    };
+  },
+
+  // Delete an expense record
+  async deleteExpense(id: number) {
+    const { error } = await supabase.from("expenses").delete().eq("id", id);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
   },
 };
