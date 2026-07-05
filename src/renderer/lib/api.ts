@@ -1174,6 +1174,54 @@ async function tryInsertTxn(
 
 // ─── TRANSACTIONS ─────────────────────────────────────────────────────────────
 export const transactionAPI = {
+  async getHistory(filters?: { shiftId?: number; studentId?: string }) {
+    let query = supabase.from("transactions").select(`
+      *,
+      students (
+        name,
+        student_class,
+        student_id
+      ),
+      applicants (
+        first_name,
+        last_name,
+        proposed_class
+      )
+    `);
+    if (filters?.shiftId) query = query.eq("shift_id", filters.shiftId);
+    if (filters?.studentId) query = query.eq("student_id", filters.studentId);
+    query = query.order("timestamp", { ascending: false }).limit(500);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    return (data || []).map((t: any) => {
+      let finalName = "";
+      let finalClass = "";
+      if (t.students) {
+        finalName = t.students.name;
+        finalClass = t.students.student_class || "—";
+      } else if (t.applicants) {
+        const app = t.applicants;
+        finalName = `${app.first_name || ""} ${app.last_name || ""}`.trim();
+        finalClass = app.proposed_class || "New Admission";
+      } else {
+        finalName = t.customer_name || "Walk-In";
+        finalClass = t.target_class || "—";
+      }
+      return {
+        transaction_id: t.transaction_id || t.id,
+        student_id: t.student_id || "—",
+        shift_id: t.shift_id,
+        type: t.type,
+        amount_paid: t.amount_paid,
+        payment_mode: t.payment_mode,
+        timestamp: t.timestamp,
+        student_name: finalName,
+        student_class: finalClass,
+      };
+    });
+  },
   async search(filters: {
     query?: string;
     startDate?: string;
