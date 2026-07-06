@@ -580,35 +580,30 @@ const AddExpenseModal: React.FC<{
   shiftId: number;
   openingCash: number;
   currentCashSales: number;
-  onConfirm: (data: { category: string; amount: number; paymentMode: 'Cash Drawer' | 'Bank Transfer'; description: string }) => void;
+  onConfirm: (data: { category: string; amount: number; paymentMode: 'Cash Drawer'; description: string }) => void;
   onCancel: () => void;
   saving: boolean;
   error: string;
 }> = ({ shiftId, openingCash, currentCashSales, onConfirm, onCancel, saving, error }) => {
   const [category, setCategory] = useState<string>('Other');
   const [amount, setAmount] = useState('');
-  const [paymentMode, setPaymentMode] = useState<'Cash Drawer' | 'Bank Transfer'>('Cash Drawer');
   const [description, setDescription] = useState('');
   const [showWarning, setShowWarning] = useState(false);
 
   const amountNum = parseFloat(amount) || 0;
   const expectedCash = openingCash + currentCashSales;
   const remainingCash = expectedCash - amountNum;
-  const isNegative = paymentMode === 'Cash Drawer' && remainingCash < 0;
+  const isNegative = remainingCash < 0;
+  const paymentMode = 'Cash Drawer'; // Always cash drawer for cashiers
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!category || amountNum <= 0) return;
-    if (paymentMode === 'Cash Drawer' && !showWarning) {
+    if (!showWarning) {
       setShowWarning(true);
       return;
     }
-    onConfirm({ category, amount: amountNum, paymentMode, description: description.trim() });
-  };
-
-  const handlePaymentModeChange = (mode: 'Cash Drawer' | 'Bank Transfer') => {
-    setPaymentMode(mode);
-    setShowWarning(false);
+    onConfirm({ category, amount: amountNum, paymentMode: 'Cash Drawer', description: description.trim() });
   };
 
   return (
@@ -617,7 +612,7 @@ const AddExpenseModal: React.FC<{
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-danger-100 rounded-xl flex items-center justify-center"><Wallet className="w-5 h-5 text-danger-600" /></div>
-            <h2 className="text-lg font-bold">Record Expense</h2>
+            <h2 className="text-lg font-bold">Record Cash Expense</h2>
           </div>
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
         </div>
@@ -625,41 +620,39 @@ const AddExpenseModal: React.FC<{
         {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{error}</div>}
 
         {/* Cash drawer summary warning */}
-        {paymentMode === 'Cash Drawer' && (
-          <div className={`rounded-xl p-4 mb-4 ${showWarning ? 'bg-warning-50 border border-warning-200' : 'bg-gray-50 border border-gray-200'}`}>
-            <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Cash Drawer Impact</div>
-            <div className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Opening Cash</span>
-                <span className="font-medium">{fmt(openingCash)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">+ Cash Sales</span>
-                <span className="font-medium text-success-600">+ {fmt(currentCashSales)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">= Expected Cash</span>
-                <span className="font-bold">{fmt(expectedCash)}</span>
-              </div>
-              {amountNum > 0 && (
-                <>
-                  <div className="border-t border-dashed my-2 border-gray-300" />
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">- Expense</span>
-                    <span className="font-medium text-danger-600">- {fmt(amountNum)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="font-semibold text-gray-700">Remaining</span>
-                    <span className={`font-bold ${isNegative ? 'text-danger-600' : 'text-gray-900'}`}>{fmt(remainingCash)}</span>
-                  </div>
-                </>
-              )}
+        <div className={`rounded-xl p-4 mb-4 ${showWarning ? 'bg-warning-50 border border-warning-200' : 'bg-gray-50 border border-gray-200'}`}>
+          <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Cash Drawer Impact</div>
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-500">Opening Cash</span>
+              <span className="font-medium">{fmt(openingCash)}</span>
             </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">+ Cash Sales</span>
+              <span className="font-medium text-success-600">+ {fmt(currentCashSales)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">= Expected Cash</span>
+              <span className="font-bold">{fmt(expectedCash)}</span>
+            </div>
+            {amountNum > 0 && (
+              <>
+                <div className="border-t border-dashed my-2 border-gray-300" />
+                <div className="flex justify-between">
+                  <span className="text-gray-500">- Expense</span>
+                  <span className="font-medium text-danger-600">- {fmt(amountNum)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-semibold text-gray-700">Remaining</span>
+                  <span className={`font-bold ${isNegative ? 'text-danger-600' : 'text-gray-900'}`}>{fmt(remainingCash)}</span>
+                </div>
+              </>
+            )}
           </div>
-        )}
+        </div>
 
         {/* Warning confirmation */}
-        {showWarning && paymentMode === 'Cash Drawer' && (
+        {showWarning && (
           <div className={`rounded-xl p-4 mb-4 flex items-start gap-3 ${isNegative ? 'bg-danger-50 border border-danger-300' : 'bg-warning-50 border border-warning-300'}`}>
             <AlertTriangle className={`w-5 h-5 shrink-0 mt-0.5 ${isNegative ? 'text-danger-600' : 'text-warning-600'}`} />
             <div className="text-sm">
@@ -689,17 +682,13 @@ const AddExpenseModal: React.FC<{
             </div>
           </div>
 
+          {/* Payment mode is always Cash Drawer for cashiers - shown as static badge */}
           <div>
-            <label className="text-sm font-medium text-gray-700 mb-2 block">Payment Mode *</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => handlePaymentModeChange('Cash Drawer')} className={`flex items-center justify-center gap-2 py-3 rounded-xl font-semibold border-2 transition-all text-sm ${paymentMode === 'Cash Drawer' ? 'bg-warning-600 border-warning-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-warning-400'}`}>
-                <Banknote className="w-4 h-4" />
-                Cash Drawer
-              </button>
-              <button type="button" onClick={() => handlePaymentModeChange('Bank Transfer')} className={`flex items-center justify-center gap-2 py-3 rounded-xl font-semibold border-2 transition-all text-sm ${paymentMode === 'Bank Transfer' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-primary-400'}`}>
-                <CreditCard className="w-4 h-4" />
-                Bank Transfer
-              </button>
+            <label className="text-sm font-medium text-gray-700 mb-2 block">Payment Mode</label>
+            <div className="flex items-center gap-2 px-4 py-3 bg-warning-50 border border-warning-200 rounded-xl">
+              <Banknote className="w-5 h-5 text-warning-600" />
+              <span className="font-semibold text-warning-700">Cash Drawer</span>
+              <span className="text-xs text-gray-400 ml-auto">Deducted from shift cash</span>
             </div>
           </div>
 
@@ -1553,16 +1542,16 @@ const CashierPOS: React.FC = () => {
   };
 
   // Expense handlers
-  const handleAddExpense = async (data: { category: string; amount: number; paymentMode: 'Cash Drawer' | 'Bank Transfer'; description: string }) => {
+  const handleAddExpense = async (data: { category: string; amount: number; paymentMode: 'Cash Drawer'; description: string }) => {
     if (!activeShift) return;
     setExpenseSaving(true);
     setExpenseError('');
     try {
       const result = await expenseAPI.addExpense({
-        shiftId: data.paymentMode === 'Cash Drawer' ? activeShift.id : undefined,
+        shiftId: activeShift.id,
         category: data.category,
         amount: data.amount,
-        paymentMode: data.paymentMode,
+        paymentMode: 'Cash Drawer',
         description: data.description,
         createdBy: user?.id,
       });

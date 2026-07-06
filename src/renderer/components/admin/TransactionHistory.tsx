@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from "react";
-import { transactionAPI } from "../../lib/api";
+import { transactionAPI, expenseAPI } from "../../lib/api";
 
 interface Transaction {
-  transaction_id: number;
-  student_id: string;
-  shift_id: number;
+  transaction_id: number | string;
+  student_id?: string;
+  shift_id?: number;
   type: string;
   amount_paid: number;
   payment_mode: string;
   timestamp: string;
-  student_name: string;
-  student_class: string;
+  student_name?: string;
+  student_class?: string;
+  category?: string;
+  description?: string;
 }
 
 const TransactionHistory: React.FC = () => {
@@ -31,14 +33,27 @@ const TransactionHistory: React.FC = () => {
   const searchTransactions = async () => {
     setLoading(true);
     try {
-      const data = await transactionAPI.search({
-        query,
-        startDate,
-        endDate,
-        type: typeFilter,
-        paymentMode: paymentFilter,
-      });
-      setTransactions(data);
+      const [txnData, expenseData] = await Promise.all([
+        transactionAPI.search({
+          query,
+          startDate,
+          endDate,
+          type: typeFilter === "EXPENSE" ? undefined : typeFilter,
+          paymentMode: paymentFilter,
+        }),
+        typeFilter === "" || typeFilter === "EXPENSE"
+          ? expenseAPI.getExpensesForHistory({
+              startDate,
+              endDate,
+              paymentMode: paymentFilter === "Cash" ? "Cash Drawer" : paymentFilter === "POS_Transfer" ? "Bank Transfer" : undefined,
+            })
+          : Promise.resolve([]),
+      ]);
+
+      const allData = [...txnData, ...expenseData].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+      setTransactions(allData);
     } catch (err) {
       console.error(err);
     }
@@ -47,8 +62,21 @@ const TransactionHistory: React.FC = () => {
 
   const viewDetails = async (t: Transaction) => {
     setSelected(t);
-    const d = await transactionAPI.getDetails(t.transaction_id);
-    setDetails(d);
+    if (t.type === "EXPENSE") {
+      setDetails({
+        items: [],
+        transaction: {
+          type: "EXPENSE",
+          amount_paid: t.amount_paid,
+          payment_mode: t.payment_mode,
+          category: t.category,
+          description: t.description,
+        },
+      });
+    } else {
+      const d = await transactionAPI.getDetails(t.transaction_id as number);
+      setDetails(d);
+    }
   };
 
   const formatCurrency = (n: number) =>
@@ -60,6 +88,9 @@ const TransactionHistory: React.FC = () => {
     .reduce((s, t) => s + t.amount_paid, 0);
   const feesTotal = transactions
     .filter((t) => t.type === "FEES_CASH_COLLECTION")
+    .reduce((s, t) => s + t.amount_paid, 0);
+  const expensesTotal = transactions
+    .filter((t) => t.type === "EXPENSE")
     .reduce((s, t) => s + t.amount_paid, 0);
 
   return (
@@ -86,16 +117,17 @@ const TransactionHistory: React.FC = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-5 gap-4 mb-6">
         {[
           { label: "Transactions", value: transactions.length },
           { label: "Store Purchases", value: formatCurrency(storeTotal) },
           { label: "Fees Collected", value: formatCurrency(feesTotal) },
-          { label: "Total Amount", value: formatCurrency(total) },
+          { label: "Expenses", value: formatCurrency(expensesTotal), isExpense: true },
+          { label: "Net Total", value: formatCurrency(total - expensesTotal) },
         ].map((s, i) => (
           <div key={i} className="bg-white rounded-lg shadow-sm p-5">
-            <div className="text-sm text-gray-500">{s.label}</div>
-            <div className="text-2xl font-bold">{s.value}</div>
+            <div className={`text-sm ${s.isExpense ? "text-red-500" : "text-gray-500"}`}>{s.label}</div>
+            <div className={`text-2xl font-bold ${s.isExpense ? "text-red-600" : ""}`}>{s.value}</div>
           </div>
         ))}
       </div>
@@ -143,6 +175,7 @@ const TransactionHistory: React.FC = () => {
               <option value="">All Types</option>
               <option value="STORE_PURCHASE">Store Purchase</option>
               <option value="FEES_CASH_COLLECTION">Fees Collection</option>
+              <option value="EXPENSE">Expense</option>
             </select>
           </div>
           <div className="flex items-center gap-2">
@@ -209,7 +242,7 @@ const TransactionHistory: React.FC = () => {
                 transactions.map((t) => (
                   <tr
                     key={t.transaction_id}
-                    className="border-t hover:bg-gray-50"
+                    className={`border-t hover:bg-gray-50 ${t.type === "EXPENSE" ? "bg-red-50/30" : ""}`}
                   >
                     <td className="px-4 py-3 font-mono text-sm">
                       #{t.transaction_id}
@@ -221,27 +254,43 @@ const TransactionHistory: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-medium">{t.student_name}</div>
+                      <div className="font-medium">
+                        {t.type === "EXPENSE" ? t.category : t.student_name}
+                      </div>
                       <div className="text-xs text-gray-500 font-mono">
-                        {t.student_id || "—"}
+                        {t.type === "EXPENSE" ? (t.description || "—") : (t.student_id || "—")}
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <span
-                        className={`px-2 py-1 rounded text-xs ${t.student_class === "—" || t.student_class === "New Admission" ? "bg-amber-100 text-amber-800" : "bg-primary-100 text-primary-800"}`}
-                      >
-                        {t.student_class}
-                      </span>
+                      {t.type === "EXPENSE" ? (
+                        <span className="px-2 py-1 rounded text-xs bg-gray-100 text-gray-500">
+                          —
+                        </span>
+                      ) : (
+                        <span
+                          className={`px-2 py-1 rounded text-xs ${t.student_class === "—" || t.student_class === "New Admission" ? "bg-amber-100 text-amber-800" : "bg-primary-100 text-primary-800"}`}
+                        >
+                          {t.student_class}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`px-2 py-1 rounded text-xs ${t.type === "STORE_PURCHASE" ? "bg-primary-100 text-primary-700" : "bg-success-100 text-success-700"}`}
+                        className={`px-2 py-1 rounded text-xs ${
+                          t.type === "EXPENSE"
+                            ? "bg-red-100 text-red-700"
+                            : t.type === "STORE_PURCHASE"
+                              ? "bg-primary-100 text-primary-700"
+                              : "bg-success-100 text-success-700"
+                        }`}
                       >
-                        {t.type === "STORE_PURCHASE" ? "Store" : "Fees"}
+                        {t.type === "EXPENSE" ? "Expense" : t.type === "STORE_PURCHASE" ? "Store" : "Fees"}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-sm">{t.payment_mode}</td>
-                    <td className="px-4 py-3 text-right font-bold">
+                    <td className="px-4 py-3 text-sm">
+                      {t.type === "EXPENSE" ? "Cash Drawer" : t.payment_mode}
+                    </td>
+                    <td className={`px-4 py-3 text-right font-bold ${t.type === "EXPENSE" ? "text-red-600" : ""}`}>
                       {formatCurrency(t.amount_paid)}
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -265,7 +314,9 @@ const TransactionHistory: React.FC = () => {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 p-6">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Transaction Details</h2>
+              <h2 className="text-xl font-bold">
+                {selected.type === "EXPENSE" ? "Expense Details" : "Transaction Details"}
+              </h2>
               <button
                 onClick={() => {
                   setSelected(null);
@@ -288,29 +339,47 @@ const TransactionHistory: React.FC = () => {
               <div>
                 <span className="text-gray-500">Type:</span>{" "}
                 <span
-                  className={`px-2 py-1 rounded text-xs ${selected.type === "STORE_PURCHASE" ? "bg-primary-100" : "bg-success-100"}`}
+                  className={`px-2 py-1 rounded text-xs ${
+                    selected.type === "EXPENSE"
+                      ? "bg-red-100 text-red-700"
+                      : selected.type === "STORE_PURCHASE"
+                        ? "bg-primary-100"
+                        : "bg-success-100"
+                  }`}
                 >
-                  {selected.type}
+                  {selected.type === "EXPENSE" ? "Expense" : selected.type}
                 </span>
               </div>
               <div>
                 <span className="text-gray-500">Payment:</span>{" "}
-                {selected.payment_mode}
+                {selected.type === "EXPENSE" ? "Cash Drawer" : selected.payment_mode}
               </div>
             </div>
 
-            <div className="bg-primary-50 rounded-lg p-4 mb-4">
-              <div className="text-sm text-gray-500">Customer Details</div>
-              <div className="font-bold text-lg">{selected.student_name}</div>
-              <div className="text-sm text-gray-600">
-                {selected.student_class}
+            {selected.type === "EXPENSE" ? (
+              <div className="bg-red-50 rounded-lg p-4 mb-4">
+                <div className="text-sm text-gray-500">Expense Details</div>
+                <div className="font-bold text-lg">{selected.category}</div>
+                {selected.description && (
+                  <div className="text-sm text-gray-600">
+                    {selected.description}
+                  </div>
+                )}
               </div>
-              {selected.student_id && (
-                <div className="text-xs font-mono text-gray-500">
-                  {selected.student_id}
+            ) : (
+              <div className="bg-primary-50 rounded-lg p-4 mb-4">
+                <div className="text-sm text-gray-500">Customer Details</div>
+                <div className="font-bold text-lg">{selected.student_name}</div>
+                <div className="text-sm text-gray-600">
+                  {selected.student_class}
                 </div>
-              )}
-            </div>
+                {selected.student_id && (
+                  <div className="text-xs font-mono text-gray-500">
+                    {selected.student_id}
+                  </div>
+                )}
+              </div>
+            )}
 
             {details.items?.length > 0 && (
               <div className="mb-4">
@@ -344,13 +413,13 @@ const TransactionHistory: React.FC = () => {
               </div>
             )}
             <div className="border-t-2 pt-4 flex justify-between items-center text-lg font-bold">
-              <span>Total</span>
-              <span className="text-primary-600">
+              <span>{selected.type === "EXPENSE" ? "Amount" : "Total"}</span>
+              <span className={selected.type === "EXPENSE" ? "text-red-600" : "text-primary-600"}>
                 {formatCurrency(selected.amount_paid)}
               </span>
             </div>
             <div className="mt-4 text-xs text-gray-400 text-center">
-              Transactions are immutable and cannot be modified.
+              {selected.type === "EXPENSE" ? "Expenses" : "Transactions"} are immutable and cannot be modified.
             </div>
           </div>
         </div>

@@ -1386,23 +1386,19 @@ export const transactionAPI = {
       }));
       const { error: itemsError } = await supabase.from("transaction_items").insert(itemRows);
       if (itemsError) return { success: false, error: itemsError.message };
+      // Decrement inventory directly
       for (const item of cart) {
-        await supabase.rpc("decrement_inventory", {
-          p_item_id: item.item_id,
-          p_qty: item.quantity,
-        }).catch(() => {
-          supabase.from("inventory")
-            .select("stock_quantity")
-            .eq("item_id", item.item_id)
-            .single()
-            .then(({ data }) => {
-              if (data) {
-                supabase.from("inventory")
-                  .update({ stock_quantity: Math.max(0, data.stock_quantity - item.quantity) })
-                  .eq("item_id", item.item_id);
-              }
-            });
-        });
+        const { data: inv } = await supabase
+          .from("inventory")
+          .select("stock_quantity")
+          .eq("item_id", item.item_id)
+          .single();
+        if (inv) {
+          await supabase
+            .from("inventory")
+            .update({ stock_quantity: Math.max(0, inv.stock_quantity - item.quantity) })
+            .eq("item_id", item.item_id);
+        }
       }
       return { success: true, transaction_id: txnId };
     }
@@ -1418,23 +1414,19 @@ export const transactionAPI = {
     const { error: itemsError } = await supabase.from("transaction_items").insert(itemRows);
     if (itemsError) return { success: false, error: itemsError.message };
 
+    // Decrement inventory directly
     for (const item of cart) {
-      await supabase.rpc("decrement_inventory", {
-        p_item_id: item.item_id,
-        p_qty: item.quantity,
-      }).catch(() => {
-        supabase.from("inventory")
-          .select("stock_quantity")
-          .eq("item_id", item.item_id)
-          .single()
-          .then(({ data }) => {
-            if (data) {
-              supabase.from("inventory")
-                .update({ stock_quantity: Math.max(0, data.stock_quantity - item.quantity) })
-                .eq("item_id", item.item_id);
-            }
-          });
-      });
+      const { data: inv } = await supabase
+        .from("inventory")
+        .select("stock_quantity")
+        .eq("item_id", item.item_id)
+        .single();
+      if (inv) {
+        await supabase
+          .from("inventory")
+          .update({ stock_quantity: Math.max(0, inv.stock_quantity - item.quantity) })
+          .eq("item_id", item.item_id);
+      }
     }
 
     return { success: true, transaction_id: txnId };
@@ -2489,5 +2481,37 @@ export const expenseAPI = {
     const { error } = await supabase.from("expenses").delete().eq("id", id);
     if (error) return { success: false, error: error.message };
     return { success: true };
+  },
+
+  // Get all expenses for transaction history (with filters)
+  async getExpensesForHistory(params: {
+    startDate?: string;
+    endDate?: string;
+    category?: string;
+    paymentMode?: string;
+  }) {
+    let query = supabase
+      .from("expenses")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (params.startDate) query = query.gte("created_at", params.startDate);
+    if (params.endDate) query = query.lte("created_at", params.endDate);
+    if (params.category) query = query.eq("category", params.category);
+    if (params.paymentMode) query = query.eq("payment_mode", params.paymentMode);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data || []).map((e: any) => ({
+      expense_id: e.id,
+      transaction_id: `EXP-${e.id}`,
+      type: "EXPENSE",
+      category: e.category,
+      amount_paid: Number(e.amount),
+      payment_mode: e.payment_mode,
+      timestamp: e.created_at,
+      description: e.description,
+      shift_id: e.shift_id,
+    }));
   },
 };
