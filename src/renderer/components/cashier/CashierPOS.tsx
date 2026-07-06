@@ -1376,7 +1376,21 @@ const CashierPOS: React.FC = () => {
     try {
       const result = await transactionAPI.createPurchase(selectedStudent.student_id, activeShift.id, cart, paymentMode, selectedStudent.name, selectedStudent.student_class);
       if (result.success) {
-        setLastTxn({ ...result, isFees: false, isRegistration: false });
+        const receiptTxn = {
+          transaction_id: result.transaction_id,
+          timestamp: new Date().toISOString(),
+          student_name: selectedStudent.name,
+          student_class: selectedStudent.student_class,
+          payment_mode: paymentMode,
+        };
+        const cartTotal = cart.reduce((s, i) => s + i.selling_price * i.quantity, 0);
+        setLastTxn({
+          transaction: receiptTxn,
+          total: cartTotal,
+          items: cart.map(i => ({ item_name: i.item_name, quantity: i.quantity, unit_price: i.selling_price, total_price: i.selling_price * i.quantity })),
+          isFees: false,
+          isRegistration: false
+        });
         setShowCheckout(false);
         setShowReceipt(true);
         setCart([]);
