@@ -1312,12 +1312,132 @@ export const transactionAPI = {
     return results;
   },
   async getDetails(transactionId: number) {
-    const { data, error } = await supabase
+    const { data: items, error: itemsError } = await supabase
       .from("transaction_items")
       .select("*, inventory(item_name)")
       .eq("transaction_id", transactionId);
-    if (error) throw error;
-    return { items: data || [] };
+    if (itemsError) throw itemsError;
+
+    const { data: txn, error: txnError } = await supabase
+      .from("transactions")
+      .select("*, fee_types(name)")
+      .eq("transaction_id", transactionId)
+      .maybeSingle();
+    if (txnError) throw txnError;
+
+    return {
+      items: (items || []).map((i: any) => ({
+        ...i,
+        item_name: i.inventory?.item_name || i.item_name,
+      })),
+      transaction: txn ? {
+        ...txn,
+        fee_type_name: txn.fee_types?.name || null,
+      } : null,
+    };
+  },
+
+  async createPurchase(
+    studentId: string,
+    shiftId: number,
+    cart: { item_id: number; item_name: string; selling_price: number; quantity: number }[],
+    paymentMode: string,
+    customerName?: string,
+    targetClass?: string,
+  ) {
+    const total = cart.reduce((s, i) => s + i.selling_price * i.quantity, 0);
+
+    const { data: txnData, error: txnError } = await supabase
+      .from("transactions")
+      .insert({
+        student_id: studentId,
+        shift_id: shiftId,
+        type: "STORE_PURCHASE",
+        amount_paid: total,
+        payment_mode: paymentMode,
+        customer_name: customerName || null,
+        target_class: targetClass || null,
+      })
+      .select("transaction_id")
+      .single();
+
+    if (txnError) {
+      // Fallback without customer_name/target_class if columns don't exist
+      const { data: fallbackTxn, error: fallbackError } = await supabase
+        .from("transactions")
+        .insert({
+          student_id: studentId,
+          shift_id: shiftId,
+          type: "STORE_PURCHASE",
+          amount_paid: total,
+          payment_mode: paymentMode,
+        })
+        .select("transaction_id")
+        .single();
+      if (fallbackError) return { success: false, error: fallbackError.message };
+      if (!fallbackTxn) return { success: false, error: "Failed to create transaction" };
+      const txnId = (fallbackTxn as any).transaction_id;
+      const itemRows = cart.map((i) => ({
+        transaction_id: txnId,
+        item_id: i.item_id,
+        quantity: i.quantity,
+        unit_price: i.selling_price,
+        total_price: i.selling_price * i.quantity,
+      }));
+      const { error: itemsError } = await supabase.from("transaction_items").insert(itemRows);
+      if (itemsError) return { success: false, error: itemsError.message };
+      for (const item of cart) {
+        await supabase.rpc("decrement_inventory", {
+          p_item_id: item.item_id,
+          p_qty: item.quantity,
+        }).catch(() => {
+          supabase.from("inventory")
+            .select("stock_quantity")
+            .eq("item_id", item.item_id)
+            .single()
+            .then(({ data }) => {
+              if (data) {
+                supabase.from("inventory")
+                  .update({ stock_quantity: Math.max(0, data.stock_quantity - item.quantity) })
+                  .eq("item_id", item.item_id);
+              }
+            });
+        });
+      }
+      return { success: true, transaction_id: txnId };
+    }
+
+    const txnId = (txnData as any).transaction_id;
+    const itemRows = cart.map((i) => ({
+      transaction_id: txnId,
+      item_id: i.item_id,
+      quantity: i.quantity,
+      unit_price: i.selling_price,
+      total_price: i.selling_price * i.quantity,
+    }));
+    const { error: itemsError } = await supabase.from("transaction_items").insert(itemRows);
+    if (itemsError) return { success: false, error: itemsError.message };
+
+    for (const item of cart) {
+      await supabase.rpc("decrement_inventory", {
+        p_item_id: item.item_id,
+        p_qty: item.quantity,
+      }).catch(() => {
+        supabase.from("inventory")
+          .select("stock_quantity")
+          .eq("item_id", item.item_id)
+          .single()
+          .then(({ data }) => {
+            if (data) {
+              supabase.from("inventory")
+                .update({ stock_quantity: Math.max(0, data.stock_quantity - item.quantity) })
+                .eq("item_id", item.item_id);
+            }
+          });
+      });
+    }
+
+    return { success: true, transaction_id: txnId };
   },
 
   async getForStudent(studentId: string) {

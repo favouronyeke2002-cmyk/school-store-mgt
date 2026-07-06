@@ -660,11 +660,15 @@ const AddExpenseModal: React.FC<{
 
         {/* Warning confirmation */}
         {showWarning && paymentMode === 'Cash Drawer' && (
-          <div className="bg-warning-50 border border-warning-300 rounded-xl p-4 mb-4 flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-warning-600 shrink-0 mt-0.5" />
+          <div className={`rounded-xl p-4 mb-4 flex items-start gap-3 ${isNegative ? 'bg-danger-50 border border-danger-300' : 'bg-warning-50 border border-warning-300'}`}>
+            <AlertTriangle className={`w-5 h-5 shrink-0 mt-0.5 ${isNegative ? 'text-danger-600' : 'text-warning-600'}`} />
             <div className="text-sm">
-              <div className="font-semibold text-warning-800">This expense will be deducted from your shift's expected cash.</div>
-              <div className="text-warning-700 mt-1">This reduces the amount you are expected to turn in at close of shift.</div>
+              <div className={`font-semibold ${isNegative ? 'text-danger-800' : 'text-warning-800'}`}>
+                {isNegative ? 'Warning: This expense exceeds the cash in your drawer!' : 'This expense will be deducted from your shift\'s expected cash.'}
+              </div>
+              <div className={`${isNegative ? 'text-danger-700' : 'text-warning-700'} mt-1`}>
+                {isNegative ? 'Your expected cash will become negative. Make sure this is intentional.' : 'This reduces the amount you are expected to turn in at close of shift.'}
+              </div>
             </div>
           </div>
         )}
@@ -706,7 +710,7 @@ const AddExpenseModal: React.FC<{
 
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-            <button type="submit" disabled={saving || amountNum <= 0 || isNegative} className="flex-1 py-2.5 bg-danger-600 text-white rounded-xl text-sm font-semibold hover:bg-danger-700 disabled:opacity-50">
+            <button type="submit" disabled={saving || amountNum <= 0} className="flex-1 py-2.5 bg-danger-600 text-white rounded-xl text-sm font-semibold hover:bg-danger-700 disabled:opacity-50">
               {saving ? 'Recording…' : showWarning ? 'Confirm Expense' : 'Record Expense'}
             </button>
           </div>
@@ -1325,13 +1329,21 @@ const CashierPOS: React.FC = () => {
     }
   }, [selectedStudent, saleMode]);
 
-  // Shift history + expenses
+  // Load shift history + expenses whenever activeShift changes (not just on history tab)
+  useEffect(() => {
+    if (activeShift) {
+      transactionAPI.getHistory({}).then((d) => setHistoryTxns(d.filter((t: any) => t.shift_id === activeShift.id))).catch(console.error);
+      expenseAPI.getExpensesByShift(activeShift.id).then(setShiftExpenses).catch(console.error);
+    }
+  }, [activeShift]);
+
+  // Refresh history when returning to history tab
   useEffect(() => {
     if (tab === 'history' && activeShift) {
       transactionAPI.getHistory({}).then((d) => setHistoryTxns(d.filter((t: any) => t.shift_id === activeShift.id))).catch(console.error);
       expenseAPI.getExpensesByShift(activeShift.id).then(setShiftExpenses).catch(console.error);
     }
-  }, [tab, activeShift]);
+  }, [tab]);
 
   // Outside click for student dropdown
   useEffect(() => {
@@ -1530,10 +1542,11 @@ const CashierPOS: React.FC = () => {
   const handleReprint = async (txnId: number) => {
     try {
       const details = await transactionAPI.getDetails(txnId);
-      if (details) {
-        const isFees = details.transaction.type === 'FEES_CASH_COLLECTION';
-        const isRegistration = details.transaction.type === 'REGISTRATION_PAYMENT';
-        const isBundle = details.transaction.type === 'BUNDLE_PURCHASE' || details.transaction.type === 'ACCEPTANCE_FEE';
+      if (details && details.transaction) {
+        const txnType = details.transaction.type || 'STORE_PURCHASE';
+        const isFees = txnType === 'FEES_CASH_COLLECTION';
+        const isRegistration = txnType === 'REGISTRATION_PAYMENT';
+        const isBundle = txnType === 'BUNDLE_PURCHASE' || txnType === 'ACCEPTANCE_FEE';
         printReceipt(buildReceiptHtml(schoolSettings, details.transaction, Number(details.transaction.amount_paid), details.items, isFees, isRegistration || isBundle));
       }
     } catch (e) { setErrorMsg('Failed to load receipt: ' + (e as Error).message); }
