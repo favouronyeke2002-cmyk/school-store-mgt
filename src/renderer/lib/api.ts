@@ -1146,11 +1146,12 @@ export const studentFeeAPI = {
 async function tryInsertTxn(
   payload: Record<string, any>,
 ): Promise<{ transaction_id: number }> {
-  const { customer_name, target_class, ...base } = payload;
+  const { customer_name, target_class, balance_due, ...base } = payload;
   const withSnap = {
     ...base,
     customer_name: customer_name ?? null,
     target_class: target_class ?? null,
+    balance_due: balance_due ?? 0,
   };
   let { data, error } = await supabase
     .from("transactions")
@@ -1219,6 +1220,9 @@ export const transactionAPI = {
         timestamp: t.timestamp,
         student_name: finalName,
         student_class: finalClass,
+        balance_due: t.balance_due || 0,
+        customer_name: finalName,
+        target_class: finalClass,
       };
     });
   },
@@ -1320,19 +1324,42 @@ export const transactionAPI = {
 
     const { data: txn, error: txnError } = await supabase
       .from("transactions")
-      .select("*, fee_types(name)")
+      .select(`
+        *,
+        fee_types(name),
+        students(name, student_class),
+        applicants(first_name, last_name, proposed_class)
+      `)
       .eq("transaction_id", transactionId)
       .maybeSingle();
     if (txnError) throw txnError;
 
+    // Derive customer_name and target_class from relations if not already captured
+    let customerName = txn?.customer_name;
+    let targetClass = txn?.target_class;
+    if (!customerName && txn?.students) {
+      customerName = txn.students.name;
+    }
+    if (!customerName && txn?.applicants) {
+      customerName = `${txn.applicants.first_name || ''} ${txn.applicants.last_name || ''}`.trim();
+    }
+    if (!targetClass && txn?.students) {
+      targetClass = txn.students.student_class;
+    }
+    if (!targetClass && txn?.applicants) {
+      targetClass = txn.applicants.proposed_class;
+    }
+
     return {
       items: (items || []).map((i: any) => ({
         ...i,
-        item_name: i.inventory?.item_name || i.item_name,
+        item_name: i.item_name || i.inventory?.item_name,
       })),
       transaction: txn ? {
         ...txn,
         fee_type_name: txn.fee_types?.name || null,
+        customer_name: customerName,
+        target_class: targetClass,
       } : null,
     };
   },
@@ -1380,6 +1407,7 @@ export const transactionAPI = {
       const itemRows = cart.map((i) => ({
         transaction_id: txnId,
         item_id: i.item_id,
+        item_name: i.item_name,
         quantity: i.quantity,
         unit_price: i.selling_price,
         total_price: i.selling_price * i.quantity,
@@ -1407,6 +1435,7 @@ export const transactionAPI = {
     const itemRows = cart.map((i) => ({
       transaction_id: txnId,
       item_id: i.item_id,
+      item_name: i.item_name,
       quantity: i.quantity,
       unit_price: i.selling_price,
       total_price: i.selling_price * i.quantity,
@@ -1452,7 +1481,7 @@ export const transactionAPI = {
     for (const item of allItems || []) {
       const tId = item.transaction_id;
       if (!byTxn.has(tId)) byTxn.set(tId, []);
-      byTxn.get(tId)!.push({ ...item, item_name: item.inventory?.item_name });
+      byTxn.get(tId)!.push({ ...item, item_name: item.item_name || item.inventory?.item_name });
     }
 
     return txns.map((t: any) => {
@@ -2093,6 +2122,7 @@ export const bundlePaymentAPI = {
       bundle.bundle_type === "acceptance"
         ? "ACCEPTANCE_FEE"
         : "BUNDLE_PURCHASE";
+    const balanceDue = amountDue - newTotalPaid;
     const txn = await tryInsertTxn({
       applicant_id: applicantId,
       shift_id: shiftId,
@@ -2103,6 +2133,7 @@ export const bundlePaymentAPI = {
       notes: `${bundle.name} - ${newTotalPaid >= amountDue ? "Full" : "Partial"} Payment`,
       customer_name: customerName,
       target_class: targetClass,
+      balance_due: balanceDue > 0 ? balanceDue : 0,
     });
 
     // Decrement bundle items from inventory
@@ -2122,9 +2153,11 @@ export const bundlePaymentAPI = {
     }
 
     // Create transaction_items for the bundle items (for receipt printing)
+    // Include item_name snapshot for reliable receipt printing
     const itemRows = bundle.items.map((item: any) => ({
       transaction_id: txn.transaction_id,
       item_id: item.item_id,
+      item_name: item.item_name,
       quantity: item.quantity,
       unit_price: item.selling_price,
       total_price: item.selling_price * item.quantity,
@@ -2203,6 +2236,7 @@ export const bundlePaymentAPI = {
       await supabase.from("transaction_items").insert({
         transaction_id: txn.transaction_id,
         item_id: formItem.item_id,
+        item_name: formItem.item_name,
         quantity: 1,
         unit_price: FORM_PRICE,
         total_price: FORM_PRICE,
@@ -2268,6 +2302,7 @@ export const bundlePaymentAPI = {
       notes,
       customer_name: customerName ?? null,
       target_class: targetClass ?? null,
+      balance_due: balanceDue ?? 0,
     });
 
     const lineItems: {

@@ -1610,7 +1610,13 @@ const CashierPOS: React.FC = () => {
         const isFees = txnType === 'FEES_CASH_COLLECTION';
         const isRegistration = txnType === 'REGISTRATION_PAYMENT';
         const isBundle = txnType === 'BUNDLE_PURCHASE' || txnType === 'ACCEPTANCE_FEE';
-        printReceipt(buildReceiptHtml(schoolSettings, details.transaction, Number(details.transaction.amount_paid), details.items, isFees, isRegistration || isBundle));
+        // Format transaction for buildReceiptHtml with proper name/class/balance
+        const printTxn = {
+          ...details.transaction,
+          customer_name: details.transaction.customer_name || details.transaction.student_name || details.students?.name,
+          target_class: details.transaction.target_class || details.transaction.student_class || details.students?.student_class,
+        };
+        printReceipt(buildReceiptHtml(schoolSettings, printTxn, Number(details.transaction.amount_paid), details.items, isFees, isRegistration || isBundle));
       }
     } catch (e) { setErrorMsg('Failed to load receipt: ' + (e as Error).message); }
   };
