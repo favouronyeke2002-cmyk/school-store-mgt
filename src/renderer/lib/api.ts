@@ -2265,6 +2265,7 @@ export const bundlePaymentAPI = {
 
   // Process a registration fee directly from the fee engine (no bundle record needed).
   // Amount + line-items are determined by the category_group fee engine at the UI layer.
+  // Accepts optional bundleItems array for persisting actual textbook/uniform items.
   async processDirectRegistrationPayment(params: {
     applicantId: number;
     shiftId: number;
@@ -2276,6 +2277,7 @@ export const bundlePaymentAPI = {
     customerName?: string;
     targetClass?: string;
     balanceDue?: number;
+    bundleItems?: { item_id: number; item_name: string; quantity: number; selling_price: number }[];
   }) {
     const {
       applicantId,
@@ -2288,6 +2290,7 @@ export const bundlePaymentAPI = {
       customerName,
       targetClass,
       balanceDue,
+      bundleItems,
     } = params;
 
     const baseAmount = coachingIncluded ? amount - 10_000 : amount;
@@ -2305,17 +2308,56 @@ export const bundlePaymentAPI = {
       balance_due: balanceDue ?? 0,
     });
 
+    // Build line items for receipt - include actual bundle items if provided
     const lineItems: {
       item_name: string;
       quantity: number;
       total_price: number;
-    }[] = [
-      {
-        item_name: `Registration Package — ${categoryGroup} ${studentStatus}`,
-        quantity: 1,
-        total_price: baseAmount,
-      },
-    ];
+    }[] = [];
+
+    // If bundle items were passed (actual textbooks/uniforms), persist and use them
+    if (bundleItems && bundleItems.length > 0) {
+      // Decrement bundle items from inventory
+      for (const item of bundleItems) {
+        const { data: inv } = await supabase
+          .from("inventory")
+          .select("stock_quantity")
+          .eq("item_id", item.item_id)
+          .single();
+        if (inv) {
+          const newStock = Math.max(0, inv.stock_quantity - item.quantity);
+          await supabase
+            .from("inventory")
+            .update({ stock_quantity: newStock })
+            .eq("item_id", item.item_id);
+        }
+      }
+
+      // Insert transaction_items with item_name snapshot
+      const itemRows = bundleItems.map((item) => ({
+        transaction_id: txn.transaction_id,
+        item_id: item.item_id,
+        item_name: item.item_name,
+        quantity: item.quantity,
+        unit_price: item.selling_price,
+        total_price: item.selling_price * item.quantity,
+      }));
+      await supabase.from("transaction_items").insert(itemRows);
+
+      // Return actual items for receipt
+      lineItems.push(...bundleItems.map((item) => ({
+        item_name: item.item_name,
+        quantity: item.quantity,
+        total_price: item.selling_price * item.quantity,
+      })));
+    }
+
+    // Add summary line items
+    lineItems.push({
+      item_name: `Registration Package — ${categoryGroup} ${studentStatus}`,
+      quantity: 1,
+      total_price: baseAmount,
+    });
     if (coachingIncluded) {
       lineItems.push({
         item_name: "Coaching Add-on",

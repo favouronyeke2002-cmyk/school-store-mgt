@@ -43,34 +43,43 @@ function buildReceiptHtml(settings: any, txn: any, total: number, items: any[], 
   const session = sessionParts.join(' · ');
   const logo = settings?.logo_url || '';
 
+  // Build items HTML - show ALL items in high-contrast black
   const itemsHtml = items.length > 0
     ? `<div class="section-title">ITEMS</div>` + items.map((i: any) =>
-        `<div class="row"><span>${i.item_name}${i.quantity > 1 ? ' x' + i.quantity : ''}</span><span>${fmt(i.total_price)}</span></div>`
+        `<div class="row item-row"><span class="item-name">${i.item_name}${i.quantity > 1 ? ' x' + i.quantity : ''}</span><span class="item-price">${fmt(i.total_price)}</span></div>`
       ).join('')
     : '';
 
   const typeLabel = isRegistration ? (txn.fee_type_name || 'Registration Package') : isFees ? (txn.fee_type_name || 'School Fees') : 'Store Purchase';
 
   const balanceDueHtml = txn.balance_due && txn.balance_due > 0
-    ? `<div class="divider"></div><div class="row bold"><span>TOTAL PAID:</span><span>${fmt(total)}</span></div><div class="row bold" style="color:#b91c1c"><span>BALANCE DUE:</span><span>${fmt(txn.balance_due)}</span></div>`
+    ? `<div class="divider"></div><div class="row bold total-row"><span>TOTAL PAID:</span><span>${fmt(total)}</span></div><div class="row bold balance-row"><span>BALANCE DUE:</span><span>${fmt(txn.balance_due)}</span></div>`
     : '';
 
   return `<!DOCTYPE html><html><head><title>Receipt</title>
   <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Courier New',monospace;width:80mm;padding:4mm;font-size:11px}
-    .center{text-align:center}.bold{font-weight:bold}.large{font-size:14px}
-    .divider{border-top:1px dashed #000;margin:5px 0}
-    .divider2{border-top:2px solid #000;margin:5px 0}
-    .row{display:flex;justify-content:space-between;margin:2px 0}
-    .section-title{font-size:10px;font-weight:bold;margin:4px 0 2px;color:#666}
-    img{max-width:60px;max-height:60px;object-fit:contain}
+    *{margin:0;padding:0;box-sizing:border-box;color:#000000 !important;-webkit-text-fill-color:#000000 !important;opacity:1 !important;-webkit-font-smoothing:none !important;-moz-osx-font-smoothing:none !important;text-shadow:none !important}
+    body{font-family:'Courier New',monospace;width:58mm;padding:2mm;font-size:12px;font-weight:600;line-height:1.4}
+    .center{text-align:center}
+    .bold{font-weight:800}
+    .large{font-size:16px;font-weight:900}
+    .divider{border-top:1.5px dashed #000;margin:6px 0}
+    .divider2{border-top:2px solid #000;margin:6px 0}
+    .row{display:flex;justify-content:space-between;margin:3px 0;font-weight:600}
+    .item-row{font-weight:700;margin:2px 0}
+    .item-name{flex:1;text-align:left;word-break:break-word}
+    .item-price{font-weight:700}
+    .section-title{font-size:11px;font-weight:900;margin:6px 0 3px;padding-bottom:2px;border-bottom:1px solid #000}
+    .total-row{font-size:14px;font-weight:900}
+    .balance-row{font-size:14px;font-weight:900;color:#000000 !important}
+    img{max-width:50px;max-height:50px;object-fit:contain}
+    .header-text{font-weight:700}
   </style></head><body>
   <div class="center">
-    ${logo ? `<img src="${logo}" alt="logo" style="display:block;margin:0 auto 4px"/>` : ''}
+    ${logo ? `<img src="${logo}" alt="logo" style="display:block;margin:0 auto 2px"/>` : ''}
     <div class="bold large">${schoolName}</div>
-    ${tagline ? `<div style="font-size:10px">${tagline}</div>` : ''}
-    ${session ? `<div style="font-size:10px">${session}</div>` : ''}
+    ${tagline ? `<div class="header-text" style="font-size:11px">${tagline}</div>` : ''}
+    ${session ? `<div class="header-text" style="font-size:10px">${session}</div>` : ''}
   </div>
   <div class="divider"></div>
   <div class="row"><span>Receipt #${txn.transaction_id}</span><span>${new Date(txn.timestamp).toLocaleDateString()}</span></div>
@@ -79,7 +88,7 @@ function buildReceiptHtml(settings: any, txn: any, total: number, items: any[], 
   <div class="row"><span>Class:</span><span>${txn.target_class || txn.student_class || 'N/A'}</span></div>
   <div class="divider"></div>
   ${isFees && !isRegistration && items.length === 0
-    ? `<div class="row"><span>${txn.fee_type_name || 'School Fees'}</span><span>${fmt(total)}</span></div>`
+    ? `<div class="row bold"><span>${txn.fee_type_name || 'School Fees'}</span><span>${fmt(total)}</span></div>`
     : itemsHtml
   }
   ${balanceDueHtml}
@@ -87,11 +96,11 @@ function buildReceiptHtml(settings: any, txn: any, total: number, items: any[], 
   <div class="row bold large"><span>TOTAL:</span><span>${fmt(total)}</span></div>
   <div class="row"><span>Payment:</span><span>${txn.payment_mode === 'POS_Transfer' ? 'POS / Transfer' : 'Cash'}</span></div>
   <div class="divider"></div>
-  <div class="center" style="font-size:10px">
+  <div class="center" style="font-size:10px;font-weight:600">
     ${address ? `<div>${address}</div>` : ''}
     ${phone ? `<div>Tel: ${phone}</div>` : ''}
-    <div style="margin-top:4px">Thank you!</div>
-    <div>*** END OF RECEIPT ***</div>
+    <div style="margin-top:4px;font-weight:700">Thank you!</div>
+    <div class="bold">*** END OF RECEIPT ***</div>
   </div>
   </body></html>`;
 }
@@ -1756,12 +1765,20 @@ const CashierPOS: React.FC = () => {
     try {
       const categoryGroup = classCategoryMap[walkInApplicant.proposed_class || ''] || 'UNKNOWN';
       const studentStatus = walkInApplicant.student_status || 'Day';
+      // Pass actual bundle items if available (textbooks, uniforms, etc.)
+      const bundleItems = walkInRegistrationBundle?.items?.map((item: any) => ({
+        item_id: item.item_id,
+        item_name: item.item_name,
+        quantity: item.quantity,
+        selling_price: item.selling_price,
+      })) || undefined;
       const result = await bundlePaymentAPI.processDirectRegistrationPayment({
         applicantId: walkInApplicant.id, shiftId: activeShift.id,
         paymentMode: mode, amount: total, categoryGroup, studentStatus, coachingIncluded,
         customerName: walkInApplicant.full_name,
         targetClass: walkInApplicant.proposed_class || undefined,
         balanceDue,
+        bundleItems,
       });
       if (result.success) {
         setShowWalkInRegistration(false);
@@ -1777,6 +1794,7 @@ const CashierPOS: React.FC = () => {
         setLastTxn({ isFees: false, isRegistration: true, transaction: receiptTxn, total, items: result.items || [] });
         setShowReceipt(true);
         setWalkInApplicant(null);
+        setWalkInRegistrationBundle(null);
         inventoryAPI.getAll({ categoryId: activeCat, activeOnly: true }).then(setInventory);
       }
     } catch (e) { setWalkInModalError((e as Error).message); }
