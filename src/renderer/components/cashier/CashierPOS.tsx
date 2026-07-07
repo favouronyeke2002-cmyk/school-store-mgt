@@ -43,11 +43,17 @@ function buildReceiptHtml(settings: any, txn: any, total: number, items: any[], 
   const session = sessionParts.join(' · ');
   const logo = settings?.logo_url || '';
 
-  const itemsHtml = items.map((i: any) =>
-    `<div class="row"><span>${i.item_name} ×${i.quantity}</span><span>${fmt(i.total_price)}</span></div>`
-  ).join('');
+  const itemsHtml = items.length > 0
+    ? `<div class="section-title">ITEMS</div>` + items.map((i: any) =>
+        `<div class="row"><span>${i.item_name}${i.quantity > 1 ? ' x' + i.quantity : ''}</span><span>${fmt(i.total_price)}</span></div>`
+      ).join('')
+    : '';
 
   const typeLabel = isRegistration ? (txn.fee_type_name || 'Registration Package') : isFees ? (txn.fee_type_name || 'School Fees') : 'Store Purchase';
+
+  const balanceDueHtml = txn.balance_due && txn.balance_due > 0
+    ? `<div class="divider"></div><div class="row bold"><span>TOTAL PAID:</span><span>${fmt(total)}</span></div><div class="row bold" style="color:#b91c1c"><span>BALANCE DUE:</span><span>${fmt(txn.balance_due)}</span></div>`
+    : '';
 
   return `<!DOCTYPE html><html><head><title>Receipt</title>
   <style>
@@ -57,6 +63,7 @@ function buildReceiptHtml(settings: any, txn: any, total: number, items: any[], 
     .divider{border-top:1px dashed #000;margin:5px 0}
     .divider2{border-top:2px solid #000;margin:5px 0}
     .row{display:flex;justify-content:space-between;margin:2px 0}
+    .section-title{font-size:10px;font-weight:bold;margin:4px 0 2px;color:#666}
     img{max-width:60px;max-height:60px;object-fit:contain}
   </style></head><body>
   <div class="center">
@@ -71,10 +78,11 @@ function buildReceiptHtml(settings: any, txn: any, total: number, items: any[], 
   <div class="row"><span>Student:</span><span>${txn.customer_name || txn.student_name || 'Walk-in Applicant'}</span></div>
   <div class="row"><span>Class:</span><span>${txn.target_class || txn.student_class || 'N/A'}</span></div>
   <div class="divider"></div>
-  ${isFees && !isRegistration
+  ${isFees && !isRegistration && items.length === 0
     ? `<div class="row"><span>${txn.fee_type_name || 'School Fees'}</span><span>${fmt(total)}</span></div>`
     : itemsHtml
   }
+  ${balanceDueHtml}
   <div class="divider2"></div>
   <div class="row bold large"><span>TOTAL:</span><span>${fmt(total)}</span></div>
   <div class="row"><span>Payment:</span><span>${txn.payment_mode === 'POS_Transfer' ? 'POS / Transfer' : 'Cash'}</span></div>
@@ -623,11 +631,11 @@ const AddExpenseModal: React.FC<{
 
         {/* Insufficient funds error - shown when amount exceeds cash at hand */}
         {isInsufficient && amountNum > 0 && (
-          <div className="bg-danger-50 border border-danger-300 rounded-xl p-4 mb-4 flex items-start gap-3">
+          <div className="bg-danger-100 border-2 border-danger-400 rounded-xl p-4 mb-4 flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-danger-600" />
             <div className="text-sm">
-              <div className="font-semibold text-danger-800">Insufficient cash in drawer.</div>
-              <div className="text-danger-700 mt-1">Current cash at hand is only {fmt(expectedCash)}.</div>
+              <div className="font-bold text-danger-800">ERROR: Insufficient cash in drawer. This transaction is blocked.</div>
+              <div className="text-danger-700 mt-1 font-medium">Current cash at hand is only {fmt(expectedCash)}.</div>
             </div>
           </div>
         )}
@@ -926,13 +934,14 @@ const WalkInRegistrationFeeModal: React.FC<{
   studentStatus: 'Day' | 'Boarding';
   matchedBundle: Bundle | null;
   categoryGroup: string | null;
-  onConfirm: (mode: 'Cash' | 'POS_Transfer', total: number, coachingIncluded: boolean) => void;
+  onConfirm: (mode: 'Cash' | 'POS_Transfer', total: number, coachingIncluded: boolean, balanceDue?: number) => void;
   onCancel: () => void;
   processing: boolean;
   error: string;
 }> = ({ applicantName, proposedClass, studentStatus, matchedBundle, categoryGroup, onConfirm, onCancel, processing, error }) => {
   const [payMode, setPayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
   const [coachingAddon, setCoachingAddon] = useState(false);
+  const [paymentType, setPaymentType] = useState<'full' | 'half'>('full');
 
   const COACHING_FEE = COACHING_FEE_AMOUNT;
   const fallbackPrices = categoryGroup ? FALLBACK_FEES[categoryGroup] : null;
@@ -950,7 +959,10 @@ const WalkInRegistrationFeeModal: React.FC<{
     ? !!matchedBundle!.coaching_addon
     : (isFallbackMode && categoryGroup !== 'REMEDIAL');
 
-  const total = base + (coachingAddon ? COACHING_FEE : 0);
+  const fullTotal = base + (coachingAddon ? COACHING_FEE : 0);
+  const halfTotal = Math.ceil(base / 2) + (coachingAddon ? COACHING_FEE : 0);
+  const total = paymentType === 'full' ? fullTotal : halfTotal;
+  const balanceDue = paymentType === 'half' ? (base - Math.ceil(base / 2)) : 0;
 
   const tierColor: Record<string, string> = {
     JUNIOR: 'bg-blue-100 text-blue-700',
@@ -1044,11 +1056,40 @@ const WalkInRegistrationFeeModal: React.FC<{
                 </label>
               )}
 
-              <div className="flex items-center justify-between border-t pt-2 mt-1">
-                <span className="font-bold text-gray-900">Total (Locked)</span>
+              {/* Payment Type Toggle - Full vs Half */}
+              <div className="border-t pt-3 mt-2">
+                <label className="text-sm font-medium text-gray-700 mb-2 block">Payment Type</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentType('full')}
+                    className={`py-3 rounded-xl text-sm font-bold border-2 transition-all ${paymentType === 'full' ? 'bg-success-600 border-success-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-success-400'}`}
+                  >
+                    <div className="text-xs opacity-80">Full Payment</div>
+                    <div className="text-base">{fmt(fullTotal)}</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentType('half')}
+                    className={`py-3 rounded-xl text-sm font-bold border-2 transition-all ${paymentType === 'half' ? 'bg-warning-500 border-warning-500 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-warning-400'}`}
+                  >
+                    <div className="text-xs opacity-80">Half Payment</div>
+                    <div className="text-base">{fmt(halfTotal)}</div>
+                  </button>
+                </div>
+                {paymentType === 'half' && (
+                  <div className="mt-2 bg-warning-50 border border-warning-200 rounded-lg px-3 py-2 text-xs text-warning-800">
+                    <div className="font-semibold mb-1">Installment Payment Selected</div>
+                    <div>Balance due: <span className="font-bold">{fmt(balanceDue)}</span></div>
+                    <div className="text-warning-600 mt-1">This will be recorded in the student's account for later collection.</div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between border-t pt-2 mt-2">
+                <span className="font-bold text-gray-900">{paymentType === 'full' ? 'Total' : 'Amount to Pay'}</span>
                 <span className="text-xl font-extrabold text-primary-600">{fmt(total)}</span>
               </div>
-              <p className="text-xs text-warning-600 bg-warning-50 rounded px-2 py-1">Amount is fixed — cannot be modified at cashier level</p>
             </div>
 
             <div className="grid grid-cols-2 gap-2 mb-5">
@@ -1068,7 +1109,7 @@ const WalkInRegistrationFeeModal: React.FC<{
           <button onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
           {canProceed && (
             <button
-              onClick={() => onConfirm(payMode, total, coachingAddon)}
+              onClick={() => onConfirm(payMode, total, coachingAddon, paymentType === 'half' ? balanceDue : undefined)}
               disabled={processing}
               className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50"
             >
@@ -1249,6 +1290,12 @@ const CashierPOS: React.FC = () => {
   const [walkInSaving, setWalkInSaving] = useState(false);
   const [walkInError, setWalkInError] = useState('');
   const [walkInApplicant, setWalkInApplicant] = useState<any>(null);
+
+  // Walk-in applicant inline edit
+  const [walkInEditMode, setWalkInEditMode] = useState(false);
+  const [walkInEditName, setWalkInEditName] = useState('');
+  const [walkInEditClass, setWalkInEditClass] = useState('');
+  const [walkInEditSaving, setWalkInEditSaving] = useState(false);
 
   // Bundle mode
   const [bundles, setBundles] = useState<Bundle[]>([]);
@@ -1614,6 +1661,23 @@ const CashierPOS: React.FC = () => {
     setWalkInSaving(false);
   };
 
+  // Walk-in applicant edit handler
+  const handleWalkInEditSave = async () => {
+    if (!walkInApplicant || !walkInEditName.trim()) return;
+    setWalkInEditSaving(true);
+    try {
+      await applicantAPI.update(walkInApplicant.id, {
+        full_name: walkInEditName.trim(),
+        proposed_class: walkInEditClass,
+      });
+      setWalkInApplicant({ ...walkInApplicant, full_name: walkInEditName.trim(), proposed_class: walkInEditClass });
+      setWalkInEditMode(false);
+    } catch (e) {
+      console.error('Failed to update applicant:', e);
+    }
+    setWalkInEditSaving(false);
+  };
+
   const handleWalkInBundleAction = (bundleType: 'acceptance' | 'registration' | 'form') => {
     if (!walkInApplicant) return;
     setWalkInModalError('');
@@ -1679,7 +1743,7 @@ const CashierPOS: React.FC = () => {
     setWalkInModalProcessing(false);
   };
 
-  const handleWalkInRegistrationConfirm = async (mode: 'Cash' | 'POS_Transfer', total: number, coachingIncluded: boolean) => {
+  const handleWalkInRegistrationConfirm = async (mode: 'Cash' | 'POS_Transfer', total: number, coachingIncluded: boolean, balanceDue?: number) => {
     if (!walkInApplicant || !activeShift) return;
     setWalkInModalProcessing(true);
     setWalkInModalError('');
@@ -1691,6 +1755,7 @@ const CashierPOS: React.FC = () => {
         paymentMode: mode, amount: total, categoryGroup, studentStatus, coachingIncluded,
         customerName: walkInApplicant.full_name,
         targetClass: walkInApplicant.proposed_class || undefined,
+        balanceDue,
       });
       if (result.success) {
         setShowWalkInRegistration(false);
@@ -1701,6 +1766,7 @@ const CashierPOS: React.FC = () => {
           student_class: walkInApplicant.proposed_class || 'Applicant',
           payment_mode: mode,
           fee_type_name: `Registration Package — ${categoryGroup}`,
+          balance_due: balanceDue,
         };
         setLastTxn({ isFees: false, isRegistration: true, transaction: receiptTxn, total, items: result.items || [] });
         setShowReceipt(true);
@@ -1870,28 +1936,84 @@ const CashierPOS: React.FC = () => {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <div className="w-7 h-7 bg-warning-200 rounded-lg flex items-center justify-center"><User className="w-4 h-4 text-warning-700" /></div>
-                      <div>
-                        <div className="text-sm font-bold text-warning-900">{walkInApplicant.full_name}</div>
-                        <div className="text-xs text-warning-600">{walkInApplicant.proposed_class || 'Walk-In Applicant'} · #{walkInApplicant.id}</div>
+                      <div className="flex-1">
+                        {walkInEditMode ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={walkInEditName}
+                              onChange={(e) => setWalkInEditName(e.target.value)}
+                              className="text-sm font-bold text-warning-900 bg-white border border-warning-300 rounded px-2 py-1 w-40"
+                              placeholder="Full name"
+                            />
+                            <select
+                              value={walkInEditClass}
+                              onChange={(e) => setWalkInEditClass(e.target.value)}
+                              className="text-xs bg-white border border-warning-300 rounded px-2 py-1"
+                            >
+                              {classes.map((c) => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="text-sm font-bold text-warning-900">{walkInApplicant.full_name}</div>
+                            <div className="text-xs text-warning-600">{walkInApplicant.proposed_class || 'Walk-In Applicant'} · #{walkInApplicant.id}</div>
+                          </>
+                        )}
                       </div>
                     </div>
-                    <button onClick={() => setWalkInApplicant(null)} className="text-warning-400 hover:text-warning-600"><X className="w-4 h-4" /></button>
+                    {walkInEditMode ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={handleWalkInEditSave}
+                          disabled={walkInEditSaving || !walkInEditName.trim()}
+                          className="px-2 py-1 bg-success-600 text-white text-xs font-semibold rounded hover:bg-success-700 disabled:opacity-50"
+                        >
+                          {walkInEditSaving ? 'Saving...' : 'Save'}
+                        </button>
+                        <button
+                          onClick={() => setWalkInEditMode(false)}
+                          className="px-2 py-1 bg-gray-200 text-gray-700 text-xs font-medium rounded hover:bg-gray-300"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => {
+                            setWalkInEditName(walkInApplicant.full_name || '');
+                            setWalkInEditClass(walkInApplicant.proposed_class || classes[0] || '');
+                            setWalkInEditMode(true);
+                          }}
+                          className="p-1.5 text-warning-500 hover:text-warning-700 hover:bg-warning-100 rounded"
+                          title="Edit name/class"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => setWalkInApplicant(null)} className="text-warning-400 hover:text-warning-600"><X className="w-4 h-4" /></button>
+                      </div>
+                    )}
                   </div>
-                  <p className="text-xs text-warning-700 mb-3">Applicant created. Choose a payment action:</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button onClick={() => handleWalkInBundleAction('form')} className="flex flex-col items-center gap-1 py-2.5 px-2 bg-white border border-warning-200 rounded-lg hover:bg-warning-100 text-warning-800 transition-all">
-                      <span className="text-base font-extrabold">₦3k</span>
-                      <span className="text-xs font-semibold">Form</span>
-                    </button>
-                    <button onClick={() => handleWalkInBundleAction('acceptance')} className="flex flex-col items-center gap-1 py-2.5 px-2 bg-white border border-warning-200 rounded-lg hover:bg-warning-100 text-warning-800 transition-all">
-                      <span className="text-base font-extrabold">₦</span>
-                      <span className="text-xs font-semibold">Acceptance</span>
-                    </button>
-                    <button onClick={() => handleWalkInBundleAction('registration')} className="flex flex-col items-center gap-1 py-2.5 px-2 bg-white border border-warning-200 rounded-lg hover:bg-warning-100 text-warning-800 transition-all">
-                      <span className="text-base font-extrabold">₦₦</span>
-                      <span className="text-xs font-semibold">Registration</span>
-                    </button>
-                  </div>
+                  {!walkInEditMode && (
+                    <>
+                      <p className="text-xs text-warning-700 mb-3">Applicant created. Choose a payment action:</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button onClick={() => handleWalkInBundleAction('form')} className="flex flex-col items-center gap-1 py-2.5 px-2 bg-white border border-warning-200 rounded-lg hover:bg-warning-100 text-warning-800 transition-all">
+                          <span className="text-base font-extrabold">₦3k</span>
+                          <span className="text-xs font-semibold">Form</span>
+                        </button>
+                        <button onClick={() => handleWalkInBundleAction('acceptance')} className="flex flex-col items-center gap-1 py-2.5 px-2 bg-white border border-warning-200 rounded-lg hover:bg-warning-100 text-warning-800 transition-all">
+                          <span className="text-base font-extrabold">₦</span>
+                          <span className="text-xs font-semibold">Acceptance</span>
+                        </button>
+                        <button onClick={() => handleWalkInBundleAction('registration')} className="flex flex-col items-center gap-1 py-2.5 px-2 bg-white border border-warning-200 rounded-lg hover:bg-warning-100 text-warning-800 transition-all">
+                          <span className="text-base font-extrabold">₦₦</span>
+                          <span className="text-xs font-semibold">Registration</span>
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 

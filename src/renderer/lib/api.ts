@@ -1952,6 +1952,23 @@ export const applicantAPI = {
     if (res.error) return { success: false, error: res.error.message };
     return { success: true, id: (res.data as any).id };
   },
+  async update(id: number, data: { full_name?: string; proposed_class?: string }) {
+    const updateData: any = { updated_at: new Date().toISOString() };
+    if (data.full_name) {
+      const parts = data.full_name.trim().split(/\s+/);
+      updateData.first_name = parts[0] || "";
+      updateData.last_name = parts.slice(1).join(" ") || "";
+    }
+    if (data.proposed_class !== undefined) {
+      updateData.proposed_class = data.proposed_class || null;
+    }
+    const { error } = await supabase
+      .from("applicants")
+      .update(updateData)
+      .eq("id", id);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  },
   async markEligible(id: number) {
     const { error } = await supabase
       .from("applicants")
@@ -2224,6 +2241,7 @@ export const bundlePaymentAPI = {
     coachingIncluded: boolean;
     customerName?: string;
     targetClass?: string;
+    balanceDue?: number;
   }) {
     const {
       applicantId,
@@ -2235,10 +2253,11 @@ export const bundlePaymentAPI = {
       coachingIncluded,
       customerName,
       targetClass,
+      balanceDue,
     } = params;
 
     const baseAmount = coachingIncluded ? amount - 10_000 : amount;
-    const notes = `Registration Fee — ${categoryGroup} (${studentStatus})${coachingIncluded ? " + Coaching Add-on" : ""}`;
+    const notes = `Registration Fee — ${categoryGroup} (${studentStatus})${coachingIncluded ? " + Coaching Add-on" : ""}${balanceDue ? ` — Balance: ₦${balanceDue.toLocaleString()}` : ""}`;
 
     const txn = await tryInsertTxn({
       applicant_id: applicantId,
