@@ -1266,6 +1266,18 @@ const CashierPOS: React.FC = () => {
   const [feesAmount, setFeesAmount] = useState('');
   const [feesDiscount, setFeesDiscount] = useState('');
   const [feesPayMode, setFeesPayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
+  // Bundle payment info for fee collection
+  const [bundlePaymentInfo, setBundlePaymentInfo] = useState<{
+    hasBundle: boolean;
+    isFullPayment: boolean;
+    balanceDue: number;
+    transactionId?: number;
+    bundleAmount: number;
+    academicTerm?: string;
+  } | null>(null);
+  const [showBundleBalancePayment, setShowBundleBalancePayment] = useState(false);
+  const [bundleBalanceAmount, setBundleBalanceAmount] = useState('');
+  const [bundleBalanceProcessing, setBundleBalanceProcessing] = useState(false);
 
   // UI state
   const [showReceipt, setShowReceipt] = useState(false);
@@ -1374,18 +1386,28 @@ const CashierPOS: React.FC = () => {
     }).catch(console.error);
   }, [studentSearch, studentClassFilter, selectedStudent, studentSuggPage]);
 
-  // Student fees for fees tab
+  // Student fees for fees tab - with bundle payment recognition
   useEffect(() => {
     if (selectedStudent && saleMode === 'fees') {
-      studentFeeAPI.getForStudent(selectedStudent.student_id).then((fees) => {
-        setStudentFees(fees.filter((f: StudentFee) => f.balance > 0));
-        setSelectedFee(null);
-        setFeesAmount('');
+      // Check for existing bundle payment first
+      studentFeeAPI.checkStudentBundlePayment(selectedStudent.student_id, schoolSettings?.current_term).then((bundleInfo) => {
+        setBundlePaymentInfo(bundleInfo);
+        if (bundleInfo.hasBundle) {
+          // Student has a bundle payment - don't load standard class fees
+          setStudentFees([]);
+          setClassFees([]);
+        } else {
+          // No bundle payment - load standard fees
+          studentFeeAPI.getForStudent(selectedStudent.student_id).then((fees) => {
+            setStudentFees(fees.filter((f: StudentFee) => f.balance > 0));
+            setSelectedFee(null);
+            setFeesAmount('');
+          }).catch(console.error);
+          feeTypeAPI.getByClass(selectedStudent.student_class).then(setClassFees).catch(console.error);
+        }
       }).catch(console.error);
-      // Also load class/general fee types for context
-      feeTypeAPI.getByClass(selectedStudent.student_class).then(setClassFees).catch(console.error);
     }
-  }, [selectedStudent, saleMode]);
+  }, [selectedStudent, saleMode, schoolSettings?.current_term]);
 
   // Load shift history + expenses whenever activeShift changes (not just on history tab)
   useEffect(() => {
@@ -1507,6 +1529,50 @@ const CashierPOS: React.FC = () => {
       } else setErrorMsg('Failed to process payment');
     } catch (e) { setErrorMsg((e as Error).message); }
     setLoading(false);
+  };
+
+  // Bundle balance payment handler
+  const handleBundleBalancePayment = async () => {
+    if (!selectedStudent || !activeShift || !bundlePaymentInfo?.transactionId || bundleBalanceProcessing) return;
+    const amount = parseFloat(bundleBalanceAmount);
+    if (isNaN(amount) || amount <= 0) { setErrorMsg('Enter a valid amount.'); return; }
+    if (amount > bundlePaymentInfo.balanceDue) {
+      setErrorMsg(`Cannot pay ${fmt(amount)} — the outstanding balance is only ${fmt(bundlePaymentInfo.balanceDue)}.`);
+      return;
+    }
+    setBundleBalanceProcessing(true);
+    setErrorMsg('');
+    try {
+      const result = await studentFeeAPI.recordBundleBalancePayment({
+        transactionId: bundlePaymentInfo.transactionId,
+        studentId: selectedStudent.student_id,
+        shiftId: activeShift.id,
+        amount,
+        paymentMode: feesPayMode,
+        customerName: selectedStudent.name,
+        targetClass: selectedStudent.student_class,
+      });
+      if (result.success) {
+        const receiptTxn = {
+          transaction_id: Date.now(),
+          timestamp: new Date().toISOString(),
+          student_name: selectedStudent.name,
+          student_class: selectedStudent.student_class,
+          payment_mode: feesPayMode,
+          fee_type_name: 'Registration Fee Bundle - Balance Payment',
+        };
+        setLastTxn({ isFees: true, isRegistration: false, transaction: receiptTxn, total: amount, items: [] });
+        setShowReceipt(true);
+        // Refresh bundle info
+        const updatedBundle = await studentFeeAPI.checkStudentBundlePayment(selectedStudent.student_id, schoolSettings?.current_term);
+        setBundlePaymentInfo(updatedBundle);
+        setBundleBalanceAmount('');
+        setShowBundleBalancePayment(false);
+        const updated = await studentAPI.getById(selectedStudent.student_id);
+        if (updated) setSelectedStudent(updated);
+      }
+    } catch (e) { setErrorMsg((e as Error).message); }
+    setBundleBalanceProcessing(false);
   };
 
   const handleShiftCloseRequest = async () => {
@@ -2123,8 +2189,38 @@ const CashierPOS: React.FC = () => {
                   <h2 className="font-bold text-lg">Collect Fees</h2>
                   <p className="text-sm text-gray-500">Student: <strong>{selectedStudent.name}</strong> · {selectedStudent.student_class}</p>
 
-                  {/* Outstanding fee list */}
-                  {studentFees.length === 0 ? (
+                  {/* Bundle payment status - takes priority */}
+                  {bundlePaymentInfo?.hasBundle ? (
+                    <div>
+                      {bundlePaymentInfo.isFullPayment ? (
+                        <div className="bg-success-50 border border-success-200 rounded-xl p-6 text-center">
+                          <CheckCircle className="w-10 h-10 text-success-500 mx-auto mb-2" />
+                          <div className="font-semibold text-success-700">All registration and bundle fees are fully paid for this term.</div>
+                          <div className="text-sm text-success-600 mt-1">Bundle payment of {fmt(bundlePaymentInfo.bundleAmount)} received.</div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="bg-warning-50 border border-warning-200 rounded-xl p-4">
+                            <div className="flex items-center gap-2 mb-2">
+                              <AlertCircle className="w-5 h-5 text-warning-600" />
+                              <span className="font-semibold text-warning-800">Registration Fee Bundle - Outstanding Balance</span>
+                            </div>
+                            <p className="text-sm text-warning-700 mb-2">This student has made a half payment on their registration bundle.</p>
+                            <div className="flex justify-between items-center bg-white rounded-lg p-3 border border-warning-200">
+                              <span className="font-medium text-gray-700">Outstanding Balance:</span>
+                              <span className="text-xl font-extrabold text-danger-600">{fmt(bundlePaymentInfo.balanceDue)}</span>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setShowBundleBalancePayment(true)}
+                            className="w-full py-3 bg-warning-600 text-white font-bold rounded-xl hover:bg-warning-700 transition-all"
+                          >
+                            Collect Towards Bundle Balance
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : studentFees.length === 0 ? (
                     <div className="bg-success-50 border border-success-200 rounded-xl p-6 text-center">
                       <CheckCircle className="w-10 h-10 text-success-500 mx-auto mb-2" />
                       <div className="font-semibold text-success-700">No outstanding fees!</div>
@@ -2758,6 +2854,65 @@ const CashierPOS: React.FC = () => {
           processing={walkInModalProcessing}
           error={walkInModalError}
         />
+      )}
+
+      {/* ── Bundle Balance Payment Modal ────────────────────────────── */}
+      {showBundleBalancePayment && bundlePaymentInfo && selectedStudent && activeShift && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-900">Collect Bundle Balance</h2>
+              <button onClick={() => { setShowBundleBalancePayment(false); setBundleBalanceAmount(''); setErrorMsg(''); }} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="bg-warning-50 border border-warning-200 rounded-xl p-3 mb-4">
+              <p className="font-semibold text-warning-800">{selectedStudent.name}</p>
+              <p className="text-sm text-warning-600">{selectedStudent.student_class}</p>
+            </div>
+            <div className="mb-4">
+              <div className="flex justify-between text-sm mb-1">
+                <span className="text-gray-500">Outstanding Bundle Balance:</span>
+                <span className="font-bold text-danger-600">{fmt(bundlePaymentInfo.balanceDue)}</span>
+              </div>
+            </div>
+            {errorMsg && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{errorMsg}</div>}
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Enter Amount to Collect</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">₦</span>
+                  <input
+                    type="text"
+                    value={bundleBalanceAmount}
+                    onChange={(e) => setBundleBalanceAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                    className="w-full pl-8 pr-3 py-3 border border-gray-200 rounded-xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-primary-400"
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setFeesPayMode('Cash')}
+                  className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all ${feesPayMode === 'Cash' ? 'bg-success-600 text-white' : 'bg-gray-100 text-gray-600'}`}
+                >
+                  Cash
+                </button>
+                <button
+                  onClick={() => setFeesPayMode('POS_Transfer')}
+                  className={`flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all ${feesPayMode === 'POS_Transfer' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600'}`}
+                >
+                  POS / Transfer
+                </button>
+              </div>
+              <button
+                onClick={handleBundleBalancePayment}
+                disabled={!bundleBalanceAmount || bundleBalanceProcessing || parseFloat(bundleBalanceAmount || '0') <= 0}
+                className="w-full py-3 bg-success-600 text-white font-bold rounded-xl hover:bg-success-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {bundleBalanceProcessing ? 'Processing…' : `Record ${bundleBalanceAmount ? fmt(parseFloat(bundleBalanceAmount)) : ''} Payment`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Add Expense Modal ───────────────────────────────────────── */}

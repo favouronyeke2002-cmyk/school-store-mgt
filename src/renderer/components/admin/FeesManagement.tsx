@@ -23,16 +23,44 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
 
   // Create fee type form
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard' as 'standard' | 'registration', applicableTo: 'All Students' });
+  const [form, setForm] = useState({
+    name: '',
+    description: '',
+    amount: '',
+    classFilter: '',
+    selectedClasses: [] as string[],
+    feeCategory: 'standard' as 'standard' | 'registration',
+    applicableTo: 'All Students',
+    targetType: 'class' as 'class' | 'student',
+    filterClass: '',
+    selectedStudentId: '',
+    studentSearch: '',
+  });
   const [formSaving, setFormSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [filteredStudents, setFilteredStudents] = useState<{ student_id: string; name: string; student_class: string }[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState(false);
 
   // Edit fee type
   const [showEdit, setShowEdit] = useState(false);
   const [editTarget, setEditTarget] = useState<FeeType | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard' as 'standard' | 'registration', applicableTo: 'All Students' });
+  const [editForm, setEditForm] = useState({
+    name: '',
+    description: '',
+    amount: '',
+    classFilter: '',
+    selectedClasses: [] as string[],
+    feeCategory: 'standard' as 'standard' | 'registration',
+    applicableTo: 'All Students',
+    targetType: 'class' as 'class' | 'student',
+    filterClass: '',
+    selectedStudentId: '',
+    studentSearch: '',
+  });
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
+  const [editFilteredStudents, setEditFilteredStudents] = useState<{ student_id: string; name: string; student_class: string }[]>([]);
+  const [editStudentsLoading, setEditStudentsLoading] = useState(false);
 
   // Assign dialog
   const [showAssign, setShowAssign] = useState(false);
@@ -105,10 +133,12 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name || !form.amount) { setFormError('Name and amount are required.'); return; }
+    if (form.targetType === 'student' && !form.selectedStudentId) { setFormError('Select a target student.'); return; }
+    if (form.targetType === 'class' && form.selectedClasses.length === 0) { setFormError('Select at least one class.'); return; }
     setFormSaving(true);
     setFormError('');
     const amount = parseFloat(form.amount);
-    const classFilter = form.classFilter;
+    const classFilter = form.targetType === 'class' ? form.selectedClasses.join(',') : undefined;
     const applicableTo = form.applicableTo;
     try {
       const result = await feeTypeAPI.create({
@@ -124,12 +154,24 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
       if (result.success) {
         setShowCreate(false);
         setTermFilter('');
-        setForm({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard', applicableTo: 'All Students' });
+        setForm({
+          name: '', description: '', amount: '', classFilter: '', selectedClasses: [],
+          feeCategory: 'standard', applicableTo: 'All Students', targetType: 'class',
+          filterClass: '', selectedStudentId: '', studentSearch: '',
+        });
         load();
+        // Auto-assign
         if (result.id) {
-          feeTypeAPI.assignToStudents(result.id, amount, classFilter || undefined, undefined, 'standard', applicableTo !== 'All Students' ? applicableTo : undefined)
-            .then(() => load())
-            .catch(console.error);
+          if (form.targetType === 'student' && form.selectedStudentId) {
+            feeTypeAPI.assignToStudents(result.id, amount, undefined, form.selectedStudentId, 'standard')
+              .then(() => load())
+              .catch(console.error);
+          } else if (form.selectedClasses.length > 0) {
+            for (const cls of form.selectedClasses) {
+              await feeTypeAPI.assignToStudents(result.id, amount, cls, undefined, 'standard', applicableTo !== 'All Students' ? applicableTo : undefined);
+            }
+            load();
+          }
         }
       } else {
         setFormError(result.error || 'Failed to create fee type');
@@ -142,8 +184,22 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
 
   const openEdit = (ft: FeeType) => {
     setEditTarget(ft);
-    setEditForm({ name: ft.name, description: ft.description || '', amount: String(ft.amount), classFilter: ft.class_filter || '', feeCategory: (ft.fee_category as 'standard' | 'registration') || 'standard', applicableTo: ft.applicable_to || 'All Students' });
+    const classes = ft.class_filter ? ft.class_filter.split(',').map(c => c.trim()) : [];
+    setEditForm({
+      name: ft.name,
+      description: ft.description || '',
+      amount: String(ft.amount),
+      classFilter: ft.class_filter || '',
+      selectedClasses: classes,
+      feeCategory: (ft.fee_category as 'standard' | 'registration') || 'standard',
+      applicableTo: ft.applicable_to || 'All Students',
+      targetType: 'class',
+      filterClass: '',
+      selectedStudentId: '',
+      studentSearch: '',
+    });
     setEditError('');
+    setEditFilteredStudents([]);
     setShowEdit(true);
   };
 
@@ -151,6 +207,8 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
     e.preventDefault();
     if (!editTarget) return;
     if (!editForm.name || !editForm.amount) { setEditError('Name and amount are required.'); return; }
+    if (editForm.targetType === 'student' && !editForm.selectedStudentId) { setEditError('Select a target student.'); return; }
+    if (editForm.targetType === 'class' && editForm.selectedClasses.length === 0 && !editForm.classFilter) { setEditError('Select at least one class.'); return; }
     setEditSaving(true);
     setEditError('');
     try {
@@ -158,7 +216,7 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
         name: editForm.name,
         description: editForm.description || undefined,
         amount: parseFloat(editForm.amount),
-        classFilter: editForm.classFilter || undefined,
+        classFilter: editForm.selectedClasses.length > 0 ? editForm.selectedClasses.join(',') : editForm.classFilter || undefined,
         feeCategory: editForm.feeCategory,
         applicableTo: editForm.applicableTo,
       });
@@ -341,7 +399,7 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
           >
             <RefreshCw className="w-4 h-4" /> Recalibrate Balances
           </button>
-          <button onClick={() => { setForm({ name: '', description: '', amount: '', classFilter: '', feeCategory: 'standard', applicableTo: 'All Students' }); setFormError(''); setShowCreate(true); }} className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700">
+          <button onClick={() => { setForm({ name: '', description: '', amount: '', classFilter: '', selectedClasses: [], feeCategory: 'standard', applicableTo: 'All Students', targetType: 'class', filterClass: '', selectedStudentId: '', studentSearch: '' }); setFormError(''); setFilteredStudents([]); setShowCreate(true); }} className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700">
             <Plus className="w-4 h-4" /> New Fee Type
           </button>
         </div>
@@ -759,7 +817,7 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
       {/* Create Fee Type Modal */}
       {showCreate && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">Create Fee Type</h2>
               <button onClick={() => setShowCreate(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
@@ -782,14 +840,112 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Amount (₦) <span className="text-danger-500">*</span></label>
                 <input type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((p) => ({ ...p, amount: e.target.value }))} placeholder="0.00" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required />
               </div>
+              {/* Target Assignment Toggle */}
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">Target Class <span className="text-gray-400 font-normal">(optional)</span></label>
-                <p className="text-xs text-gray-400 mb-1">Restrict auto-assignment to a specific class. Leave empty for all classes.</p>
-                <select value={form.classFilter} onChange={(e) => setForm((p) => ({ ...p, classFilter: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
-                  <option value="">All Classes</option>
-                  {classes.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <label className="text-sm font-medium text-gray-700 mb-2 block">Target Assignment</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setForm((p) => ({ ...p, targetType: 'class', selectedStudentId: '', studentSearch: '' }))} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${form.targetType === 'class' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`}>By Class</button>
+                  <button type="button" onClick={() => setForm((p) => ({ ...p, targetType: 'student', selectedClasses: [] }))} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${form.targetType === 'student' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`}>By Student</button>
+                </div>
               </div>
+              {/* Multi-Class Selector */}
+              {form.targetType === 'class' && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Target Classes</label>
+                  <p className="text-xs text-gray-400 mb-2">Select multiple classes or leave empty for all classes.</p>
+                  <div className="max-h-[200px] overflow-auto border border-gray-200 rounded-lg p-2 space-y-1">
+                    {classes.map((c) => (
+                      <label key={c} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={form.selectedClasses.includes(c)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setForm((p) => ({ ...p, selectedClasses: [...p.selectedClasses, c] }));
+                            } else {
+                              setForm((p) => ({ ...p, selectedClasses: p.selectedClasses.filter((x) => x !== c) }));
+                            }
+                          }}
+                          className="rounded"
+                        />
+                        <span className="text-sm">{c}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {form.selectedClasses.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {form.selectedClasses.map((c) => (
+                        <span key={c} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary-100 text-primary-700 rounded-full text-xs">
+                          {c}
+                          <button type="button" onClick={() => setForm((p) => ({ ...p, selectedClasses: p.selectedClasses.filter((x) => x !== c) }))} className="hover:text-primary-900">×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* Student Selector */}
+              {form.targetType === 'student' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">Filter by Class</label>
+                    <select
+                      value={form.filterClass}
+                      onChange={(e) => {
+                        setForm((p) => ({ ...p, filterClass: e.target.value, selectedStudentId: '', studentSearch: '' }));
+                        setFilteredStudents([]);
+                        if (e.target.value) {
+                          setStudentsLoading(true);
+                          studentAPI.getAll({ class: e.target.value, pageSize: 100 }).then((d) => {
+                            setFilteredStudents(d.students);
+                          }).catch(console.error).finally(() => setStudentsLoading(false));
+                        }
+                      }}
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                    >
+                      <option value="">Select class first</option>
+                      {classes.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">Select Student</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={form.studentSearch}
+                        onChange={(e) => setForm((p) => ({ ...p, studentSearch: e.target.value }))}
+                        placeholder={form.filterClass ? "Type at least 2 chars to search..." : "Select a class first"}
+                        disabled={!form.filterClass}
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 disabled:bg-gray-50"
+                      />
+                      {form.filterClass && form.studentSearch.length >= 2 && filteredStudents.length > 0 && !form.selectedStudentId && (
+                        <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-[200px] overflow-auto">
+                          {filteredStudents
+                            .filter((s) => s.name.toLowerCase().includes(form.studentSearch.toLowerCase()))
+                            .slice(0, 10)
+                            .map((s) => (
+                              <button
+                                key={s.student_id}
+                                type="button"
+                                onClick={() => setForm((p) => ({ ...p, selectedStudentId: s.student_id, studentSearch: s.name }))}
+                                className="w-full text-left px-3 py-2 hover:bg-primary-50 text-sm"
+                              >
+                                <div className="font-medium">{s.name}</div>
+                                <div className="text-xs text-gray-400">{s.student_class} • {s.student_id}</div>
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                    {form.selectedStudentId && (
+                      <div className="mt-2 flex items-center gap-2 px-3 py-2 bg-primary-50 rounded-lg">
+                        <span className="text-sm font-medium text-primary-700">{form.studentSearch}</span>
+                        <button type="button" onClick={() => setForm((p) => ({ ...p, selectedStudentId: '', studentSearch: '' }))} className="text-primary-600 hover:text-primary-800">×</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Residency / Tier <span className="text-gray-400 font-normal">(applicable to)</span></label>
                 <div className="grid grid-cols-2 gap-2">
@@ -812,8 +968,8 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
       {/* Edit Fee Type Modal */}
       {showEdit && editTarget && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
-            <div className="flex items-center justify-between mb-5">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 max-h-[90vh] overflow-auto">
+            <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">Edit Fee Type</h2>
               <button onClick={() => setShowEdit(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
@@ -831,13 +987,112 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Amount (₦) <span className="text-danger-500">*</span></label>
                 <input type="number" min="0" step="0.01" value={editForm.amount} onChange={(e) => setEditForm((p) => ({ ...p, amount: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" required />
               </div>
+              {/* Target Assignment Toggle */}
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">Target Class</label>
-                <select value={editForm.classFilter} onChange={(e) => setEditForm((p) => ({ ...p, classFilter: e.target.value }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
-                  <option value="">All Students</option>
-                  {classes.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <label className="text-sm font-medium text-gray-700 mb-2 block">Target Assignment</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setEditForm((p) => ({ ...p, targetType: 'class', selectedStudentId: '', studentSearch: '' }))} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${editForm.targetType === 'class' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`}>By Class</button>
+                  <button type="button" onClick={() => setEditForm((p) => ({ ...p, targetType: 'student', selectedClasses: [] }))} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${editForm.targetType === 'student' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`}>By Student</button>
+                </div>
               </div>
+              {/* Multi-Class Selector */}
+              {editForm.targetType === 'class' && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Target Classes</label>
+                  <p className="text-xs text-gray-400 mb-2">Select multiple classes or leave empty for all classes.</p>
+                  <div className="max-h-[200px] overflow-auto border border-gray-200 rounded-lg p-2 space-y-1">
+                    {classes.map((c) => (
+                      <label key={c} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={editForm.selectedClasses.includes(c)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setEditForm((p) => ({ ...p, selectedClasses: [...p.selectedClasses, c] }));
+                            } else {
+                              setEditForm((p) => ({ ...p, selectedClasses: p.selectedClasses.filter((x) => x !== c) }));
+                            }
+                          }}
+                          className="rounded"
+                        />
+                        <span className="text-sm">{c}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {editForm.selectedClasses.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {editForm.selectedClasses.map((c) => (
+                        <span key={c} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary-100 text-primary-700 rounded-full text-xs">
+                          {c}
+                          <button type="button" onClick={() => setEditForm((p) => ({ ...p, selectedClasses: p.selectedClasses.filter((x) => x !== c) }))} className="hover:text-primary-900">×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* Student Selector */}
+              {editForm.targetType === 'student' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">Filter by Class</label>
+                    <select
+                      value={editForm.filterClass}
+                      onChange={(e) => {
+                        setEditForm((p) => ({ ...p, filterClass: e.target.value, selectedStudentId: '', studentSearch: '' }));
+                        setEditFilteredStudents([]);
+                        if (e.target.value) {
+                          setEditStudentsLoading(true);
+                          studentAPI.getAll({ class: e.target.value, pageSize: 100 }).then((d) => {
+                            setEditFilteredStudents(d.students);
+                          }).catch(console.error).finally(() => setEditStudentsLoading(false));
+                        }
+                      }}
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                    >
+                      <option value="">Select class first</option>
+                      {classes.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">Select Student</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={editForm.studentSearch}
+                        onChange={(e) => setEditForm((p) => ({ ...p, studentSearch: e.target.value }))}
+                        placeholder={editForm.filterClass ? "Type at least 2 chars to search..." : "Select a class first"}
+                        disabled={!editForm.filterClass}
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 disabled:bg-gray-50"
+                      />
+                      {editForm.filterClass && editForm.studentSearch.length >= 2 && editFilteredStudents.length > 0 && !editForm.selectedStudentId && (
+                        <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-[200px] overflow-auto">
+                          {editFilteredStudents
+                            .filter((s) => s.name.toLowerCase().includes(editForm.studentSearch.toLowerCase()))
+                            .slice(0, 10)
+                            .map((s) => (
+                              <button
+                                key={s.student_id}
+                                type="button"
+                                onClick={() => setEditForm((p) => ({ ...p, selectedStudentId: s.student_id, studentSearch: s.name }))}
+                                className="w-full text-left px-3 py-2 hover:bg-primary-50 text-sm"
+                              >
+                                <div className="font-medium">{s.name}</div>
+                                <div className="text-xs text-gray-400">{s.student_class} • {s.student_id}</div>
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                    {editForm.selectedStudentId && (
+                      <div className="mt-2 flex items-center gap-2 px-3 py-2 bg-primary-50 rounded-lg">
+                        <span className="text-sm font-medium text-primary-700">{editForm.studentSearch}</span>
+                        <button type="button" onClick={() => setEditForm((p) => ({ ...p, selectedStudentId: '', studentSearch: '' }))} className="text-primary-600 hover:text-primary-800">×</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Fee Category</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -846,7 +1101,7 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">Applicable To</label>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Residency / Tier <span className="text-gray-400 font-normal">(applicable to)</span></label>
                 <div className="grid grid-cols-2 gap-2">
                   {['All Students', 'Day', 'Boarding', 'Remedial'].map((opt) => (
                     <button key={opt} type="button" onClick={() => setEditForm((p) => ({ ...p, applicableTo: opt }))} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${editForm.applicableTo === opt ? 'bg-gray-700 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`}>{opt}</button>

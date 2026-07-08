@@ -1141,17 +1141,18 @@ export const studentFeeAPI = {
 };
 
 // ─── TRANSACTION INSERT HELPER ────────────────────────────────────────────────
-// Tries to stamp customer_name + target_class into the row; if the columns don't
+// Tries to stamp customer_name + target_class + academic_term into the row; if the columns don't
 // exist yet in the live DB it retries without them (graceful fallback).
 async function tryInsertTxn(
   payload: Record<string, any>,
 ): Promise<{ transaction_id: number }> {
-  const { customer_name, target_class, balance_due, ...base } = payload;
+  const { customer_name, target_class, balance_due, academic_term, ...base } = payload;
   const withSnap = {
     ...base,
     customer_name: customer_name ?? null,
     target_class: target_class ?? null,
     balance_due: balance_due ?? 0,
+    academic_term: academic_term ?? null,
   };
   let { data, error } = await supabase
     .from("transactions")
@@ -2451,6 +2452,100 @@ export const bundlePaymentAPI = {
         .eq("student_id", studentId);
 
     return { success: true, newBalance: balance - amount };
+  },
+  // Check if a student has an active bundle payment for current term (to avoid double-billing)
+  async checkStudentBundlePayment(studentId: string, currentTerm?: string): Promise<{
+    hasBundle: boolean;
+    isFullPayment: boolean;
+    balanceDue: number;
+    transactionId?: number;
+    bundleAmount: number;
+    academicTerm?: string;
+  }> {
+    // Fetch transactions with type BUNDLE_PURCHASE or ACCEPTANCE_FEE for this student
+    const { data: txns, error } = await supabase
+      .from("transactions")
+      .select("transaction_id, amount_paid, balance_due, type, notes, academic_term, timestamp")
+      .eq("student_id", studentId)
+      .in("type", ["BUNDLE_PURCHASE", "ACCEPTANCE_FEE"])
+      .order("timestamp", { ascending: false })
+      .limit(5);
+    if (error || !txns || txns.length === 0) {
+      return { hasBundle: false, isFullPayment: false, balanceDue: 0, bundleAmount: 0 };
+    }
+    // If currentTerm provided, only consider bundles from that term
+    const relevantTxn = currentTerm
+      ? txns.find((t: any) => t.academic_term === currentTerm || !t.academic_term)
+      : txns[0];
+    if (!relevantTxn) {
+      return { hasBundle: false, isFullPayment: false, balanceDue: 0, bundleAmount: 0 };
+    }
+    const balanceDue = Number(relevantTxn.balance_due) || 0;
+    const isFullPayment = balanceDue === 0;
+    return {
+      hasBundle: true,
+      isFullPayment,
+      balanceDue,
+      transactionId: relevantTxn.transaction_id,
+      bundleAmount: Number(relevantTxn.amount_paid),
+      academicTerm: relevantTxn.academic_term,
+    };
+  },
+  // Record a partial payment towards an existing bundle balance
+  async recordBundleBalancePayment(params: {
+    transactionId: number;
+    studentId: string;
+    shiftId: number;
+    amount: number;
+    paymentMode: "Cash" | "POS_Transfer";
+    customerName?: string;
+    targetClass?: string;
+  }): Promise<{ success: boolean; newBalance: number }> {
+    const { transactionId, studentId, shiftId, amount, paymentMode, customerName, targetClass } = params;
+    // Get current transaction to check balance
+    const { data: txn, error: txnError } = await supabase
+      .from("transactions")
+      .select("balance_due, amount_paid")
+      .eq("transaction_id", transactionId)
+      .single();
+    if (txnError || !txn) throw new Error("Transaction not found");
+    const currentBalance = Number(txn.balance_due) || 0;
+    if (amount > currentBalance + 0.01) {
+      throw new Error(`Cannot pay ₦${amount.toLocaleString("en-NG")} — balance is only ₦${currentBalance.toLocaleString("en-NG")}`);
+    }
+    // Create a FEES_CASH_COLLECTION transaction for this payment
+    await tryInsertTxn({
+      student_id: studentId,
+      shift_id: shiftId,
+      type: "FEES_CASH_COLLECTION",
+      amount_paid: amount,
+      payment_mode: paymentMode,
+      notes: `Bundle Balance Payment (Txn #${transactionId})`,
+      customer_name: customerName,
+      target_class: targetClass,
+    });
+    // Update the original transaction's balance_due
+    const newBalance = Math.max(0, currentBalance - amount);
+    await supabase
+      .from("transactions")
+      .update({ balance_due: newBalance })
+      .eq("transaction_id", transactionId);
+    // Update student's current_fees_owed
+    const { data: student } = await supabase
+      .from("students")
+      .select("current_fees_owed")
+      .eq("student_id", studentId)
+      .single();
+    if (student) {
+      await supabase
+        .from("students")
+        .update({
+          current_fees_owed: Math.max(0, Number(student.current_fees_owed) - amount),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("student_id", studentId);
+    }
+    return { success: true, newBalance };
   },
 };
 
