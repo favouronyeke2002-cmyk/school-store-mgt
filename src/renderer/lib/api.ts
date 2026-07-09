@@ -536,6 +536,22 @@ export const inventoryAPI = {
     if (error) throw error;
     return data;
   },
+  // Live stock lookup for a set of item ids — used to guard bundle checkout
+  // against selling items that are actually out of stock.
+  async getStockLevels(itemIds: number[]): Promise<Record<number, number>> {
+    if (!itemIds || itemIds.length === 0) return {};
+    const uniqueIds = Array.from(new Set(itemIds));
+    const { data, error } = await supabase
+      .from("inventory")
+      .select("item_id, stock_quantity")
+      .in("item_id", uniqueIds);
+    if (error) throw error;
+    const map: Record<number, number> = {};
+    for (const row of data || []) {
+      map[row.item_id] = Number(row.stock_quantity) || 0;
+    }
+    return map;
+  },
   async getByBarcode(barcode: string) {
     const { data, error } = await supabase
       .from("inventory")
@@ -2137,8 +2153,19 @@ export const bundlePaymentAPI = {
       balance_due: balanceDue > 0 ? balanceDue : 0,
     });
 
+    // Live stock check: never decrement or hand off items that are actually out of stock.
+    // Cap each item's quantity to what's really on the shelf and drop items with none left.
+    const bundleItemIds = bundle.items.map((item: any) => item.item_id);
+    const liveStock = await inventoryAPI.getStockLevels(bundleItemIds);
+    const inStockItems = bundle.items
+      .map((item: any) => {
+        const available = liveStock[item.item_id] ?? 0;
+        return { ...item, quantity: Math.max(0, Math.min(item.quantity, available)) };
+      })
+      .filter((item: any) => item.quantity > 0);
+
     // Decrement bundle items from inventory
-    for (const item of bundle.items) {
+    for (const item of inStockItems) {
       const { data: inv } = await supabase
         .from("inventory")
         .select("stock_quantity")
@@ -2153,9 +2180,9 @@ export const bundlePaymentAPI = {
       }
     }
 
-    // Create transaction_items for the bundle items (for receipt printing)
-    // Include item_name snapshot for reliable receipt printing
-    const itemRows = bundle.items.map((item: any) => ({
+    // Create transaction_items only for items actually in stock (for receipt printing) —
+    // out-of-stock items are excluded so the storekeeper never expects to hand them over.
+    const itemRows = inStockItems.map((item: any) => ({
       transaction_id: txn.transaction_id,
       item_id: item.item_id,
       item_name: item.item_name,
@@ -2163,7 +2190,7 @@ export const bundlePaymentAPI = {
       unit_price: item.selling_price,
       total_price: item.selling_price * item.quantity,
     }));
-    await supabase.from("transaction_items").insert(itemRows);
+    if (itemRows.length > 0) await supabase.from("transaction_items").insert(itemRows);
 
     // Update applicant_payments
     await supabase
@@ -2316,10 +2343,22 @@ export const bundlePaymentAPI = {
       total_price: number;
     }[] = [];
 
-    // If bundle items were passed (actual textbooks/uniforms), persist and use them
+    // If bundle items were passed (actual textbooks/uniforms), persist and use them.
+    // Re-check live stock server-side (authoritative) — cap quantities and drop items
+    // that are actually out of stock so they're never decremented or handed off.
     if (bundleItems && bundleItems.length > 0) {
+      const liveStock = await inventoryAPI.getStockLevels(
+        bundleItems.map((item) => item.item_id),
+      );
+      const inStockBundleItems = bundleItems
+        .map((item) => {
+          const available = liveStock[item.item_id] ?? 0;
+          return { ...item, quantity: Math.max(0, Math.min(item.quantity, available)) };
+        })
+        .filter((item) => item.quantity > 0);
+
       // Decrement bundle items from inventory
-      for (const item of bundleItems) {
+      for (const item of inStockBundleItems) {
         const { data: inv } = await supabase
           .from("inventory")
           .select("stock_quantity")
@@ -2335,7 +2374,7 @@ export const bundlePaymentAPI = {
       }
 
       // Insert transaction_items with item_name snapshot
-      const itemRows = bundleItems.map((item) => ({
+      const itemRows = inStockBundleItems.map((item) => ({
         transaction_id: txn.transaction_id,
         item_id: item.item_id,
         item_name: item.item_name,
@@ -2343,10 +2382,10 @@ export const bundlePaymentAPI = {
         unit_price: item.selling_price,
         total_price: item.selling_price * item.quantity,
       }));
-      await supabase.from("transaction_items").insert(itemRows);
+      if (itemRows.length > 0) await supabase.from("transaction_items").insert(itemRows);
 
-      // Return actual items for receipt
-      lineItems.push(...bundleItems.map((item) => ({
+      // Return actual items for receipt (out-of-stock items already excluded)
+      lineItems.push(...inStockBundleItems.map((item) => ({
         item_name: item.item_name,
         quantity: item.quantity,
         total_price: item.selling_price * item.quantity,
@@ -2453,6 +2492,12 @@ export const bundlePaymentAPI = {
 
     return { success: true, newBalance: balance - amount };
   },
+};
+
+// ─── STUDENT BUNDLE BALANCE (Collect Fees) ────────────────────────────────────
+// Merged into studentFeeAPI below (via Object.assign) so existing callers using
+// studentFeeAPI.checkStudentBundlePayment / recordBundleBalancePayment keep working.
+const studentBundleBalanceAPI = {
   // Check if a student has an active bundle payment for current term (to avoid double-billing)
   async checkStudentBundlePayment(studentId: string, currentTerm?: string): Promise<{
     hasBundle: boolean;
@@ -2462,21 +2507,28 @@ export const bundlePaymentAPI = {
     bundleAmount: number;
     academicTerm?: string;
   }> {
-    // Fetch transactions with type BUNDLE_PURCHASE or ACCEPTANCE_FEE for this student
+    if (!studentId) {
+      return { hasBundle: false, isFullPayment: false, balanceDue: 0, bundleAmount: 0 };
+    }
+    // Fetch registration-bundle purchase transactions for this student (excludes acceptance
+    // fees and other non-registration bundle purchases, which must not surface this card).
     const { data: txns, error } = await supabase
       .from("transactions")
-      .select("transaction_id, amount_paid, balance_due, type, notes, academic_term, timestamp")
+      .select("transaction_id, amount_paid, balance_due, type, notes, academic_term, timestamp, bundle_id, bundles(bundle_type)")
       .eq("student_id", studentId)
-      .in("type", ["BUNDLE_PURCHASE", "ACCEPTANCE_FEE"])
+      .eq("type", "BUNDLE_PURCHASE")
+      .not("bundle_id", "is", null)
       .order("timestamp", { ascending: false })
-      .limit(5);
+      .limit(10);
     if (error || !txns || txns.length === 0) {
       return { hasBundle: false, isFullPayment: false, balanceDue: 0, bundleAmount: 0 };
     }
-    // If currentTerm provided, only consider bundles from that term
+    const registrationTxns = txns.filter((t: any) => t?.bundles?.bundle_type === "registration");
+    // Only consider bundles tagged with the current term when one is provided — no silent
+    // fallback to legacy/untagged records, to avoid targeting the wrong balance for payment.
     const relevantTxn = currentTerm
-      ? txns.find((t: any) => t.academic_term === currentTerm || !t.academic_term)
-      : txns[0];
+      ? registrationTxns.find((t: any) => t.academic_term === currentTerm)
+      : registrationTxns[0];
     if (!relevantTxn) {
       return { hasBundle: false, isFullPayment: false, balanceDue: 0, bundleAmount: 0 };
     }
@@ -2513,7 +2565,7 @@ export const bundlePaymentAPI = {
     if (amount > currentBalance + 0.01) {
       throw new Error(`Cannot pay ₦${amount.toLocaleString("en-NG")} — balance is only ₦${currentBalance.toLocaleString("en-NG")}`);
     }
-    // Create a FEES_CASH_COLLECTION transaction for this payment
+    // Create a FEES_CASH_COLLECTION transaction for this payment (throws on failure)
     await tryInsertTxn({
       student_id: studentId,
       shift_id: shiftId,
@@ -2524,30 +2576,36 @@ export const bundlePaymentAPI = {
       customer_name: customerName,
       target_class: targetClass,
     });
-    // Update the original transaction's balance_due
+    // Update the original transaction's balance_due AND amount_paid so both stay in sync
     const newBalance = Math.max(0, currentBalance - amount);
-    await supabase
+    const newAmountPaid = Number(txn.amount_paid || 0) + amount;
+    const { error: updateTxnError } = await supabase
       .from("transactions")
-      .update({ balance_due: newBalance })
+      .update({ balance_due: newBalance, amount_paid: newAmountPaid })
       .eq("transaction_id", transactionId);
+    if (updateTxnError) throw new Error(`Payment recorded but failed to update bundle balance: ${updateTxnError.message}`);
     // Update student's current_fees_owed
-    const { data: student } = await supabase
+    const { data: student, error: studentFetchError } = await supabase
       .from("students")
       .select("current_fees_owed")
       .eq("student_id", studentId)
       .single();
+    if (studentFetchError) throw new Error(`Payment recorded but failed to load student balance: ${studentFetchError.message}`);
     if (student) {
-      await supabase
+      const { error: studentUpdateError } = await supabase
         .from("students")
         .update({
           current_fees_owed: Math.max(0, Number(student.current_fees_owed) - amount),
           updated_at: new Date().toISOString(),
         })
         .eq("student_id", studentId);
+      if (studentUpdateError) throw new Error(`Payment recorded but failed to update student balance: ${studentUpdateError.message}`);
     }
     return { success: true, newBalance };
   },
 };
+
+Object.assign(studentFeeAPI, studentBundleBalanceAPI);
 
 // ─── EXPENSES ─────────────────────────────────────────────────────────────────
 export const expenseAPI = {

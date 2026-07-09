@@ -43,10 +43,11 @@ function buildReceiptHtml(settings: any, txn: any, total: number, items: any[], 
   const session = sessionParts.join(' · ');
   const logo = settings?.logo_url || '';
 
-  // Build items HTML - show ALL items in high-contrast black
+  // Build items HTML - Item Name + Quantity ONLY. Prices are intentionally omitted so
+  // parents/storekeepers can't see individual item pricing on this slip.
   const itemsHtml = items.length > 0
     ? `<div class="section-title">ITEMS</div>` + items.map((i: any) =>
-        `<div class="row item-row"><span class="item-name">${i.item_name}${i.quantity > 1 ? ' x' + i.quantity : ''}</span><span class="item-price">${fmt(i.total_price)}</span></div>`
+        `<div class="row item-row"><span class="item-name">${i.item_name}${i.quantity > 1 ? ' x' + i.quantity : ' x 1'}</span></div>`
       ).join('')
     : '';
 
@@ -505,6 +506,18 @@ const BundlePaymentModal: React.FC<{
 }> = ({ bundle, minFloor, applicantName, onComplete, onCancel, processing, error }) => {
   const [amount, setAmount] = useState(String(bundle.base_price));
   const [paymentMode, setPaymentMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
+  const [stockLevels, setStockLevels] = useState<Record<number, number>>({});
+
+  useEffect(() => {
+    const itemIds = bundle.items?.map((i) => i.item_id) || [];
+    if (itemIds.length === 0) { setStockLevels({}); return; }
+    inventoryAPI.getStockLevels(itemIds).then(setStockLevels).catch(() => setStockLevels({}));
+  }, [bundle]);
+
+  const stockCappedItems = (bundle.items || []).map((item) => {
+    const available = stockLevels[item.item_id] ?? item.quantity;
+    return { ...item, outOfStock: available <= 0, quantity: Math.max(0, Math.min(item.quantity, available)) };
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -536,10 +549,13 @@ const BundlePaymentModal: React.FC<{
         <div className="mb-4">
           <label className="text-sm font-semibold text-gray-700 mb-2 block">Package Contents</label>
           <div className="space-y-1">
-            {bundle.items.map((item) => (
-              <div key={item.item_id} className="flex justify-between text-sm bg-gray-50 rounded-lg px-3 py-2">
-                <span>{item.item_name} ×{item.quantity}</span>
-                <span className="font-medium">{fmt(item.selling_price * item.quantity)}</span>
+            {stockCappedItems.map((item) => (
+              <div key={item.item_id} className={`flex justify-between text-sm bg-gray-50 rounded-lg px-3 py-2 ${item.outOfStock ? 'text-danger-500' : ''}`}>
+                <span>
+                  {item.item_name} ×{item.quantity}
+                  {item.outOfStock && <span className="ml-2 font-bold uppercase text-[10px] bg-danger-100 text-danger-700 px-1.5 py-0.5 rounded">Out of Stock</span>}
+                </span>
+                <span className="font-medium">{item.outOfStock ? '—' : fmt(item.selling_price * item.quantity)}</span>
               </div>
             ))}
           </div>
@@ -951,6 +967,19 @@ const WalkInRegistrationFeeModal: React.FC<{
   const [payMode, setPayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
   const [coachingAddon, setCoachingAddon] = useState(false);
   const [paymentType, setPaymentType] = useState<'full' | 'half'>('full');
+  const [stockLevels, setStockLevels] = useState<Record<number, number>>({});
+  const [stockLoaded, setStockLoaded] = useState(false);
+
+  // Check live inventory stock for every item in the bundle before rendering it
+  useEffect(() => {
+    const itemIds = matchedBundle?.items?.map((i) => i.item_id) || [];
+    if (itemIds.length === 0) { setStockLevels({}); setStockLoaded(true); return; }
+    setStockLoaded(false);
+    inventoryAPI.getStockLevels(itemIds)
+      .then((levels) => setStockLevels(levels))
+      .catch(() => setStockLevels({}))
+      .finally(() => setStockLoaded(true));
+  }, [matchedBundle]);
 
   const COACHING_FEE = COACHING_FEE_AMOUNT;
   const fallbackPrices = categoryGroup ? FALLBACK_FEES[categoryGroup] : null;
@@ -972,6 +1001,21 @@ const WalkInRegistrationFeeModal: React.FC<{
   const halfTotal = Math.ceil(base / 2) + (coachingAddon ? COACHING_FEE : 0);
   const total = paymentType === 'full' ? fullTotal : halfTotal;
   const balanceDue = paymentType === 'half' ? (base - Math.ceil(base / 2)) : 0;
+
+  // Cap each bundle item's quantity to live stock and mark out-of-stock items so
+  // they never make it into the print/receipt payload handed to the storekeeper.
+  // Until the live stock check resolves, treat items as unavailable (0) rather than
+  // assuming the configured bundle quantity is in stock.
+  const stockCappedItems = (matchedBundle?.items || []).map((item) => {
+    const available = stockLoaded ? (stockLevels[item.item_id] ?? 0) : 0;
+    return {
+      ...item,
+      availableStock: available,
+      outOfStock: available <= 0,
+      quantity: Math.max(0, Math.min(item.quantity, available)),
+    };
+  });
+  const inStockBundleItems = stockCappedItems.filter((i) => !i.outOfStock && i.quantity > 0);
 
   const tierColor: Record<string, string> = {
     JUNIOR: 'bg-blue-100 text-blue-700',
@@ -1037,13 +1081,16 @@ const WalkInRegistrationFeeModal: React.FC<{
                 <span className="font-semibold">{fmt(base)}</span>
               </div>
 
-              {matchedBundle && matchedBundle.items.length > 0 && (
+              {matchedBundle && stockCappedItems.length > 0 && (
                 <div className="border-t pt-2 mt-1 space-y-1">
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Included Items</p>
-                  {matchedBundle.items.map((item) => (
-                    <div key={item.item_id} className="flex justify-between text-xs text-gray-600">
-                      <span>{item.item_name} {item.quantity > 1 ? `×${item.quantity}` : ''}</span>
-                      <span>{fmt(item.selling_price * item.quantity)}</span>
+                  {stockCappedItems.map((item) => (
+                    <div key={item.item_id} className={`flex justify-between text-xs ${item.outOfStock ? 'text-danger-500' : 'text-gray-600'}`}>
+                      <span>
+                        {item.item_name} {item.quantity > 1 ? `×${item.quantity}` : ''}
+                        {item.outOfStock && <span className="ml-2 font-bold uppercase text-[10px] bg-danger-100 text-danger-700 px-1.5 py-0.5 rounded">Out of Stock</span>}
+                      </span>
+                      <span>{item.outOfStock ? '—' : fmt(item.selling_price * item.quantity)}</span>
                     </div>
                   ))}
                 </div>
@@ -1119,10 +1166,10 @@ const WalkInRegistrationFeeModal: React.FC<{
           {canProceed && (
             <button
               onClick={() => onConfirm(payMode, total, coachingAddon, paymentType === 'half' ? balanceDue : undefined)}
-              disabled={processing}
+              disabled={processing || (isBundleMode && (matchedBundle!.items?.length || 0) > 0 && !stockLoaded)}
               className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50"
             >
-              {processing ? 'Processing…' : `Confirm ${fmt(total)}`}
+              {processing ? 'Processing…' : !stockLoaded && isBundleMode && (matchedBundle!.items?.length || 0) > 0 ? 'Checking stock…' : `Confirm ${fmt(total)}`}
             </button>
           )}
         </div>
@@ -1186,6 +1233,24 @@ const WalkInBundleModal: React.FC<{
   error: string;
 }> = ({ title, applicantName, bundle, onConfirm, onCancel, processing, error }) => {
   const [payMode, setPayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
+  const [stockLevels, setStockLevels] = useState<Record<number, number>>({});
+  const [stockLoaded, setStockLoaded] = useState(false);
+
+  useEffect(() => {
+    const itemIds = bundle.items?.map((i) => i.item_id) || [];
+    if (itemIds.length === 0) { setStockLevels({}); setStockLoaded(true); return; }
+    setStockLoaded(false);
+    inventoryAPI.getStockLevels(itemIds)
+      .then(setStockLevels)
+      .catch(() => setStockLevels({}))
+      .finally(() => setStockLoaded(true));
+  }, [bundle]);
+
+  const stockCappedItems = (bundle.items || []).map((item) => {
+    const available = stockLoaded ? (stockLevels[item.item_id] ?? 0) : 0;
+    return { ...item, outOfStock: available <= 0, quantity: Math.max(0, Math.min(item.quantity, available)) };
+  });
+
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
@@ -1201,10 +1266,13 @@ const WalkInBundleModal: React.FC<{
         </div>
         {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{error}</div>}
         <div className="bg-gray-50 rounded-xl p-4 mb-4 space-y-2">
-          {bundle.items.map((item) => (
-            <div key={item.item_id} className="flex justify-between text-sm">
-              <span className="text-gray-700">{item.item_name} × {item.quantity}</span>
-              <span className="text-gray-500">{fmt(item.selling_price * item.quantity)}</span>
+          {stockCappedItems.map((item) => (
+            <div key={item.item_id} className={`flex justify-between text-sm ${item.outOfStock ? 'text-danger-500' : ''}`}>
+              <span className={item.outOfStock ? '' : 'text-gray-700'}>
+                {item.item_name} × {item.quantity}
+                {item.outOfStock && <span className="ml-2 font-bold uppercase text-[10px] bg-danger-100 text-danger-700 px-1.5 py-0.5 rounded">Out of Stock</span>}
+              </span>
+              <span className="text-gray-500">{item.outOfStock ? '—' : fmt(item.selling_price * item.quantity)}</span>
             </div>
           ))}
           <div className="flex items-center justify-between border-t pt-2 mt-1">
@@ -1386,26 +1454,20 @@ const CashierPOS: React.FC = () => {
     }).catch(console.error);
   }, [studentSearch, studentClassFilter, selectedStudent, studentSuggPage]);
 
-  // Student fees for fees tab - with bundle payment recognition
+  // Student fees for fees tab - standard fees always load; bundle balance (if any) is appended separately
   useEffect(() => {
     if (selectedStudent && saleMode === 'fees') {
-      // Check for existing bundle payment first
-      studentFeeAPI.checkStudentBundlePayment(selectedStudent.student_id, schoolSettings?.current_term).then((bundleInfo) => {
-        setBundlePaymentInfo(bundleInfo);
-        if (bundleInfo.hasBundle) {
-          // Student has a bundle payment - don't load standard class fees
-          setStudentFees([]);
-          setClassFees([]);
-        } else {
-          // No bundle payment - load standard fees
-          studentFeeAPI.getForStudent(selectedStudent.student_id).then((fees) => {
-            setStudentFees(fees.filter((f: StudentFee) => f.balance > 0));
-            setSelectedFee(null);
-            setFeesAmount('');
-          }).catch(console.error);
-          feeTypeAPI.getByClass(selectedStudent.student_class).then(setClassFees).catch(console.error);
-        }
-      }).catch(console.error);
+      setSelectedFee(null);
+      setFeesAmount('');
+      // Always load standard class fees — never hidden by a bundle balance
+      studentFeeAPI.getForStudent(selectedStudent?.student_id).then((fees) => {
+        setStudentFees((fees || []).filter((f: StudentFee) => f?.balance > 0));
+      }).catch((e) => { console.error(e); setStudentFees([]); });
+      feeTypeAPI.getByClass(selectedStudent?.student_class).then((ft) => setClassFees(ft || [])).catch((e) => { console.error(e); setClassFees([]); });
+      // Separately, check for an outstanding bundle/registration balance for this student & term
+      studentFeeAPI.checkStudentBundlePayment(selectedStudent?.student_id, schoolSettings?.current_term).then((bundleInfo) => {
+        setBundlePaymentInfo(bundleInfo || null);
+      }).catch((e) => { console.error(e); setBundlePaymentInfo(null); });
     }
   }, [selectedStudent, saleMode, schoolSettings?.current_term]);
 
@@ -1831,13 +1893,24 @@ const CashierPOS: React.FC = () => {
     try {
       const categoryGroup = classCategoryMap[walkInApplicant.proposed_class || ''] || 'UNKNOWN';
       const studentStatus = walkInApplicant.student_status || 'Day';
-      // Pass actual bundle items if available (textbooks, uniforms, etc.)
-      const bundleItems = walkInRegistrationBundle?.items?.map((item: any) => ({
-        item_id: item.item_id,
-        item_name: item.item_name,
-        quantity: item.quantity,
-        selling_price: item.selling_price,
-      })) || undefined;
+      // Pass actual bundle items if available (textbooks, uniforms, etc.), capped to
+      // live stock so out-of-stock items never get decremented or handed to the storekeeper.
+      let bundleItems: { item_id: number; item_name: string; quantity: number; selling_price: number }[] | undefined = undefined;
+      if (walkInRegistrationBundle?.items?.length) {
+        const itemIds = walkInRegistrationBundle.items.map((i: any) => i.item_id);
+        const stockLevels = await inventoryAPI.getStockLevels(itemIds);
+        bundleItems = walkInRegistrationBundle.items
+          .map((item: any) => {
+            const available = stockLevels[item.item_id] ?? 0;
+            return {
+              item_id: item.item_id,
+              item_name: item.item_name,
+              quantity: Math.max(0, Math.min(item.quantity, available)),
+              selling_price: item.selling_price,
+            };
+          })
+          .filter((item) => item.quantity > 0);
+      }
       const result = await bundlePaymentAPI.processDirectRegistrationPayment({
         applicantId: walkInApplicant.id, shiftId: activeShift.id,
         paymentMode: mode, amount: total, categoryGroup, studentStatus, coachingIncluded,
@@ -2189,64 +2262,58 @@ const CashierPOS: React.FC = () => {
                   <h2 className="font-bold text-lg">Collect Fees</h2>
                   <p className="text-sm text-gray-500">Student: <strong>{selectedStudent.name}</strong> · {selectedStudent.student_class}</p>
 
-                  {/* Bundle payment status - takes priority */}
-                  {bundlePaymentInfo?.hasBundle ? (
-                    <div>
-                      {bundlePaymentInfo.isFullPayment ? (
-                        <div className="bg-success-50 border border-success-200 rounded-xl p-6 text-center">
-                          <CheckCircle className="w-10 h-10 text-success-500 mx-auto mb-2" />
-                          <div className="font-semibold text-success-700">All registration and bundle fees are fully paid for this term.</div>
-                          <div className="text-sm text-success-600 mt-1">Bundle payment of {fmt(bundlePaymentInfo.bundleAmount)} received.</div>
+                  {/* Outstanding bundle/registration balance card (appended, never hides standard fees) */}
+                  {bundlePaymentInfo?.hasBundle && !bundlePaymentInfo?.isFullPayment && (bundlePaymentInfo?.balanceDue ?? 0) > 0 && (
+                    <div className="space-y-3">
+                      <div className="bg-warning-50 border border-warning-200 rounded-xl p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <AlertCircle className="w-5 h-5 text-warning-600" />
+                          <span className="font-semibold text-warning-800">Registration Fee Bundle - Outstanding Balance</span>
                         </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <div className="bg-warning-50 border border-warning-200 rounded-xl p-4">
-                            <div className="flex items-center gap-2 mb-2">
-                              <AlertCircle className="w-5 h-5 text-warning-600" />
-                              <span className="font-semibold text-warning-800">Registration Fee Bundle - Outstanding Balance</span>
-                            </div>
-                            <p className="text-sm text-warning-700 mb-2">This student has made a half payment on their registration bundle.</p>
-                            <div className="flex justify-between items-center bg-white rounded-lg p-3 border border-warning-200">
-                              <span className="font-medium text-gray-700">Outstanding Balance:</span>
-                              <span className="text-xl font-extrabold text-danger-600">{fmt(bundlePaymentInfo.balanceDue)}</span>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => setShowBundleBalancePayment(true)}
-                            className="w-full py-3 bg-warning-600 text-white font-bold rounded-xl hover:bg-warning-700 transition-all"
-                          >
-                            Collect Towards Bundle Balance
-                          </button>
+                        <p className="text-sm text-warning-700 mb-2">This student has an outstanding balance on their registration bundle.</p>
+                        <div className="flex justify-between items-center bg-white rounded-lg p-3 border border-warning-200">
+                          <span className="font-medium text-gray-700">Outstanding Balance:</span>
+                          <span className="text-xl font-extrabold text-danger-600">{fmt(bundlePaymentInfo?.balanceDue)}</span>
                         </div>
-                      )}
+                      </div>
+                      <button
+                        onClick={() => setShowBundleBalancePayment(true)}
+                        className="w-full py-3 bg-warning-600 text-white font-bold rounded-xl hover:bg-warning-700 transition-all"
+                      >
+                        Collect Towards Bundle Balance
+                      </button>
                     </div>
-                  ) : studentFees.length === 0 ? (
-                    <div className="bg-success-50 border border-success-200 rounded-xl p-6 text-center">
-                      <CheckCircle className="w-10 h-10 text-success-500 mx-auto mb-2" />
-                      <div className="font-semibold text-success-700">No outstanding fees!</div>
-                      <div className="text-sm text-success-600 mt-1">This student has no assigned fees with a balance.</div>
-                    </div>
+                  )}
+
+                  {(studentFees?.length ?? 0) === 0 ? (
+                    !(bundlePaymentInfo?.hasBundle && !bundlePaymentInfo?.isFullPayment) && (
+                      <div className="bg-success-50 border border-success-200 rounded-xl p-6 text-center">
+                        <CheckCircle className="w-10 h-10 text-success-500 mx-auto mb-2" />
+                        <div className="font-semibold text-success-700">No outstanding fees!</div>
+                        <div className="text-sm text-success-600 mt-1">This student has no assigned fees with a balance.</div>
+                      </div>
+                    )
                   ) : (
                     <>
                       <div className="space-y-2">
-                        {studentFees.map((fee) => (
-                          <button key={fee.id} onClick={() => { setSelectedFee(fee); setFeesAmount(''); setFeesDiscount(''); }} className={`w-full text-left p-4 rounded-xl border-2 transition-all ${selectedFee?.id === fee.id ? 'border-primary-500 bg-primary-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+                        {studentFees?.map((fee) => (
+                          <button key={fee?.id} onClick={() => { setSelectedFee(fee); setFeesAmount(''); setFeesDiscount(''); }} className={`w-full text-left p-4 rounded-xl border-2 transition-all ${selectedFee?.id === fee?.id ? 'border-primary-500 bg-primary-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
                             <div className="flex items-start justify-between">
                               <div>
-                                <div className="font-bold text-gray-900">{fee.fee_name}</div>
-                                {fee.fee_description && <div className="text-xs text-gray-500 mt-0.5">{fee.fee_description}</div>}
-                                <div className="text-xs text-gray-400 mt-0.5">{fee.academic_session}</div>
+                                <div className="font-bold text-gray-900">{fee?.fee_name}</div>
+                                {fee?.fee_description && <div className="text-xs text-gray-500 mt-0.5">{fee.fee_description}</div>}
+                                <div className="text-xs text-gray-400 mt-0.5">{fee?.academic_session}</div>
                               </div>
                               <div className="text-right shrink-0 ml-4">
                                 <div className="text-xs text-gray-400">Balance</div>
-                                <div className="text-lg font-extrabold text-danger-600">{fmt(fee.balance)}</div>
-                                <div className="text-xs text-gray-400">of {fmt(fee.amount_due)}</div>
+                                <div className="text-lg font-extrabold text-danger-600">{fmt(fee?.balance)}</div>
+                                <div className="text-xs text-gray-400">of {fmt(fee?.amount_due)}</div>
                               </div>
                             </div>
                             <div className="mt-2 w-full bg-gray-200 rounded-full h-1.5">
-                              <div className="bg-success-500 h-1.5 rounded-full" style={{ width: `${(fee.amount_paid / fee.amount_due) * 100}%` }} />
+                              <div className="bg-success-500 h-1.5 rounded-full" style={{ width: `${(fee?.amount_due ? (fee.amount_paid / fee.amount_due) * 100 : 0)}%` }} />
                             </div>
-                            <div className="mt-0.5 text-xs text-gray-400">Paid: {fmt(fee.amount_paid)}</div>
+                            <div className="mt-0.5 text-xs text-gray-400">Paid: {fmt(fee?.amount_paid)}</div>
                           </button>
                         ))}
                       </div>
@@ -2339,17 +2406,17 @@ const CashierPOS: React.FC = () => {
                   )}
 
                   {/* Class Fee Types context */}
-                  {classFees.length > 0 && studentFees.length === 0 && (
+                  {(classFees?.length ?? 0) > 0 && (studentFees?.length ?? 0) === 0 && (
                     <div className="mt-4">
-                      <h3 className="text-sm font-semibold text-gray-500 mb-2">Available Fees for {selectedStudent.student_class}</h3>
+                      <h3 className="text-sm font-semibold text-gray-500 mb-2">Available Fees for {selectedStudent?.student_class}</h3>
                       <div className="space-y-2">
-                        {classFees.map((ft: any) => (
-                          <div key={ft.id} className="bg-white rounded-lg border border-gray-200 p-3 flex items-center justify-between">
+                        {classFees?.map((ft: any) => (
+                          <div key={ft?.id} className="bg-white rounded-lg border border-gray-200 p-3 flex items-center justify-between">
                             <div>
-                              <div className="font-medium text-sm text-gray-800">{ft.name}</div>
-                              {ft.description && <div className="text-xs text-gray-400">{ft.description}</div>}
+                              <div className="font-medium text-sm text-gray-800">{ft?.name}</div>
+                              {ft?.description && <div className="text-xs text-gray-400">{ft.description}</div>}
                             </div>
-                            <span className="font-bold text-gray-700">{fmt(Number(ft.amount))}</span>
+                            <span className="font-bold text-gray-700">{fmt(Number(ft?.amount))}</span>
                           </div>
                         ))}
                       </div>
