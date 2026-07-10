@@ -31,7 +31,7 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
   const [history, setHistory] = useState<any[]>([]);
 
   const [formData, setFormData] = useState({
-    studentId: '', name: '', studentClass: '', selectedFeeIds: [] as number[],
+    studentId: '', firstName: '', lastName: '', studentClass: '', selectedFeeIds: [] as number[],
     admissionType: 'Returning' as 'Returning' | 'New', studentStatus: 'Day' as 'Day' | 'Boarding',
   });
   const [formError, setFormError] = useState('');
@@ -78,13 +78,15 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name.trim() || !formData.studentClass) { setFormError('Name and class are required.'); return; }
+    const firstName = formData.firstName.trim();
+    const lastName = formData.lastName.trim();
+    if (!firstName || !lastName || !formData.studentClass) { setFormError('First name, last name, and class are required.'); return; }
     setFormSaving(true);
     setFormError('');
     const feesOwed = computeFeesOwed();
     const result = await studentAPI.create({
       studentId: formData.studentId.trim() || undefined,
-      name: formData.name.trim(),
+      name: `${firstName} ${lastName}`,
       studentClass: formData.studentClass,
       feesOwed,
       admissionType: formData.admissionType,
@@ -93,10 +95,14 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
     if (result.success) {
       for (const feeId of formData.selectedFeeIds) {
         const ft = feeTypes.find((f) => f.id === feeId);
-        if (ft) await feeTypeAPI.assignToStudents(feeId, Number(ft.amount), undefined, result.studentId, ft.fee_category as 'standard' | 'registration');
+        if (ft) await feeTypeAPI.assignToStudents(
+          feeId, Number(ft.amount), undefined, result.studentId,
+          ft.fee_category as 'standard' | 'registration',
+          (ft as any).applicable_to || undefined,  // pass housing tier so the DB guard catches mismatches
+        );
       }
       setShowModal(false);
-      setFormData({ studentId: '', name: '', studentClass: '', selectedFeeIds: [], admissionType: 'Returning', studentStatus: 'Day' });
+      setFormData({ studentId: '', firstName: '', lastName: '', studentClass: '', selectedFeeIds: [], admissionType: 'Returning', studentStatus: 'Day' });
       load();
     } else setFormError(result.error || 'Failed to create student');
     setFormSaving(false);
@@ -149,9 +155,16 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
     }));
   };
 
-  const filteredFeeTypes = feeTypes.filter((ft) =>
-    !ft.class_filter || !formData.studentClass || ft.class_filter === formData.studentClass
-  );
+  const filteredFeeTypes = feeTypes.filter((ft) => {
+    // Housing tier: only show fees that match this student's Day/Boarding status
+    const applicable = (ft as any).applicable_to || 'All Students';
+    if (applicable === 'Day' && formData.studentStatus !== 'Day') return false;
+    if (applicable === 'Boarding' && formData.studentStatus !== 'Boarding') return false;
+    // Class match: class_filter is a comma-separated list; null means all classes
+    if (!formData.studentClass || !ft.class_filter) return true;
+    const classList = ft.class_filter.split(',').map((c) => c.trim());
+    return classList.includes(formData.studentClass);
+  });
 
   const filteredStudents = students;
   const totalFees = students.reduce((sum, s) => sum + s.current_fees_owed, 0);
@@ -164,7 +177,7 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
           <p className="text-gray-500">{total} students · ₦{totalFees.toLocaleString('en-NG', { minimumFractionDigits: 2 })} shown outstanding</p>
         </div>
         <button
-          onClick={() => { setFormData({ studentId: '', name: '', studentClass: '', selectedFeeIds: [], admissionType: 'Returning', studentStatus: 'Day' }); setFormError(''); setShowModal(true); }}
+          onClick={() => { setFormData({ studentId: '', firstName: '', lastName: '', studentClass: '', selectedFeeIds: [], admissionType: 'Returning', studentStatus: 'Day' }); setFormError(''); setShowModal(true); }}
           className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-semibold"
         >
           <UserPlus className="w-4 h-4" /> Add Student
@@ -254,9 +267,15 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
                 <label className="block text-sm font-medium mb-1">Student ID <span className="text-gray-400 font-normal">(optional)</span></label>
                 <input type="text" value={formData.studentId} onChange={(e) => setFormData({ ...formData, studentId: e.target.value.replace(/\s/g, '') })} className={inputCls} placeholder="Auto-generated as OIS-XXX if empty" />
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Full Name <span className="text-danger-500">*</span></label>
-                <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className={inputCls} required autoFocus />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">First Name <span className="text-danger-500">*</span></label>
+                  <input type="text" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} className={inputCls} required autoFocus />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Last Name <span className="text-danger-500">*</span></label>
+                  <input type="text" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} className={inputCls} required />
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Class <span className="text-danger-500">*</span></label>

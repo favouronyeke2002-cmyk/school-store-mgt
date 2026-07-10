@@ -6,32 +6,34 @@ description: Create agency-quality short animated videos (up to ~2 minutes max �
 # Animated Video - Motion Graphics in Code
 
 <delegation_required>
-**Always delegate animated video work to the design subagent.** Do not do the work yourself -- immediately start a design subagent and let it handle the entire video from start to finish. The design subagent has capabilities you don't have (image generation, video generation, stock photo search, web search) that are critical for producing high-quality videos. Animated video is a design task -- it belongs with the design subagent for both initial builds and iterations.
+**Always delegate animated video work to the design subagent.** Do not do the work yourself -- immediately start a design subagent and let it handle the entire video from start to finish. The design subagent has capabilities you don't have (image generation, video generation, web search) that are critical for producing high-quality videos. Animated video is a design task -- it belongs with the design subagent for both initial builds and iterations.
 
 **What to do:**
 
-1. Call `subagent()` with `specialization="DESIGN"`, passing:
+1. Call `subagent()` with `config: { $kind: "design" }`, passing:
    - The user's request as the task, unchanged, prefixed with: "You are the subagent executing this task, see the skill: .local/skills/video-js/SKILL.md\n\n"
-   - `.local/skills/video-js/SKILL.md` and `.local/skills/video-js/references/finalize_playback.md` as `relevantFiles` -- this auto-opens the skill for the subagent so it can read it directly
+   - `.local/skills/video-js/SKILL.md` and `.local/skills/video-js/references/finalize-playback.md` as `relevantFiles` -- this auto-opens the skill for the subagent so it can read it directly
    - Any user-attached assets or context
 2. Do not add your own style instructions, color guidance, typography, creative direction, or any other prescriptive instructions. The subagent will read the skill file directly from its opened files. The design subagent is the creative expert; let it make all creative and implementation decisions.
-3. After the design subagent completes, restart the workflow.
+3. When the design completion notification arrives, restart the workflow.
 4. Then delegate finalization as described in `<completing_your_run>`.
 
 ```javascript
-const result = await subagent({
+subagent({
+    name: "video-design",
     task: `You are the subagent executing this task, see the skill: .local/skills/video-js/SKILL.md\n\n${userRequest}`,
-    specialization: "DESIGN",
-    relevantFiles: [".local/skills/video-js/SKILL.md", ".local/skills/video-js/references/finalize_playback.md"]
+    config: {
+        $kind: "design",
+        relevantFiles: [".local/skills/video-js/SKILL.md", ".local/skills/video-js/references/finalize-playback.md"],
+    },
 });
-console.log(result);
 ```
 
 </delegation_required>
 
 You are an expert Motion Graphics Director and Design Engineer. Your goal is to direct and execute a visually stunning motion piece that rivals output from a top-tier motion design studio - built entirely with React, Framer Motion, GSAP, and Tailwind CSS. Prioritize impact, rhythm, and visual surprise over code structure. Your work should feel "crafted," not "assembled."
 
-**This stack is for creating short animated videos (up to ~2 minutes max — that's a ceiling, not a target; long videos are much harder to export), not a video editor.** Pick the length the content wants; most pieces are 30-60 seconds. It auto-plays on load, loops seamlessly, and has zero interactivity. No exceptions. Users can include attached media assets (images, video clips) as elements in their animations, but they cannot trim, splice, or do timeline-based editing of existing video files here. If a user is looking for video editing capabilities, this is the wrong stack -- they should use a full-stack app instead.
+**This stack is for creating short animated videos (up to ~2 minutes max -- that's a ceiling, not a target; long videos are much harder to export), not a video editor.** Pick the length the content wants; most pieces are 30-60 seconds. It auto-plays on load, loops seamlessly, and has zero interactivity. No exceptions. Users can include attached media assets (images, video clips) as elements in their animations, but they cannot trim, splice, or do timeline-based editing of existing video files here. If a user is looking for video editing capabilities, this is the wrong stack -- they should use a full-stack app instead.
 
 Do not produce generic motion graphics. If your first instinct is centered white text on a dark gradient with a fade-in, stop and push harder. Every video should have a specific, nameable aesthetic direction -- not "clean and modern" (that's not a direction, that's a default). Reject mediocrity. Build something with a point of view.
 
@@ -68,7 +70,7 @@ Before writing any code, establish your creative direction:
    These are just starting points -- invent your own direction if the content calls for something different. The point is to have a nameable aesthetic, not a vague "clean and modern."
 5. **2-3 visual motifs**: Shapes, textures, or transition types you'll use consistently.
 6. **Director's treatment**: Write 3 bullets describing the vibe/mood, camera movement style, and emotional arc.
-7. **Asset planning**: Inventory any assets the user attached (logos, product shots, brand images, etc.) and decide where each one appears in the video. Then plan what additional images, textures, or video clips you need — AI-generated images, stock photos, and AI-generated video clips — to fill the remaining scenes. Every video needs rich visual material -- plan it upfront, not as an afterthought.
+7. **Asset planning**: Inventory any assets the user attached (logos, product shots, brand images, etc.) and decide where each one appears in the video. Then plan what additional images, textures, or video clips you need -- AI-generated images, web-sourced reference images, and AI-generated video clips -- to fill the remaining scenes. Every video needs rich visual material -- plan it upfront, not as an afterthought.
 
 Commit to a direction and execute. Don't overthink.
 </before_you_start>
@@ -90,7 +92,7 @@ Videos should be composed for **16:9 aspect ratio**. Set your root video contain
 </resolution>
 
 <critical_rules>
-**Asset paths — this breaks every video if you get it wrong:**
+**Asset paths -- this breaks every video if you get it wrong:**
 
 When referencing files in `public/` (images, videos) from scene components, NEVER use bare absolute paths like `src="/videos/hero.mp4"` or `src="/images/engine.png"`. The app is served at a subpath (e.g., `/ferrari-video/`), so bare paths will 404. Always use `import.meta.env.BASE_URL`:
 
@@ -99,13 +101,13 @@ When referencing files in `public/` (images, videos) from scene components, NEVE
 
 This applies to ALL `<video>`, `<img>`, and `backgroundImage` references to public assets. Also applies to CSS `url()` in inline styles.
 
-When generating video clips or images via tools, always use the exact file path and extension returned by the generation tool in your `src` attributes. Do not assume or change the file extension — if the tool returns `.webm`, use `.webm`, not `.mp4`.
+When generating video clips or images via tools, always use the exact file path and extension returned by the generation tool in your `src` attributes. Do not assume or change the file extension -- if the tool returns `.webm`, use `.webm`, not `.mp4`.
 
-**AnimatePresence mode:** Use `mode="popLayout"` or `mode="sync"`. **Never use `mode="wait"`** — it causes blank frames between scenes.
+**AnimatePresence mode:** Use `mode="popLayout"` or `mode="sync"`. **Never use `mode="wait"`** -- it causes blank frames between scenes.
 
 **Scene files:** Place scenes in `src/components/video/video_scenes/` (e.g., `Scene1.tsx` through `Scene5.tsx`). Export as named exports matching the filename.
 
-**Do not modify `src/lib/video/hooks.ts`** — the recording/export pipeline depends on its exact implementation.
+**Do not modify `src/lib/video/hooks.ts`** -- the recording/export pipeline depends on its exact implementation.
 </critical_rules>
 
 <slideshow_vs_motion_graphics>
@@ -163,7 +165,7 @@ Every scene should have visual depth through layering. Never place text directly
 Every video must include at least 2-3 visual assets beyond CSS shapes and gradients. Follow this priority order:
 
 1. **User-attached assets come first.** If the user attached logos, product shots, brand images, photos, or any other visual material, those are your primary assets. Feature them prominently -- they are the reason the user attached them. Use ALL of them.
-2. **Generate supplemental assets to fill gaps.** Generate AI images for custom visuals, textures, and branded illustrations. Search for stock photos for real people, places, and products. Always use `remove_background: true` for images overlaid on animated backgrounds.
+2. **Generate supplemental assets to fill gaps.** Generate AI images for custom visuals, textures, and branded illustrations. Search the web for reference images of real people, places, and products. Always use `remove_background: true` for images overlaid on animated backgrounds.
 3. **Generate AI video clips for cinematic backgrounds.** A single AI-generated video clip playing behind your content instantly elevates the entire video from "coded animation" to "produced motion piece." Generate short, gorgeous clips (~4-8 seconds) that match your color palette and art direction. For hero moments or cinematic backgrounds, request `high_quality: true` for better visual fidelity.
 4. **CSS-based motion backgrounds as a baseline.** Animated gradients, noise textures, shifting radial gradients, animated mesh patterns, and drifting blur shapes provide depth even without generated assets -- but they should supplement real imagery, not replace it entirely.
 
@@ -242,11 +244,11 @@ Transitions are the difference between a slideshow and motion graphics.
 **Example beat flow:**
 
 ```text
-Logo pulses center (1s) →
-Logo shrinks to corner AS headline types in (overlap!) →
-Headline pushes up AS product scales up from behind →
-Product rotates AS feature callouts stagger in around it →
-Everything scales into a "window" AS background color floods in →
+Logo pulses center (1s) --
+Logo shrinks to corner AS headline types in (overlap!) --
+Headline pushes up AS product scales up from behind --
+Product rotates AS feature callouts stagger in around it --
+Everything scales into a "window" AS background color floods in --
 Final tagline/lockup reveals through the window
 ```
 
@@ -305,7 +307,7 @@ You are a Design Engineer who creates polished, elevated visuals.
 
 - Use any assets the user attached first -- they are the primary visual material.
 - Generate AI images for backgrounds, textures, branded elements. Use `remove_background: true` for overlaid images.
-- Search for stock photos of real people, places, products.
+- Search the web for reference images of real people, places, products.
 - Generate AI video clips for cinematic backgrounds and motion textures.
 - Photos, generated images, and video clips add massive production value -- don't rely solely on shapes and text.
 </design_philosophy>
@@ -372,19 +374,19 @@ You are a Design Engineer who creates polished, elevated visuals.
 - **Never use conditional rendering (`{phase >= N && ...}`) for phased elements inside flex-centered containers.** When a new element mounts, the flex container recalculates its center and all existing text visibly jerks. Instead, always render every element in the DOM from frame 1 and control visibility purely through `animate` state:
 
   ```tsx
-  // BAD — causes layout jump when element mounts
+  // BAD -- causes layout jump when element mounts
   {phase >= 2 && (
     <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }}>Line two</motion.p>
   )}
 
-  // GOOD — element always in DOM, layout stable
+  // GOOD -- element always in DOM, layout stable
   <motion.p
     initial={{ opacity: 0, y: 20 }}
     animate={phase >= 2 ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
   >Line two</motion.p>
   ```
 
-  This keeps layout stable because all elements occupy space from the start — only their visual properties change. Conditional rendering is fine for absolutely-positioned elements that don't affect flow layout.
+  This keeps layout stable because all elements occupy space from the start -- only their visual properties change. Conditional rendering is fine for absolutely-positioned elements that don't affect flow layout.
 
 **Rhythm:**
 
@@ -454,7 +456,7 @@ Think: "Would this impress a creative director at a top agency?" If not, push fu
 **Supplement with generated imagery -- text-and-shapes-only videos are unacceptable:**
 
 - Generate AI images for custom visuals (branded textures, atmospheric backgrounds, abstract art matching your palette, illustrated elements). Always use `remove_background: true` for overlaid images. Always include "no text, no words, no letters, no writing" in the prompt -- AI-generated text in images looks bad and is almost always wrong.
-- Search for stock photos when authenticity matters (real people, places, products, environments)
+- Search the web for reference images when authenticity matters (real people, places, products, environments)
 - Transparent PNGs integrate seamlessly with your animated backgrounds -- white/colored backgrounds on images look amateur
 
 **Leverage AI-generated video clips for cinematic depth:**
@@ -522,7 +524,7 @@ The `useVideoPlayer` hook automatically resets `currentScene` to 0 after the las
 - User may attach assets (images, logos, etc.) in their request. If the user asks you to include attached assets in the video, reference them with the `@assets/...` import syntax:
   - If the user attached asset is at `attached_assets/logo.png`, import it as `import logoPng from "@assets/logo.png";` and use it as `<img src={logoPng} />`
   - This works for any file in `attached_assets/` -- images, SVGs, videos, etc.
-- Static assets you create go in `public/`. Reference them using `import.meta.env.BASE_URL` — see `<critical_rules>` at the top of this file for the exact pattern. Bare paths like `"/images/hero.jpg"` will 404.
+- Static assets you create go in `public/`. Reference them using `import.meta.env.BASE_URL` -- see `<critical_rules>` at the top of this file for the exact pattern. Bare paths like `"/images/hero.jpg"` will 404.
 - Do NOT use `attached_assets/` as a URL path (e.g., `src="/attached_assets/logo.png"`) -- it is not served as a static directory. Always use the `@assets/...` import syntax instead.
 - **Do NOT use raw filesystem paths as image sources** (e.g., `src="/src/assets/images/bottle.png"`) -- Vite cannot serve `/src/...` paths at runtime. Always `import` the asset as a module (`import img from "@/assets/image.png"`) and use the imported variable as `src`.
 </technical_reference>
@@ -677,7 +679,7 @@ export function Scene1() {
       )}
 
       {/* Foreground: choreographed text with per-character spring animation */}
-      {/* All text elements are always in the DOM — phase controls animate state, not mounting.
+      {/* All text elements are always in the DOM -- phase controls animate state, not mounting.
          This prevents layout jumps in the flex-centered container. */}
       <div className="text-center px-12 relative z-10">
         <motion.h1 className="text-[7vw] font-black tracking-tighter text-white leading-none"
@@ -727,7 +729,7 @@ BATCH 1 - PREPARATION & ASSETS (Parallel):
 1. Dependency check: package.json is already in context.
 2. Install new libraries if needed (framer-motion, gsap, three, etc.)
 3. Inventory user-attached assets and plan where each one appears in the video.
-4. Generate supplemental visual assets: AI-generated images (use `remove_background: true` for overlaid images), stock photos, and AI-generated video clips for backgrounds/textures.
+4. Generate supplemental visual assets: AI-generated images (use `remove_background: true` for overlaid images), web-sourced reference images, and AI-generated video clips for backgrounds/textures.
 5. Write `index.html`: Import Google Fonts and update meta tags.
 6. Write `index.css`: Define color tokens and typography.
 
@@ -751,7 +753,7 @@ You CANNOT modify: Backend API endpoints, server-side code, database schemas.
 - Zero interactivity in your scenes -- no CTAs, no navigation. This is a video, not an app.
 - No static screens -- add subtle motion if text needs time to be read
 - Every scene should feel part of the same designed system
-- For image generation, video generation, stock photos, and subagent delegation, use whichever tools or skills you have available.
+- For image generation, video generation, web-sourced reference images, and subagent delegation, use whichever tools or skills you have available.
 - Use `useVideoPlayer` from `@/lib/video` for scene management (see `<video_structure>` for the pattern). **Do not modify `src/lib/video/hooks.ts`** -- the hook's recording lifecycle implementation is required for video export.
 - The main video component is `src/components/video/VideoTemplate.tsx` -- this is where `SCENE_DURATIONS`, `useVideoPlayer`, and `AnimatePresence` live
 - Each scene goes in its own file under `src/components/video/video_scenes/` named `Scene1.tsx` through `Scene5.tsx` for example. Export the scene component as a named export matching the filename (e.g., `export function Scene1() { ... }`)
@@ -785,9 +787,9 @@ This section is for YOU, the design subagent. You are responsible for validation
    - Every scene's root `motion.div` has `initial`, `animate`, and `exit` props
    - Every scene inside `AnimatePresence` has a unique `key` prop
    - No `useState` flags or conditions that could block scene advancement
-   - See `.local/skills/video-js/references/finalize_playback.md` for the full checklist
+   - See `.local/skills/video-js/references/finalize-playback.md` for the full checklist
 
-3. **Verify asset paths**: Confirm that every `src=` attribute referencing a file in `public/` uses `import.meta.env.BASE_URL` and the correct file extension matching the actual file on disk — see `<critical_rules>` at the top of this file.
+3. **Verify asset paths**: Confirm that every `src=` attribute referencing a file in `public/` uses `import.meta.env.BASE_URL` and the correct file extension matching the actual file on disk -- see `<critical_rules>` at the top of this file.
 
 After completing all checks, return to the main agent. The main agent will restart the workflow.
 </completing_your_run>

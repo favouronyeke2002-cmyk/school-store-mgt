@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UserPlus, Clock, CheckCircle, X, AlertCircle, ChevronLeft, ChevronRight, Users } from 'lucide-react';
-import { applicantAPI, studentAPI, settingsAPI } from '../../lib/api';
+import { applicantAPI, studentAPI, settingsAPI, feeTypeAPI, studentFeeAPI } from '../../lib/api';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -11,6 +11,7 @@ interface Applicant {
   full_name: string;
   proposed_class: string | null;
   phone: string | null;
+  student_status: 'Day' | 'Boarding' | null;
   status: 'pending' | 'eligible' | 'enrolled';
   eligible_at: string | null;
   enrolled_student_id: string | null;
@@ -23,7 +24,7 @@ interface Applicant {
 const PendingAdmissions: React.FC = () => {
   const [applicants, setApplicants] = useState<Applicant[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<'pending' | 'eligible' | 'enrolled' | 'all'>('eligible');
+  const [statusFilter, setStatusFilter] = useState<'pending' | 'eligible' | 'enrolled' | 'all'>('all');
   const [search, setSearch] = useState('');
 
   // Enrollment modal
@@ -32,6 +33,8 @@ const PendingAdmissions: React.FC = () => {
   const [enrollForm, setEnrollForm] = useState({ studentId: '', class: '', name: '' });
   const [enrollSaving, setEnrollSaving] = useState(false);
   const [enrollError, setEnrollError] = useState('');
+  const [enrollStatus, setEnrollStatus] = useState('');
+  const [enrollingBalance, setEnrollingBalance] = useState(0);
   const [classes, setClasses] = useState<string[]>([]);
 
   // Delete modal
@@ -48,7 +51,13 @@ const PendingAdmissions: React.FC = () => {
 
   const load = () => {
     setLoading(true);
-    applicantAPI.getAll({ status: statusFilter !== 'all' ? statusFilter : undefined, search }).then(setApplicants).catch(console.error).finally(() => setLoading(false));
+    applicantAPI.getAll({ status: statusFilter !== 'all' ? statusFilter : undefined, search })
+      .then((data) => {
+        // When showing "All Statuses", hide enrolled applicants — they've been processed
+        setApplicants(statusFilter === 'all' ? data.filter((a: Applicant) => a.status !== 'enrolled') : data);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, [statusFilter, search]);
@@ -57,35 +66,84 @@ const PendingAdmissions: React.FC = () => {
     setEnrollTarget(a);
     setEnrollForm({ studentId: '', class: a.proposed_class || classes[0] || '', name: `${a.first_name} ${a.last_name}` });
     setEnrollError('');
+    setEnrollingBalance(0);
     setShowEnroll(true);
+    // Async-fetch outstanding balance to show carrying-forward badge in modal
+    applicantAPI.getOutstandingBalance(a.id).then(setEnrollingBalance).catch(console.error);
   };
 
   const handleEnroll = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!enrollTarget) return;
-    if (!enrollForm.studentId || !enrollForm.class || !enrollForm.name) {
-      setEnrollError('All fields are required');
+    if (!enrollForm.class || !enrollForm.name) {
+      setEnrollError('Class and name are required');
       return;
     }
     setEnrollSaving(true);
     setEnrollError('');
 
-    // Create the student
+    // ── STEP 1: Create student record, fix boarding status flip ──────────────
+    setEnrollStatus('Creating student record…');
     const result = await studentAPI.create({
-      studentId: enrollForm.studentId,
+      studentId: enrollForm.studentId || undefined,   // empty → auto-generate
       name: enrollForm.name,
       studentClass: enrollForm.class,
       admissionType: 'New',
+      applicantId: enrollTarget.id,
+      studentStatus: enrollTarget.student_status || 'Day',  // ← fix status flip
     });
 
     if (!result.success) {
       setEnrollError(result.error || 'Failed to create student');
       setEnrollSaving(false);
+      setEnrollStatus('');
       return;
     }
 
-    // Link applicant to student
-    await applicantAPI.enroll(enrollTarget.id, result.studentId);
+    const newStudentId = result.studentId;
+
+    // ── STEP 2: Link applicant → student (also bridges transactions.student_id) ─
+    setEnrollStatus('Linking applicant record…');
+    await applicantAPI.enroll(enrollTarget.id, newStudentId);
+
+    // ── STEP 3: Inherit standard class fees for the current term ─────────────
+    setEnrollStatus('Assigning class fees…');
+    try {
+      const settings = await settingsAPI.get();
+      const classFees = await feeTypeAPI.getByClass(enrollForm.class);
+      const housingStatus = enrollTarget.student_status || 'Day';
+      const applicableFees = classFees.filter((f: any) => {
+        if (f.fee_category !== 'standard') return false;
+        if (f.applicable_to === 'Day' && housingStatus !== 'Day') return false;
+        if (f.applicable_to === 'Boarding' && housingStatus !== 'Boarding') return false;
+        if (settings.current_term && f.term && f.term !== settings.current_term) return false;
+        return true;
+      });
+      for (const fee of applicableFees) {
+        await feeTypeAPI.assignToStudents(
+          fee.id, Number(fee.amount), undefined, newStudentId, 'standard', fee.applicable_to,
+        );
+      }
+    } catch (feeErr) {
+      console.warn('Class fee assignment skipped (non-fatal):', feeErr);
+    }
+
+    // ── STEP 4: Carry over any outstanding registration bundle balance ────────
+    setEnrollStatus('Bridging registration balance…');
+    try {
+      const balance = await applicantAPI.getOutstandingBalance(enrollTarget.id);
+      if (balance > 0) {
+        const settings = await settingsAPI.get();
+        await studentFeeAPI.addCarryOverEntry(
+          newStudentId, balance,
+          settings.academic_session || '', settings.current_term || '',
+        );
+      }
+    } catch (balErr) {
+      console.warn('Balance carry-over skipped (non-fatal):', balErr);
+    }
+
+    setEnrollStatus('');
     setShowEnroll(false);
     load();
     setEnrollSaving(false);
@@ -111,10 +169,10 @@ const PendingAdmissions: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value as any); setPage(1); }} className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
+            <option value="all">All Statuses</option>
             <option value="eligible">Ready to Enroll</option>
             <option value="pending">Pending Payment</option>
             <option value="enrolled">Enrolled</option>
-            <option value="all">All</option>
           </select>
         </div>
       </div>
@@ -169,11 +227,9 @@ const PendingAdmissions: React.FC = () => {
                         <button onClick={() => openEnroll(a)} className="px-3 py-1.5 bg-success-600 text-white rounded-lg text-xs font-semibold hover:bg-success-700 mr-1">Enroll</button>
                       )}
                       {a.status === 'enrolled' && a.enrolled_student_id && (
-                        <span className="text-xs text-gray-500">{a.enrolled_student_name} ({a.enrolled_student_class})</span>
+                        <span className="text-xs text-gray-500 mr-1">{a.enrolled_student_name} ({a.enrolled_student_class})</span>
                       )}
-                      {a.status !== 'enrolled' && (
-                        <button onClick={() => { setDeleteTarget(a); setShowDelete(true); }} className="px-2 py-1 text-xs text-danger-600 hover:bg-danger-50 rounded">Delete</button>
-                      )}
+                      <button onClick={() => { setDeleteTarget(a); setShowDelete(true); }} className="px-2 py-1 text-xs text-danger-600 hover:bg-danger-50 rounded">Delete</button>
                     </td>
                   </tr>
                 ))}
@@ -207,7 +263,21 @@ const PendingAdmissions: React.FC = () => {
               <div className="font-semibold text-gray-900">{enrollTarget.full_name}</div>
               <div className="text-sm text-gray-500">Applied: {new Date(enrollTarget.created_at).toLocaleDateString()}</div>
             </div>
+            {enrollingBalance > 0 && (
+              <div className="flex items-center gap-2 bg-warning-50 border border-warning-200 rounded-xl px-4 py-2.5 mb-4">
+                <AlertCircle className="w-4 h-4 text-warning-600 shrink-0" />
+                <span className="text-sm text-warning-800 font-medium">
+                  Carrying forward <strong>{fmt(enrollingBalance)}</strong> outstanding bundle balance to student profile
+                </span>
+              </div>
+            )}
 
+            {enrollStatus && (
+              <div className="flex items-center gap-2 bg-primary-50 border border-primary-200 rounded-lg px-4 py-2.5 mb-4">
+                <div className="w-3.5 h-3.5 border-2 border-primary-300 border-t-primary-600 rounded-full animate-spin shrink-0" />
+                <span className="text-sm text-primary-800 font-medium">{enrollStatus}</span>
+              </div>
+            )}
             {enrollError && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{enrollError}</div>}
 
             <form onSubmit={handleEnroll} className="space-y-4">

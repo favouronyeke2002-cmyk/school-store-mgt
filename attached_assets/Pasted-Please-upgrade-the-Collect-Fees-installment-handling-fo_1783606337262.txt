@@ -1,0 +1,53 @@
+Please upgrade the 'Collect Fees' installment handling for the "Registration Fee Bundle - Outstanding Balance" card to ensure zero financial data leakage. Implement this exact ledger math and database logic:
+
+1. UNDERSTAND THE INSTALLMENT MATHEMATICS
+- Total Bundle Price = The original fixed cost of the bundle template.
+- Total Amount Paid = The sum of ALL successful transactions logged for this bundle type for the student/applicant.
+- Current Balance Due = (Total Bundle Price) minus (Total Amount Paid).
+- Ensure the 'Outstanding Balance' card dynamically calculates this math using a SUM aggregation of all related payments rather than just reading a static snapshot column, preventing race conditions.
+
+2. AIRTIGHT INSTALLMENT SUBMISSION LOGIC
+When a cashier collects a partial payment (installment) against the "Registration Fee Bundle - Outstanding Balance" card, execute these operations safely in a single database transaction:
+- CREATE A NEW TRANSACTION ROW: Do not just overwrite the old row. Insert a new row in the 'transactions' (or 'applicant_payments') table.
+  * Set 'amount_paid' = the exact installment amount the cashier just typed in.
+  * Set 'payment_type' or description = "Bundle Installment Payment".
+  * Link it correctly to the student_id / applicant_id and the current academic_term_id.
+- UPDATE THE MASTER LEDGER BALANCE: Calculate the new 'balance_due' dynamically: New Balance = Previous Balance - Amount Just Paid. Update the parent/original registration record's 'balance_due' field with this precise calculated value.
+
+3. CONCURRENT REFRESH & CASHIER CONFIRMATION
+- Immediately upon a successful installment insert, re-run the calculation query.
+- Update the UI state so the "Registration Fee Bundle - Outstanding Balance" card instantly drops to the correct new balance without requiring a page reload.
+- If the new balance reaches 0, automatically clear the card from the active screen and display a success badge: "Bundle Fully Paid".
+
+4. DEFENSIVE MATH OVERFLOW GUARD
+- Add a frontend and backend validation check: Do not allow the cashier to type in an installment amount that is GREATER than the current outstanding bundle balance. (e.g., If they owe ₦50,000, throw an error if the cashier inputs ₦55,000).
+We have a critical operational tracking issue where cashiers are duplicating pending students. Currently, because there is no way to search existing applicants, the cashier clicks "Walk-In Applicant" for every single subsequent installment payment (Form, Acceptance, Bundle), creating duplicate records and fragmenting outstanding balances.
+
+Please completely upgrade the Applicant-to-Student conversion and Cashier checkout flow using these exact rules:
+
+1. ADD A "PENDING APPLICANTS" FILTER FOR THE CASHIER
+- In the main screen's "Select Customer" section (behind the modal), update the dropdown filter (which currently says "All Classes"). 
+- Add a dedicated option to this list called: "Pending Applicants".
+- Selecting "Pending Applicants" must query the 'applicants' table for individuals who have not yet been enrolled as full students. 
+- The cashier can then type in the "Search by name..." input box to find an existing pending student, select them, and load their active checkout cart or installment cards without creating a duplicate record.
+
+2. AIRTIGHT BALANCE TRANSLATION UPON ADMIN ENROLLMENT
+Modify the Admin enrollment function (where an applicant is converted into an enrolled student) to ensure zero financial leakage:
+- When an Admin clicks "Enroll" on an applicant, the system must create the new row in the 'students' table, but it MUST maintain a strict relational link to their original 'applicant_id'.
+- Any outstanding 'balance_due' from their bundle or registration transactions in the 'transactions' or 'applicant_payments' tables must remain anchored to them. 
+- When loading this newly enrolled student in the "Collect Fees" module, the system must fetch that carried-over historical bundle balance and display it as the "Registration Fee Bundle - Outstanding Balance" card normally.
+
+3. PREVENT DUPLICATE APPLICANT SUBMISSIONS
+- Inside the "Walk-In Applicant" modal form, add a frontend check on the 'Create Applicant' button submission.
+- If the First Name, Last Name, and Proposed Class match an existing record in the 'applicants' table, pop up a warning toast/alert: "An applicant with this name already exists. Please search for them under the Pending Applicants filter instead."
+Please optimize the connection between the Cashier Panel and the Admin Enrollment process using these exact structural rules:
+
+1. CASHIER CUSTOMER SEARCH UPGRADE
+- In the Cashier panel's student selection section, add a clear filter toggle or dropdown option next to the search bar to switch the search context between "Enrolled Students" and "Pending Applicants".
+- When "Pending Applicants" is selected, the search input must query the 'applicants' table instead of the 'students' table so cashiers can pull up existing pre-enrollment records and log installment payments against them without creating duplicates.
+
+2. ADMIN ENROLLMENT MODAL FINANCIAL BRIDGE
+- Update the "Enroll Applicant" modal component in the Admin Panel.
+- Before submission, make the modal fetch and display any existing outstanding balance from the applicant's bundle/transaction history as a clear warning badge (e.g., "Carrying forward ₦94,000.00 to student profile").
+- Upon clicking "Enroll as Student", ensure the backend insert operation securely saves the applicant's original 'id' into an 'applicant_id' column inside the new 'students' record to maintain a perfect audit history.
+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

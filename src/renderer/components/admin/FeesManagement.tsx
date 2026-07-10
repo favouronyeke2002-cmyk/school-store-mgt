@@ -948,8 +948,8 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
               )}
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Residency / Tier <span className="text-gray-400 font-normal">(applicable to)</span></label>
-                <div className="grid grid-cols-2 gap-2">
-                  {['All Students', 'Day', 'Boarding', 'Remedial'].map((opt) => (
+                <div className="grid grid-cols-3 gap-2">
+                  {['All Students', 'Day', 'Boarding'].map((opt) => (
                     <button key={opt} type="button" onClick={() => setForm((p) => ({ ...p, applicableTo: opt }))} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${form.applicableTo === opt ? 'bg-gray-700 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`}>{opt}</button>
                   ))}
                 </div>
@@ -1102,8 +1102,8 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Residency / Tier <span className="text-gray-400 font-normal">(applicable to)</span></label>
-                <div className="grid grid-cols-2 gap-2">
-                  {['All Students', 'Day', 'Boarding', 'Remedial'].map((opt) => (
+                <div className="grid grid-cols-3 gap-2">
+                  {['All Students', 'Day', 'Boarding'].map((opt) => (
                     <button key={opt} type="button" onClick={() => setEditForm((p) => ({ ...p, applicableTo: opt }))} className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${editForm.applicableTo === opt ? 'bg-gray-700 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`}>{opt}</button>
                   ))}
                 </div>

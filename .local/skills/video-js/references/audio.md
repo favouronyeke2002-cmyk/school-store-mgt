@@ -1,6 +1,6 @@
 # Video Audio
 
-This reference is only available when audio generation callbacks are enabled. Use it during the main-agent post-build pass for `video-js` artifacts, after the DESIGN subagent has finished and workflow logs are clean.
+Use this reference during the main-agent post-build pass for `video-js` artifacts, after the DESIGN subagent has finished and workflow logs are clean.
 
 ## Default behavior
 
@@ -43,7 +43,7 @@ Always include `No vocals`. Sung lyrics fight voiceover and on-screen copy.
 
 ## Add audio controls before playback wiring
 
-When applying `scene_selectors.md`, extend the control wrapper before adding the `<audio>` element to `VideoTemplate`.
+When applying `scene-selectors.md`, extend the control wrapper before adding the `<audio>` element to `VideoTemplate`.
 
 In `VideoWithControls`:
 

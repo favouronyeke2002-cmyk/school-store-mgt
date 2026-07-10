@@ -876,9 +876,10 @@ const RegistrationFlowModal: React.FC<{
   );
 };
 
-// ─── Student Quick List (with pagination) ─────────────────────────────────────
-const StudentQuickList: React.FC<{ onSelect: (s: Student) => void }> = ({ onSelect }) => {
+// ─── Student Quick List (with pagination + Pending Applicants toggle) ──────────
+const StudentQuickList: React.FC<{ onSelect: (s: Student) => void; onSelectApplicant?: (a: any) => void }> = ({ onSelect, onSelectApplicant }) => {
   const [students, setStudents] = useState<Student[]>([]);
+  const [applicants, setApplicants] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -886,13 +887,25 @@ const StudentQuickList: React.FC<{ onSelect: (s: Student) => void }> = ({ onSele
   const [classes, setClasses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [debtorsOnly, setDebtorsOnly] = useState(false);
+  const [showPending, setShowPending] = useState(false);
   const pageSize = 12;
 
   useEffect(() => { studentAPI.getClasses().then(setClasses).catch(console.error); }, []);
   useEffect(() => {
     setLoading(true);
-    studentAPI.getAll({ search, class: cls, page, pageSize, hasBalance: debtorsOnly || undefined }).then((d) => { setStudents(d.students); setTotal(d.total); }).catch(console.error).finally(() => setLoading(false));
-  }, [search, cls, page, debtorsOnly]);
+    if (showPending) {
+      applicantAPI.getAll({ search: search || undefined }).then((data: any[]) => {
+        const nonEnrolled = data.filter((a: any) => a.status !== 'enrolled');
+        setApplicants(nonEnrolled);
+        setTotal(nonEnrolled.length);
+        setStudents([]);
+      }).catch(console.error).finally(() => setLoading(false));
+    } else {
+      studentAPI.getAll({ search, class: cls, page, pageSize, hasBalance: debtorsOnly || undefined }).then((d) => {
+        setStudents(d.students); setTotal(d.total); setApplicants([]);
+      }).catch(console.error).finally(() => setLoading(false));
+    }
+  }, [search, cls, page, debtorsOnly, showPending]);
 
   const totalPages = Math.ceil(total / pageSize);
 
@@ -901,21 +914,49 @@ const StudentQuickList: React.FC<{ onSelect: (s: Student) => void }> = ({ onSele
       <div className="flex gap-2 mb-4 flex-wrap">
         <div className="flex-1 relative min-w-0">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="w-full pl-9 pr-3 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" placeholder="Search by name…" />
+          <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="w-full pl-9 pr-3 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" placeholder={showPending ? 'Search pending applicants…' : 'Search by name…'} />
         </div>
-        <select value={cls} onChange={(e) => { setCls(e.target.value); setPage(1); }} className="border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
-          <option value="all">All Classes</option>
-          {classes.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
+        {!showPending && (
+          <select value={cls} onChange={(e) => { setCls(e.target.value); setPage(1); }} className="border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
+            <option value="all">All Classes</option>
+            {classes.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        )}
         <button
           type="button"
-          onClick={() => { setDebtorsOnly((v) => !v); setPage(1); }}
-          className={`shrink-0 px-3 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${debtorsOnly ? 'bg-danger-600 border-danger-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-danger-400 hover:text-danger-600'}`}
+          onClick={() => { setShowPending((v) => !v); setPage(1); setSearch(''); }}
+          className={`shrink-0 px-3 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${showPending ? 'bg-warning-500 border-warning-500 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-warning-400 hover:text-warning-600'}`}
         >
-          Balance Due Only
+          Pending Applicants
         </button>
+        {!showPending && (
+          <button
+            type="button"
+            onClick={() => { setDebtorsOnly((v) => !v); setPage(1); }}
+            className={`shrink-0 px-3 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${debtorsOnly ? 'bg-danger-600 border-danger-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-danger-400 hover:text-danger-600'}`}
+          >
+            Balance Due Only
+          </button>
+        )}
       </div>
-      {loading ? <div className="text-center py-8 text-gray-400">Loading…</div> : (
+      {loading ? <div className="text-center py-8 text-gray-400">Loading…</div> : showPending ? (
+        <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
+          {applicants.length === 0 ? (
+            <div className="col-span-full text-center py-12 text-gray-300 text-sm">No pending applicants found</div>
+          ) : applicants.map((a: any) => (
+            <button key={a.id} onClick={() => onSelectApplicant?.(a)} className="bg-white rounded-xl p-4 text-left border border-warning-200 hover:border-warning-400 hover:shadow-md transition-all">
+              <div className="flex items-start justify-between mb-2">
+                <div className="w-9 h-9 bg-warning-100 rounded-full flex items-center justify-center text-warning-700 font-bold text-sm">{a.full_name.charAt(0)}</div>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${a.status === 'eligible' ? 'bg-success-100 text-success-700' : 'bg-warning-100 text-warning-700'}`}>
+                  {a.status === 'eligible' ? 'Eligible' : 'Pending'}
+                </span>
+              </div>
+              <div className="font-semibold text-sm text-gray-900">{a.full_name}</div>
+              <div className="text-xs text-gray-400">{a.proposed_class || 'Class TBD'} · #{a.id}</div>
+            </button>
+          ))}
+        </div>
+      ) : (
         <>
           <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
             {students.map((s) => (
@@ -1346,6 +1387,7 @@ const CashierPOS: React.FC = () => {
   const [showBundleBalancePayment, setShowBundleBalancePayment] = useState(false);
   const [bundleBalanceAmount, setBundleBalanceAmount] = useState('');
   const [bundleBalanceProcessing, setBundleBalanceProcessing] = useState(false);
+  const [bundleFullyPaid, setBundleFullyPaid] = useState(false);
 
   // UI state
   const [showReceipt, setShowReceipt] = useState(false);
@@ -1442,6 +1484,24 @@ const CashierPOS: React.FC = () => {
   // Student search suggestions (paginated)
   useEffect(() => {
     if (!studentSearch || selectedStudent) { setStudentSuggestions([]); setStudentSuggTotal(0); return; }
+    // When "Pending Applicants" filter is active, search the applicants table instead
+    if (studentClassFilter === '__pending__') {
+      applicantAPI.getAll({ search: studentSearch }).then((applicants: any[]) => {
+        const nonEnrolled = applicants.filter((a: any) => a.status !== 'enrolled');
+        const mapped = nonEnrolled.map((a: any) => ({
+          student_id: `__applicant__${a.id}`,
+          name: a.full_name,
+          student_class: a.proposed_class || 'Pending',
+          current_fees_owed: 0,
+          _isApplicant: true,
+          _applicant: a,
+        })) as any[];
+        setStudentSuggestions(mapped);
+        setStudentSuggTotal(mapped.length);
+        setShowStudentDrop(mapped.length > 0);
+      }).catch(console.error);
+      return;
+    }
     studentAPI.getAll({
       search: studentSearch,
       class: studentClassFilter !== 'all' ? studentClassFilter : undefined,
@@ -1494,7 +1554,14 @@ const CashierPOS: React.FC = () => {
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  const selectStudent = (s: Student) => {
+  const selectStudent = (s: any) => {
+    // When an applicant is selected from the pending filter, load them as a walk-in
+    if (s._isApplicant && s._applicant) {
+      setWalkInApplicant({ ...s._applicant });
+      setStudentSearch('');
+      setShowStudentDrop(false);
+      return;
+    }
     setSelectedStudent(s);
     setStudentSearch(s.name);
     setShowStudentDrop(false);
@@ -1502,9 +1569,10 @@ const CashierPOS: React.FC = () => {
     setFeesAmount('');
     setSelectedFee(null);
     setSaleMode('store');
+    setBundleFullyPaid(false);
   };
 
-  const clearStudent = () => { setSelectedStudent(null); setStudentSearch(''); setCart([]); setFeesAmount(''); setSelectedFee(null); };
+  const clearStudent = () => { setSelectedStudent(null); setStudentSearch(''); setCart([]); setFeesAmount(''); setSelectedFee(null); setBundleFullyPaid(false); };
 
   const addToCart = useCallback((item: InventoryItem) => {
     if (item.stock_quantity <= 0) return;
@@ -1621,15 +1689,19 @@ const CashierPOS: React.FC = () => {
           student_name: selectedStudent.name,
           student_class: selectedStudent.student_class,
           payment_mode: feesPayMode,
-          fee_type_name: 'Registration Fee Bundle - Balance Payment',
+          fee_type_name: 'Registration Fee Bundle - Installment Payment',
         };
         setLastTxn({ isFees: true, isRegistration: false, transaction: receiptTxn, total: amount, items: [] });
         setShowReceipt(true);
-        // Refresh bundle info
+        // Refresh bundle info — detect when balance is fully cleared
         const updatedBundle = await studentFeeAPI.checkStudentBundlePayment(selectedStudent.student_id, schoolSettings?.current_term);
         setBundlePaymentInfo(updatedBundle);
         setBundleBalanceAmount('');
         setShowBundleBalancePayment(false);
+        if (result.newBalance <= 0) {
+          setBundleFullyPaid(true);
+          setTimeout(() => setBundleFullyPaid(false), 5000);
+        }
         const updated = await studentAPI.getById(selectedStudent.student_id);
         if (updated) setSelectedStudent(updated);
       }
@@ -1791,6 +1863,19 @@ const CashierPOS: React.FC = () => {
     setWalkInSaving(true);
     setWalkInError('');
     try {
+      // Duplicate guard: warn if a non-enrolled applicant with same name + class already exists
+      const existingApplicants = await applicantAPI.getAll({ search: `${data.firstName} ${data.lastName}` });
+      const duplicate = existingApplicants.find((a: any) =>
+        a.first_name?.toLowerCase() === data.firstName.toLowerCase() &&
+        a.last_name?.toLowerCase() === data.lastName.toLowerCase() &&
+        a.proposed_class === data.proposedClass &&
+        a.status !== 'enrolled'
+      );
+      if (duplicate) {
+        setWalkInError(`An applicant named "${data.firstName} ${data.lastName}" for ${data.proposedClass} already exists (ID #${duplicate.id}). Use the "Pending Applicants" filter in the customer search to find and select them instead of creating a duplicate.`);
+        setWalkInSaving(false);
+        return;
+      }
       const result = await applicantAPI.create({ firstName: data.firstName, lastName: data.lastName, proposedClass: data.proposedClass, studentStatus: data.studentStatus });
       if (result.success) {
         const applicant = await applicantAPI.getById(result.id);
@@ -2052,6 +2137,7 @@ const CashierPOS: React.FC = () => {
                 {/* Class filter */}
                 <select value={studentClassFilter} onChange={(e) => { setStudentClassFilter(e.target.value); setSelectedStudent(null); setStudentSearch(''); setStudentSuggPage(1); }} className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 shrink-0">
                   <option value="all">All Classes</option>
+                  <option value="__pending__">Pending Applicants</option>
                   {classes.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
                 {/* Name search */}
@@ -2263,7 +2349,15 @@ const CashierPOS: React.FC = () => {
                   <p className="text-sm text-gray-500">Student: <strong>{selectedStudent.name}</strong> · {selectedStudent.student_class}</p>
 
                   {/* Outstanding bundle/registration balance card (appended, never hides standard fees) */}
-                  {bundlePaymentInfo?.hasBundle && !bundlePaymentInfo?.isFullPayment && (bundlePaymentInfo?.balanceDue ?? 0) > 0 && (
+                  {bundleFullyPaid ? (
+                    <div className="flex items-center gap-3 bg-success-50 border border-success-300 rounded-xl p-4">
+                      <CheckCircle className="w-6 h-6 text-success-600 shrink-0" />
+                      <div>
+                        <div className="font-bold text-success-800">Bundle Fully Paid</div>
+                        <div className="text-sm text-success-600">Registration fee bundle balance has been cleared.</div>
+                      </div>
+                    </div>
+                  ) : bundlePaymentInfo?.hasBundle && !bundlePaymentInfo?.isFullPayment && (bundlePaymentInfo?.balanceDue ?? 0) > 0 ? (
                     <div className="space-y-3">
                       <div className="bg-warning-50 border border-warning-200 rounded-xl p-4">
                         <div className="flex items-center gap-2 mb-2">
@@ -2277,13 +2371,13 @@ const CashierPOS: React.FC = () => {
                         </div>
                       </div>
                       <button
-                        onClick={() => setShowBundleBalancePayment(true)}
+                        onClick={() => { setBundleBalanceAmount(String(bundlePaymentInfo?.balanceDue)); setShowBundleBalancePayment(true); }}
                         className="w-full py-3 bg-warning-600 text-white font-bold rounded-xl hover:bg-warning-700 transition-all"
                       >
                         Collect Towards Bundle Balance
                       </button>
                     </div>
-                  )}
+                  ) : null}
 
                   {(studentFees?.length ?? 0) === 0 ? (
                     !(bundlePaymentInfo?.hasBundle && !bundlePaymentInfo?.isFullPayment) && (
@@ -2724,7 +2818,10 @@ const CashierPOS: React.FC = () => {
       {tab === 'students' && (
         <div className="flex-1 overflow-auto p-6">
           <div className="mb-5"><h1 className="text-xl font-bold">Students</h1><p className="text-gray-400 text-sm">View student accounts and fees balance</p></div>
-          <StudentQuickList onSelect={(s) => { selectStudent(s); setTab('sale'); }} />
+          <StudentQuickList
+            onSelect={(s) => { selectStudent(s); setTab('sale'); }}
+            onSelectApplicant={(a) => { setWalkInApplicant({ ...a }); setTab('sale'); }}
+          />
         </div>
       )}
 
@@ -2950,11 +3047,27 @@ const CashierPOS: React.FC = () => {
                   <input
                     type="text"
                     value={bundleBalanceAmount}
-                    onChange={(e) => setBundleBalanceAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/[^0-9.]/g, '');
+                      const parsed = parseFloat(raw);
+                      // Overflow guard: never allow entry beyond current balance
+                      if (!isNaN(parsed) && parsed > bundlePaymentInfo.balanceDue) {
+                        setBundleBalanceAmount(String(bundlePaymentInfo.balanceDue));
+                      } else {
+                        setBundleBalanceAmount(raw);
+                      }
+                    }}
                     className="w-full pl-8 pr-3 py-3 border border-gray-200 rounded-xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-primary-400"
                     placeholder="0.00"
                   />
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setBundleBalanceAmount(String(bundlePaymentInfo.balanceDue))}
+                  className="mt-2 w-full py-1.5 text-xs bg-gray-100 rounded-lg hover:bg-gray-200 font-semibold"
+                >
+                  Pay Full Balance ({fmt(bundlePaymentInfo.balanceDue)})
+                </button>
               </div>
               <div className="flex gap-2">
                 <button

@@ -69,7 +69,7 @@ You can import using `@/` to avoid relative paths (e.g., `import { Button } from
 
 Use react-native's `StyleSheet` for styling. Reference colors from `constants/colors.ts` via the `useColors()` hook in `hooks/useColors.ts` — avoid hardcoding hex values in components.
 
-If this Expo artifact is part of a multi-artifact project (e.g., alongside a react-vite web app), read `design_and_aesthetics.md` before writing component code — it covers how to sync colors, fonts, and radius from the sibling artifact so both share the same visual identity.
+If this Expo artifact is part of a multi-artifact project (e.g., alongside a react-vite web app), read `design-and-aesthetics.md` before writing component code — it covers how to sync colors, fonts, and radius from the sibling artifact so both share the same visual identity.
 
 ## Networking
 - Use `@/lib/query-client` for all data fetching.
@@ -90,7 +90,7 @@ Generate a custom app icon for the app. Read the mobile-ui skill's app-icon.md r
 - There are two workflows for this stack:
   - `Start Backend`: Restarts (or starts) the Express server. Use `await restartWorkflow({ workflowName: "Start Backend" })` after backend changes. Do not restart this workflow for frontend-only changes — restarting takes time and degrades UX.
   - `Start Frontend`: Restarts (or starts) the Expo dev server. HMR handles most code changes automatically. Do not restart unless you updated dependencies or fixed an error.
-- After presenting the artifact, call `suggestDeploy()` so the user knows their app is ready to publish.
+- After presenting the artifact, call `SuggestUserAction({ action: "deploy", message: "The app is ready to publish." })`.
 
 ## React Native Pitfalls
 
@@ -270,12 +270,11 @@ If prompted to add payments (i.e. subscriptions, in-app purchases, etc.), always
 
 ## Publishing
 
-Replit has a built-in publishing flow for Expo apps called **Expo Launch**. Expo Launch handles the production build and **App Store (iOS) submission only** — the user triggers it by clicking the Publish button. More information can be found in the Replit docs which you can search. Only call `suggestDeploy()` after the app is fully built and verified (see `## Workflow` for when to call it), and only when iOS publishing is relevant. Do not call it mid-build or in response to a planning question.
+Replit has a built-in publishing flow for Expo apps called **Expo Launch**. Expo Launch handles the production build and **App Store (iOS) submission only** — the user triggers it by clicking the Publish button. More information can be found in the Replit docs which you can search. Only call `SuggestUserAction({ action: "deploy", message: "The app is ready to publish." })` after the app is fully built and verified (see `## Workflow` for when to call it), and only when iOS publishing is relevant. Do not call it mid-build or in response to a planning question.
 
 - If the user asks what **Expo Launch** is: explain it is Replit's built-in flow for building and submitting the app to the App Store (iOS). More info is in the Replit docs.
-- If the user asks about **Google Play (Android)** publishing: let them know it is **not currently supported** on Replit. Do not call `suggestDeploy()` for Android-only requests.
+- If the user asks about **Google Play (Android)** publishing: let them know it is **not currently supported** on Replit. Do not call `SuggestUserAction({ action: "deploy", message: "..." })` for Android-only requests.
 - Do not attempt to help with EAS CLI commands or manual App Store submission — Replit's Expo Launch handles App Store publishing.
-- `suggestDeploy()` only works from the main agent context. Do not call it from a task-agent or subrepl session — it will return `success: false`. Instead, remind the user to publish from the main project after merging.
 
 ## Forbidden Changes
 - NEVER edit package.json directly. See package management skill for instructions on installing packages.
@@ -289,10 +288,10 @@ Replit has a built-in publishing flow for Expo apps called **Expo Launch**. Expo
 
 Before writing code, identify whether any reference below applies to the task. If it does, read it first.
 
-- `.local/skills/expo/references/first_build.md` - Use this reference when first building an Expo app (from 0 to 1)
-- `.local/skills/expo/references/react_context.md` - Use this reference when creating or modifying shared state with React context, provider composition, or context-based hooks.
-- `.local/skills/expo/references/design_and_aesthetics.md` - Use this reference when designing or restyling UI, selecting iconography, or implementing animations and visual polish. Skip the "Cross-Artifact Design Consistency" section unless this expo artifact is part of a multi-artifact project with a sibling web app.
-- `.local/skills/expo/references/device_features_and_permissions.md` - Use this reference when implementing camera, location, notifications, contacts, file uploads, or any permission request/denial flow.
+- `.local/skills/expo/references/first-build.md` - Use this reference when first building an Expo app (from 0 to 1)
+- `.local/skills/expo/references/react-context.md` - Use this reference when creating or modifying shared state with React context, provider composition, or context-based hooks.
+- `.local/skills/expo/references/design-and-aesthetics.md` - Use this reference when designing or restyling UI, selecting iconography, or implementing animations and visual polish. Skip the "Cross-Artifact Design Consistency" section unless this expo artifact is part of a multi-artifact project with a sibling web app.
+- `.local/skills/expo/references/device-features-and-permissions.md` - Use this reference when implementing camera, location, notifications, contacts, file uploads, or any permission request/denial flow.
 - mobile-ui skill's `.local/skills/mobile-ui/references/keyboard.md` - Use this reference when implementing any keyboard handling — forms with multiple inputs, chat/messaging UIs, FlatList with inputs, or keyboard utilities (dismiss, detect visibility).
 - mobile-ui skill's `.local/skills/mobile-ui/references/sheets.md` - Use this reference when implementing modals, sheets, formSheet presentations, auth flows (login/register), wizards, or overlay UI.
 - mobile-ui skill's `.local/skills/mobile-ui/references/tabs.md` - Use this reference when implementing tab bars — covers NativeTabs with liquid glass support (SDK 54+) and classic Tabs fallback with detailed code examples.

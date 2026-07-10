@@ -323,6 +323,7 @@ export const studentAPI = {
     feesOwed?: number;
     admissionType?: "Returning" | "New";
     studentStatus?: "Day" | "Boarding";
+    applicantId?: number;
   }) {
     let id = data.studentId;
     if (!id) {
@@ -336,7 +337,7 @@ export const studentAPI = {
       }, 0);
       id = "OIS-" + String(maxId + 1).padStart(3, "0");
     }
-    // Try with student_status first, fall back without if column missing
+    // Try with student_status + applicant_id first, fall back progressively if columns missing
     const base = {
       student_id: id,
       name: data.name,
@@ -345,6 +346,12 @@ export const studentAPI = {
       admission_type: data.admissionType || "Returning",
     };
     const withStatus = { ...base, student_status: data.studentStatus || "Day" };
+    const withApplicant = { ...withStatus, applicant_id: data.applicantId };
+    // Try most-specific first, fall back on column-missing errors
+    if (data.applicantId) {
+      const { error: e0 } = await supabase.from("students").insert(withApplicant);
+      if (!e0) return { success: true, studentId: id };
+    }
     const { error: e1 } = await supabase.from("students").insert(withStatus);
     if (e1) {
       const { error: e2 } = await supabase.from("students").insert(base);
@@ -839,12 +846,22 @@ export const feeTypeAPI = {
 
     if (specificStudentId) {
       query = query.eq("student_id", specificStudentId);
+      // Even for a named student, respect housing tier — a Boarding fee must
+      // never land on a Day student (and vice-versa).
+      if (applicableTo === "Day") query = query.eq("student_status", "Day");
+      else if (applicableTo === "Boarding")
+        query = query.eq("student_status", "Boarding");
     } else {
-      if (classFilter) query = query.eq("student_class", classFilter);
+      if (classFilter) {
+        // class_filter in fee_types is a comma-separated list; match strictly —
+        // only assign to a class that is explicitly listed, never via wildcard.
+        const classList = classFilter.split(",").map((c) => c.trim());
+        query = query.in("student_class", classList);
+      }
       // Standard fees do NOT apply to 'New' students
       if (feeCategory === "standard")
         query = query.eq("admission_type", "Returning");
-      // Filter by student status if applicable_to is set
+      // Filter by student housing tier — strict match, no bleed-over
       if (applicableTo === "Day") query = query.eq("student_status", "Day");
       else if (applicableTo === "Boarding")
         query = query.eq("student_status", "Boarding");
@@ -897,6 +914,70 @@ export const feeTypeAPI = {
 
 // ─── STUDENT FEE LEDGER ───────────────────────────────────────────────────────
 export const studentFeeAPI = {
+  // Insert a "Carried Over Registration Balance" entry for a newly enrolled student.
+  // Finds or creates a sentinel fee-type, inserts the student_fees row, and
+  // increments current_fees_owed so the admin ledger shows the debt card.
+  async addCarryOverEntry(
+    studentId: string,
+    amount: number,
+    academicSession: string,
+    term: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    const { data: existing } = await supabase
+      .from("fee_types")
+      .select("id")
+      .eq("name", "Carried Over Registration Balance")
+      .limit(1)
+      .maybeSingle();
+
+    let feeTypeId: number;
+    if (existing) {
+      feeTypeId = (existing as any).id;
+    } else {
+      const { data: created, error: createErr } = await supabase
+        .from("fee_types")
+        .insert({
+          name: "Carried Over Registration Balance",
+          description:
+            "Outstanding registration bundle balance carried over from applicant record",
+          academic_session: academicSession || "General",
+          term: term || null,
+          amount: 0,
+          class_filter: null,
+          fee_category: "registration",
+          applicable_to: "All Students",
+        })
+        .select("id")
+        .single();
+      if (createErr || !created)
+        return { success: false, error: createErr?.message };
+      feeTypeId = (created as any).id;
+    }
+
+    // Insert the student_fees row for this specific student
+    const { error: sfErr } = await supabase.from("student_fees").upsert(
+      { student_id: studentId, fee_type_id: feeTypeId, amount_due: amount, amount_paid: 0 },
+      { onConflict: "student_id,fee_type_id", ignoreDuplicates: true },
+    );
+    if (sfErr) return { success: false, error: sfErr.message };
+
+    // Increment current_fees_owed so dashboard totals are correct
+    const { data: stu } = await supabase
+      .from("students")
+      .select("current_fees_owed")
+      .eq("student_id", studentId)
+      .single();
+    if (stu) {
+      await supabase
+        .from("students")
+        .update({
+          current_fees_owed: Number((stu as any).current_fees_owed || 0) + amount,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("student_id", studentId);
+    }
+    return { success: true };
+  },
   async remove(sfId: number, studentId: string, balanceToSubtract: number) {
     const { error } = await supabase
       .from("student_fees")
@@ -2037,6 +2118,13 @@ export const applicantAPI = {
       })
       .eq("id", id);
     if (error) return { success: false, error: error.message };
+    // Bridge: stamp student_id onto this applicant's transactions so that
+    // checkStudentBundlePayment can find outstanding balances for the enrolled student.
+    await supabase
+      .from("transactions")
+      .update({ student_id: studentId })
+      .eq("applicant_id", id)
+      .is("student_id", null);
     return { success: true };
   },
   async delete(id: number) {
@@ -2056,6 +2144,17 @@ export const applicantAPI = {
       fee_name: p.fee_types?.name || null,
       balance: Number(p.amount_due) - Number(p.amount_paid),
     }));
+  },
+  // Return total outstanding registration bundle balance for an applicant (used in enrollment modal preview)
+  async getOutstandingBalance(applicantId: number): Promise<number> {
+    const { data: txns } = await supabase
+      .from("transactions")
+      .select("balance_due")
+      .eq("applicant_id", applicantId)
+      .eq("type", "BUNDLE_PURCHASE")
+      .gt("balance_due", 0);
+    if (!txns || txns.length === 0) return 0;
+    return txns.reduce((sum: number, t: any) => sum + Number(t.balance_due), 0);
   },
 };
 
@@ -2498,7 +2597,8 @@ export const bundlePaymentAPI = {
 // Merged into studentFeeAPI below (via Object.assign) so existing callers using
 // studentFeeAPI.checkStudentBundlePayment / recordBundleBalancePayment keep working.
 const studentBundleBalanceAPI = {
-  // Check if a student has an active bundle payment for current term (to avoid double-billing)
+  // Check if a student has an active bundle payment for current term (to avoid double-billing).
+  // Uses a dynamic SUM-based lookup: also checks via applicant linkage for recently enrolled students.
   async checkStudentBundlePayment(studentId: string, currentTerm?: string): Promise<{
     hasBundle: boolean;
     isFullPayment: boolean;
@@ -2510,25 +2610,60 @@ const studentBundleBalanceAPI = {
     if (!studentId) {
       return { hasBundle: false, isFullPayment: false, balanceDue: 0, bundleAmount: 0 };
     }
-    // Fetch registration-bundle purchase transactions for this student (excludes acceptance
-    // fees and other non-registration bundle purchases, which must not surface this card).
-    const { data: txns, error } = await supabase
+    const txnSelect = "transaction_id, amount_paid, balance_due, type, notes, academic_term, timestamp, bundle_id, bundles(bundle_type)";
+
+    // 1. Primary: fetch BUNDLE_PURCHASE transactions by student_id — includes both
+    //    bundle-backed and direct registration payments (no bundle_id).
+    const { data: directTxns } = await supabase
       .from("transactions")
-      .select("transaction_id, amount_paid, balance_due, type, notes, academic_term, timestamp, bundle_id, bundles(bundle_type)")
+      .select(txnSelect)
       .eq("student_id", studentId)
       .eq("type", "BUNDLE_PURCHASE")
-      .not("bundle_id", "is", null)
       .order("timestamp", { ascending: false })
-      .limit(10);
-    if (error || !txns || txns.length === 0) {
-      return { hasBundle: false, isFullPayment: false, balanceDue: 0, bundleAmount: 0 };
+      .limit(20);
+
+    // 2. Fallback via applicant linkage — catches students enrolled from applicants whose
+    //    original transactions still carry applicant_id instead of student_id.
+    let applicantTxns: any[] = [];
+    const { data: applicantRow } = await supabase
+      .from("applicants")
+      .select("id")
+      .eq("enrolled_student_id", studentId)
+      .maybeSingle();
+    if (applicantRow) {
+      const { data: aTxns } = await supabase
+        .from("transactions")
+        .select(txnSelect)
+        .eq("applicant_id", applicantRow.id)
+        .eq("type", "BUNDLE_PURCHASE")
+        .order("timestamp", { ascending: false })
+        .limit(20);
+      applicantTxns = aTxns || [];
     }
-    const registrationTxns = txns.filter((t: any) => t?.bundles?.bundle_type === "registration");
-    // Only consider bundles tagged with the current term when one is provided — no silent
-    // fallback to legacy/untagged records, to avoid targeting the wrong balance for payment.
+
+    // Merge and deduplicate by transaction_id
+    const seen = new Set<number>();
+    const allTxns = [...(directTxns || []), ...applicantTxns].filter((t: any) => {
+      if (seen.has(t.transaction_id)) return false;
+      seen.add(t.transaction_id);
+      return true;
+    });
+
+    // Filter to registration-type bundles only (exclude acceptance fees, store purchases)
+    const registrationTxns = allTxns.filter((t: any) => {
+      if (t?.bundles?.bundle_type === "registration") return true;
+      // Direct registration payments have no bundle_id — detect by notes pattern
+      if (!t.bundle_id && t.notes?.includes("Registration Fee")) return true;
+      return false;
+    });
+
+    // When a term is provided, only match that term — never fall back to another term's record,
+    // which could surface an old balance and mis-drive fee collection.
+    // When no term is provided (legacy/untagged flow), use the most recent record.
     const relevantTxn = currentTerm
       ? registrationTxns.find((t: any) => t.academic_term === currentTerm)
       : registrationTxns[0];
+
     if (!relevantTxn) {
       return { hasBundle: false, isFullPayment: false, balanceDue: 0, bundleAmount: 0 };
     }
@@ -2565,14 +2700,14 @@ const studentBundleBalanceAPI = {
     if (amount > currentBalance + 0.01) {
       throw new Error(`Cannot pay ₦${amount.toLocaleString("en-NG")} — balance is only ₦${currentBalance.toLocaleString("en-NG")}`);
     }
-    // Create a FEES_CASH_COLLECTION transaction for this payment (throws on failure)
+    // Create a NEW installment transaction row — never overwrite the original
     await tryInsertTxn({
       student_id: studentId,
       shift_id: shiftId,
       type: "FEES_CASH_COLLECTION",
       amount_paid: amount,
       payment_mode: paymentMode,
-      notes: `Bundle Balance Payment (Txn #${transactionId})`,
+      notes: `Bundle Installment Payment (Ref: Txn #${transactionId})`,
       customer_name: customerName,
       target_class: targetClass,
     });

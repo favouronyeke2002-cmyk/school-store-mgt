@@ -20,7 +20,7 @@ const StatCard: React.FC<{ label: string; value: string; sub?: string; color?: s
     </div>
     <div className="flex-1 min-w-0">
       <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">{label}</div>
-      <div className={`text-2xl font-extrabold truncate ${color}`}>{value}</div>
+      <div className={`text-xl lg:text-2xl font-extrabold break-words ${color}`}>{value}</div>
       {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
     </div>
   </div>
@@ -122,7 +122,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Secondary stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <StatCard label="Outstanding Fees" value={fmt(stats?.uncollectedFees || 0)} color="text-danger-700" icon={<AlertCircle className="w-5 h-5 text-danger-500" />} sub="Unpaid across all students" />
         <StatCard label="Transactions" value={(stats?.transactionCount || 0).toLocaleString()} color="text-gray-900" icon={<ShoppingBag className="w-5 h-5 text-primary-500" />} />
         <StatCard label="Profit Margin" value={`${stats?.profitMargin || 0}%`} color={Number(stats?.profitMargin) >= 0 ? 'text-success-700' : 'text-danger-700'} icon={<TrendingUp className="w-5 h-5 text-success-500" />} />
