@@ -1462,6 +1462,15 @@ export const transactionAPI = {
     };
   },
 
+  async update(transactionId: number, updates: { type?: string; payment_mode?: string }) {
+    const { error } = await supabase
+      .from("transactions")
+      .update(updates)
+      .eq("transaction_id", transactionId);
+    if (error) throw error;
+    return { success: true };
+  },
+
   async createPurchase(
     studentId: string,
     shiftId: number,
