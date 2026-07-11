@@ -41,6 +41,7 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
   const [editSyncResult, setEditSyncResult] = useState<{ removed: number; added: number } | null>(null);
+  const [totalOutstanding, setTotalOutstanding] = useState(0);
 
   const load = () => {
     setLoading(true);
@@ -50,7 +51,16 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
       .finally(() => setLoading(false));
   };
 
+  const loadTotalOutstanding = () => {
+    (studentFeeAPI as any).getTotalOutstanding()
+      .then((v: number) => setTotalOutstanding(v))
+      .catch(console.error);
+  };
+
   useEffect(() => { load(); }, [search, selectedClass, statusFilter, page]);
+
+  // Reload the global outstanding total on mount and whenever a student is created/deleted
+  useEffect(() => { loadTotalOutstanding(); }, []);
 
   useEffect(() => {
     settingsAPI.get().then((s) => {
@@ -69,6 +79,24 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
       feeTypeAPI.getAll().then((ft) => setFeeTypes(ft as FeeType[])).catch(console.error);
     }
   }, [showModal]);
+
+  // Auto-select all applicable fees whenever class or status changes while the modal is open
+  useEffect(() => {
+    if (!showModal) return;
+    if (!formData.studentClass) {
+      setFormData((prev) => ({ ...prev, selectedFeeIds: [] }));
+      return;
+    }
+    const matching = feeTypes.filter((ft) => {
+      const applicable = (ft as any).applicable_to || 'All Students';
+      if (applicable === 'Day' && formData.studentStatus !== 'Day') return false;
+      if (applicable === 'Boarding' && formData.studentStatus !== 'Boarding') return false;
+      if (!ft.class_filter) return true;
+      const classList = ft.class_filter.split(',').map((c) => c.trim());
+      return classList.includes(formData.studentClass);
+    });
+    setFormData((prev) => ({ ...prev, selectedFeeIds: matching.map((ft) => ft.id) }));
+  }, [formData.studentClass, formData.studentStatus, showModal, feeTypes]);
 
   const totalPages = Math.ceil(total / pageSize);
 
@@ -105,6 +133,7 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
       setShowModal(false);
       setFormData({ studentId: '', firstName: '', lastName: '', studentClass: '', selectedFeeIds: [], admissionType: 'Returning', studentStatus: 'Day' });
       load();
+      loadTotalOutstanding();
     } else setFormError(result.error || 'Failed to create student');
     setFormSaving(false);
   };
@@ -123,6 +152,7 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
     setShowDeleteConfirm(false);
     setSelectedStudent(null);
     load();
+    loadTotalOutstanding();
   };
 
   const openEditStudent = (s: Student) => {
@@ -196,14 +226,13 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
   });
 
   const filteredStudents = students;
-  const totalFees = students.reduce((sum, s) => sum + s.current_fees_owed, 0);
 
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
         <div>
           <h1 className="text-2xl font-bold">Student Management</h1>
-          <p className="text-gray-500">{total} students · ₦{totalFees.toLocaleString('en-NG', { minimumFractionDigits: 2 })} shown outstanding</p>
+          <p className="text-gray-500">{total} students · {fmt(totalOutstanding)} outstanding</p>
         </div>
         <button
           onClick={() => { setFormData({ studentId: '', firstName: '', lastName: '', studentClass: '', selectedFeeIds: [], admissionType: 'Returning', studentStatus: 'Day' }); setFormError(''); setShowModal(true); }}
@@ -308,7 +337,7 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Class <span className="text-danger-500">*</span></label>
-                <select value={formData.studentClass} onChange={(e) => setFormData({ ...formData, studentClass: e.target.value, selectedFeeIds: [] })} className={inputCls} required>
+                <select value={formData.studentClass} onChange={(e) => setFormData({ ...formData, studentClass: e.target.value })} className={inputCls} required>
                   <option value="">Select Class</option>
                   {classes.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>

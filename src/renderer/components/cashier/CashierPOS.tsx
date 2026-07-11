@@ -1752,18 +1752,34 @@ const CashierPOS: React.FC = () => {
       if (result.success) {
         // Track this ID so cashier can edit it this shift
         setQuickAddedStudentIds((prev) => new Set([...prev, result.studentId]));
-        // Dismiss modal and populate cart immediately — don't await fee assignment
+
+        // Assign all applicable standard fees before closing the modal so the
+        // student immediately has ledger rows and appears in the Student Ledger view.
+        // We get ALL fee types and filter in JS so comma-separated class_filter lists
+        // (e.g. 'JSS1A,JSS1B') match correctly — the DB .eq() exact-match misses them.
+        try {
+          const allFeeTypes = await feeTypeAPI.getAll();
+          const applicableFees = (allFeeTypes as any[]).filter((ft) => {
+            if (ft.fee_category !== 'standard') return false;
+            const appTo = ft.applicable_to || 'All Students';
+            if (appTo === 'Day' && data.studentStatus !== 'Day') return false;
+            if (appTo === 'Boarding' && data.studentStatus !== 'Boarding') return false;
+            if (!ft.class_filter) return true; // applies to all classes
+            return ft.class_filter.split(',').map((c: string) => c.trim()).includes(data.studentClass);
+          });
+          for (const ft of applicableFees) {
+            await feeTypeAPI.assignToStudents(
+              ft.id, Number(ft.amount), undefined, result.studentId, 'standard',
+              ft.applicable_to !== 'All Students' ? ft.applicable_to : undefined,
+            );
+          }
+        } catch (feeErr) {
+          console.warn('Quick Add: fee assignment failed (non-fatal):', feeErr);
+        }
+
         const refreshed = await studentAPI.getById(result.studentId);
         if (refreshed) selectStudent(refreshed);
         setShowQuickAdd(false);
-        // Apply standard class fees asynchronously in the background
-        feeTypeAPI.getByClass(data.studentClass).then((classFeeTypes) => {
-          for (const ft of classFeeTypes) {
-            if (ft.fee_category === 'standard') {
-              feeTypeAPI.assignToStudents(ft.id, Number(ft.amount), data.studentClass, result.studentId, 'standard');
-            }
-          }
-        }).catch(console.error);
       } else {
         setQuickAddError(result.error || 'Failed to create student');
       }

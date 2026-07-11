@@ -269,7 +269,34 @@ export const studentAPI = {
       ({ data, error, count } = await buildQuery(false));
     }
     if (error) throw error;
-    return { students: data || [], total: count || 0, page, pageSize };
+
+    // Enrich each student row with a live balance computed from student_fees
+    // so the Fees Owed column never relies on the potentially-stale stored column.
+    const studentList = data || [];
+    if (studentList.length > 0) {
+      const ids = studentList.map((s: any) => s.student_id);
+      const { data: feeRows } = await supabase
+        .from("student_fees")
+        .select("student_id, amount_due, amount_paid")
+        .in("student_id", ids);
+      const balanceMap = new Map<string, number>();
+      for (const sf of feeRows || []) {
+        const bal = Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid));
+        balanceMap.set(sf.student_id, (balanceMap.get(sf.student_id) || 0) + bal);
+      }
+      return {
+        students: studentList.map((s: any) => ({
+          ...s,
+          current_fees_owed: balanceMap.has(s.student_id)
+            ? (balanceMap.get(s.student_id) as number)
+            : Number(s.current_fees_owed || 0),
+        })),
+        total: count || 0,
+        page,
+        pageSize,
+      };
+    }
+    return { students: studentList, total: count || 0, page, pageSize };
   },
   async getAllUnpaginated(filters?: { search?: string; class?: string }) {
     let query = supabase.from("students").select("*").order("name");
@@ -1123,11 +1150,23 @@ export const studentFeeAPI = {
     return { updated, orphansRemoved: orphans.length };
   },
 
+  // Returns the total unpaid balance across ALL students from the live ledger.
+  async getTotalOutstanding(): Promise<number> {
+    const { data, error } = await supabase
+      .from("student_fees")
+      .select("amount_due, amount_paid");
+    if (error) throw error;
+    return (data || []).reduce(
+      (sum: number, sf: any) =>
+        sum + Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid)),
+      0,
+    );
+  },
   async getAll(filters?: { session?: string }) {
     const { data, error } = await supabase
       .from("student_fees")
       .select(
-        "*, students(name, student_class, admission_type), fee_types(name, academic_session, fee_category)",
+        "*, students(name, student_class, admission_type, student_status), fee_types(name, academic_session, fee_category)",
       )
       .order("created_at", { ascending: false });
     if (error) throw error;
@@ -1137,7 +1176,8 @@ export const studentFeeAPI = {
         student_name: sf.students?.name,
         student_class: sf.students?.student_class,
         admission_type: sf.students?.admission_type,
-        student_status: "Day",
+        // Read the live student_status from the DB row rather than hardcoding
+        student_status: sf.students?.student_status || "Day",
         fee_name: sf.fee_types?.name,
         academic_session: sf.fee_types?.academic_session,
         fee_category: sf.fee_types?.fee_category,
@@ -1152,7 +1192,7 @@ export const studentFeeAPI = {
     const { data, error } = await supabase
       .from("student_fees")
       .select(
-        "student_id, amount_due, amount_paid, students(name, student_class), fee_types(academic_session)",
+        "student_id, amount_due, amount_paid, students(name, student_class, student_status), fee_types(academic_session)",
       );
     if (error) throw error;
     const map = new Map<string, any>();
@@ -1169,7 +1209,7 @@ export const studentFeeAPI = {
           student_id: id,
           name: (sf.students as any)?.name || "Unknown",
           student_class: (sf.students as any)?.student_class || "",
-          student_status: "Day",
+          student_status: (sf.students as any)?.student_status || "Day",
           total_billed: 0,
           total_paid: 0,
         });
@@ -1782,7 +1822,9 @@ export const adminAPI = {
       supabase
         .from("transaction_items")
         .select("quantity, unit_price, item_id"),
-      supabase.from("students").select("current_fees_owed"),
+      // Use the live ledger aggregate (amount_due − amount_paid) rather than the
+      // denormalised students.current_fees_owed column which can drift over time.
+      supabase.from("student_fees").select("amount_due, amount_paid"),
       supabase
         .from("transactions")
         .select("transaction_id", { count: "exact", head: true }),
@@ -1813,7 +1855,8 @@ export const adminAPI = {
     const profitMargin =
       storeRevenue > 0 ? ((profit / storeRevenue) * 100).toFixed(2) : "0";
     const uncollectedFees = (feesOwedResult.data || []).reduce(
-      (s: number, st: any) => s + Number(st.current_fees_owed),
+      (s: number, sf: any) =>
+        s + Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid)),
       0,
     );
     return {
