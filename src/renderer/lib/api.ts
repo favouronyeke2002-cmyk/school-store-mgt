@@ -1235,6 +1235,87 @@ export const studentFeeAPI = {
         .eq("student_id", studentId);
     return { success: true };
   },
+
+  // ── Fee sync when a student's Day/Boarding status changes ──────────────────
+  // Removes fees that no longer apply to the new status and assigns any that do.
+  // Finishes with a full recalculation of current_fees_owed so totals are exact.
+  async syncFeesForStatusChange(
+    studentId: string,
+    newStatus: "Day" | "Boarding",
+    studentClass: string,
+  ): Promise<{ removed: number; added: number }> {
+    const oppositeStatus = newStatus === "Day" ? "Boarding" : "Day";
+
+    // 1. Load this student's current fee rows with tier info
+    const { data: currentFees } = await supabase
+      .from("student_fees")
+      .select("id, fee_type_id, amount_due, amount_paid, fee_types(applicable_to)")
+      .eq("student_id", studentId);
+
+    // 2. Remove fees locked to the OLD status tier
+    let removed = 0;
+    for (const sf of (currentFees || []) as any[]) {
+      const applicableTo = sf.fee_types?.applicable_to;
+      if (applicableTo === oppositeStatus) {
+        await supabase.from("student_fees").delete().eq("id", sf.id);
+        removed++;
+      }
+    }
+
+    // 3. Find all fee types valid for the NEW status + this class
+    const { data: feeTypes } = await supabase
+      .from("fee_types")
+      .select("id, amount, fee_category, class_filter, applicable_to");
+
+    const applicable = ((feeTypes || []) as any[]).filter((ft) => {
+      const tier = ft.applicable_to || "All Students";
+      if (tier !== newStatus && tier !== "All Students") return false;
+      if (!ft.class_filter) return true;
+      const classList = ft.class_filter.split(",").map((c: string) => c.trim());
+      return classList.includes(studentClass);
+    });
+
+    // 4. Get updated fee_type_ids for this student (after removals above)
+    const { data: remaining } = await supabase
+      .from("student_fees")
+      .select("fee_type_id")
+      .eq("student_id", studentId);
+    const existingIds = new Set(
+      ((remaining || []) as any[]).map((sf) => sf.fee_type_id),
+    );
+
+    // 5. Assign fees the student is missing
+    let added = 0;
+    for (const ft of applicable) {
+      if (!existingIds.has(ft.id)) {
+        const result = await feeTypeAPI.assignToStudents(
+          ft.id,
+          Number(ft.amount),
+          undefined, // classFilter already applied above
+          studentId,
+          (ft.fee_category || "standard") as "standard" | "registration",
+          ft.applicable_to || "All Students",
+        );
+        if ((result as any).success && (result as any).count > 0) added++;
+      }
+    }
+
+    // 6. Recalculate current_fees_owed from scratch so the number is always exact
+    const { data: allFees } = await supabase
+      .from("student_fees")
+      .select("amount_due, amount_paid")
+      .eq("student_id", studentId);
+    const trueBalance = ((allFees || []) as any[]).reduce(
+      (sum, sf) => sum + Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid)),
+      0,
+    );
+    await supabase
+      .from("students")
+      .update({ current_fees_owed: trueBalance, updated_at: new Date().toISOString() })
+      .eq("student_id", studentId);
+
+    return { removed, added };
+  },
 };
 
 // ─── TRANSACTION INSERT HELPER ────────────────────────────────────────────────
@@ -1319,6 +1400,7 @@ export const transactionAPI = {
         student_name: finalName,
         student_class: finalClass,
         balance_due: t.balance_due || 0,
+        status: (t.status as string) || 'ACTIVE',
         customer_name: finalName,
         target_class: finalClass,
       };
@@ -1398,6 +1480,7 @@ export const transactionAPI = {
         timestamp: t.timestamp,
         student_name: finalName,
         student_class: finalClass,
+        status: (t.status as string) || 'ACTIVE',
       };
     });
 
@@ -1468,6 +1551,80 @@ export const transactionAPI = {
       .update(updates)
       .eq("transaction_id", transactionId);
     if (error) throw error;
+    return { success: true };
+  },
+
+  async void(transactionId: number) {
+    // 1. Fetch the transaction to understand what to reverse
+    const { data: txn, error: fetchErr } = await supabase
+      .from("transactions")
+      .select("*")
+      .eq("transaction_id", transactionId)
+      .single();
+    if (fetchErr || !txn) throw new Error("Transaction not found");
+    if (txn.status === "VOIDED") throw new Error("Transaction is already voided");
+
+    // 2. Mark as VOIDED — audit row stays forever, never deleted
+    const { error: voidErr } = await supabase
+      .from("transactions")
+      .update({ status: "VOIDED" })
+      .eq("transaction_id", transactionId);
+    if (voidErr) throw voidErr;
+
+    const amount = Number(txn.amount_paid);
+
+    // 3. Reverse the student fee ledger for FEES_CASH_COLLECTION
+    if (txn.type === "FEES_CASH_COLLECTION" && txn.student_id && txn.fee_type_id) {
+      const { data: sf } = await supabase
+        .from("student_fees")
+        .select("id, amount_paid")
+        .eq("student_id", txn.student_id)
+        .eq("fee_type_id", txn.fee_type_id)
+        .maybeSingle();
+      if (sf) {
+        await supabase
+          .from("student_fees")
+          .update({ amount_paid: Math.max(0, Number(sf.amount_paid) - amount) })
+          .eq("id", (sf as any).id);
+      }
+      // Restore student's outstanding balance
+      const { data: stu } = await supabase
+        .from("students")
+        .select("current_fees_owed")
+        .eq("student_id", txn.student_id)
+        .single();
+      if (stu) {
+        await supabase
+          .from("students")
+          .update({
+            current_fees_owed: Number(stu.current_fees_owed) + amount,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("student_id", txn.student_id);
+      }
+    }
+
+    // 4. Reverse the applicant_payments ledger for bundle/acceptance fees
+    if (
+      (txn.type === "ACCEPTANCE_FEE" || txn.type === "BUNDLE_PURCHASE") &&
+      txn.applicant_id &&
+      txn.bundle_id
+    ) {
+      const { data: ap } = await supabase
+        .from("applicant_payments")
+        .select("id, amount_paid")
+        .eq("applicant_id", txn.applicant_id)
+        .eq("bundle_id", txn.bundle_id)
+        .maybeSingle();
+      if (ap) {
+        await supabase
+          .from("applicant_payments")
+          .update({ amount_paid: Math.max(0, Number(ap.amount_paid) - amount) })
+          .eq("id", (ap as any).id);
+      }
+    }
+
+    // STORE_PURCHASE: no fee ledger to reverse (inventory is not restocked on void)
     return { success: true };
   },
 
@@ -2299,6 +2456,31 @@ export const bundlePaymentAPI = {
       total_price: item.selling_price * item.quantity,
     }));
     if (itemRows.length > 0) await supabase.from("transaction_items").insert(itemRows);
+
+    // Inject a non-inventory overhead service line so itemised totals always equal
+    // the bundle price paid. e.g. Acceptance Fee ₦10,000 with physical items ₦4,300
+    // → injects "Acceptance Admin Processing Fee" ₦5,700 so the receipt balances.
+    const physicalTotal = inStockItems.reduce(
+      (s: number, i: any) => s + i.selling_price * i.quantity,
+      0,
+    );
+    const overhead = amountPaid - physicalTotal;
+    if (overhead > 0.01) {
+      const overheadLabel =
+        bundle.bundle_type === "acceptance"
+          ? "Acceptance Admin Processing Fee"
+          : "Registration Package Overhead";
+      // item_id is intentionally NULL — this is a service line, not an inventory item.
+      // Requires transaction_items.item_id to be nullable (migration 20260711000000).
+      await supabase.from("transaction_items").insert({
+        transaction_id: txn.transaction_id,
+        item_id: null,
+        item_name: overheadLabel,
+        quantity: 1,
+        unit_price: overhead,
+        total_price: overhead,
+      });
+    }
 
     // Update applicant_payments
     await supabase

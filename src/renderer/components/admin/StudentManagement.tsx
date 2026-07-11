@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Trash2, Pencil, X, UserPlus, AlertCircle, ExternalLink, CheckCircle } from 'lucide-react';
-import { studentAPI, feeTypeAPI, settingsAPI } from '../../lib/api';
+import { studentAPI, feeTypeAPI, settingsAPI, studentFeeAPI } from '../../lib/api';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -40,6 +40,7 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
   const [editData, setEditData] = useState({ name: '', studentClass: '', studentStatus: 'Day' as 'Day' | 'Boarding' });
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
+  const [editSyncResult, setEditSyncResult] = useState<{ removed: number; added: number } | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -128,6 +129,7 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
     setSelectedStudent(s);
     setEditData({ name: s.name, studentClass: s.student_class, studentStatus: (s.student_status as 'Day' | 'Boarding') || 'Day' });
     setEditError('');
+    setEditSyncResult(null);
     setShowEditStudent(true);
   };
 
@@ -137,11 +139,38 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
     if (!editData.name.trim() || !editData.studentClass) { setEditError('Name and class are required.'); return; }
     setEditSaving(true);
     setEditError('');
+    setEditSyncResult(null);
     try {
+      const prevStatus = selectedStudent.student_status;
       await studentAPI.update(selectedStudent.student_id, { name: editData.name.trim(), studentClass: editData.studentClass, studentStatus: editData.studentStatus });
-      setShowEditStudent(false);
-      setSelectedStudent(null);
-      load();
+
+      // If housing status changed, automatically sync the fee ledger
+      if (prevStatus && prevStatus !== editData.studentStatus) {
+        try {
+          const syncResult = await (studentFeeAPI as any).syncFeesForStatusChange(
+            selectedStudent.student_id,
+            editData.studentStatus,
+            editData.studentClass,
+          );
+          setEditSyncResult(syncResult);
+          // Give the user a moment to see the sync result before closing
+          setTimeout(() => {
+            setShowEditStudent(false);
+            setSelectedStudent(null);
+            setEditSyncResult(null);
+            load();
+          }, 2500);
+        } catch (syncErr) {
+          console.warn('Fee sync failed (non-fatal):', syncErr);
+          setShowEditStudent(false);
+          setSelectedStudent(null);
+          load();
+        }
+      } else {
+        setShowEditStudent(false);
+        setSelectedStudent(null);
+        load();
+      }
     } catch (e) { setEditError((e as Error).message); }
     setEditSaving(false);
   };
@@ -347,6 +376,14 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
             </div>
             <div className="bg-gray-50 rounded-xl px-4 py-3 mb-4 text-sm text-gray-500 font-mono">{selectedStudent.student_id}</div>
             {editError && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{editError}</div>}
+            {editSyncResult && (
+              <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 mb-4 text-sm text-green-800">
+                <div className="font-semibold mb-0.5">✓ Housing fees synced</div>
+                <div className="text-green-700 text-xs">
+                  Removed {editSyncResult.removed} conflicting fee{editSyncResult.removed !== 1 ? 's' : ''}, assigned {editSyncResult.added} new fee{editSyncResult.added !== 1 ? 's' : ''}. Balance recalculated.
+                </div>
+              </div>
+            )}
             <form onSubmit={handleEditStudent} className="space-y-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Full Name <span className="text-danger-500">*</span></label>

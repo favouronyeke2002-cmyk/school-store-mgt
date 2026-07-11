@@ -1,3 +1,4 @@
 - [Supabase column fallback pattern](supabase-column-fallback.md) — new columns (student_status, current_term, class_list) may not exist in live DB; always try-with-fallback.
 - [React context HMR flicker](react-context-hmr.md) — "useAuth must be used within AuthProvider" on hot reload is a transient HMR flicker, not a real bug.
 - [Component scope rule](component-scope.md) — never define components with useState INSIDE another component; keep as separate named function components before the main export.
+- [Transaction void + overhead DB design](transaction-void-overhead.md) — void writes status='VOIDED' (never deletes); overhead service lines use item_id=NULL; both require migration 20260711000000.
