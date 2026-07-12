@@ -810,6 +810,67 @@ export const feeTypeAPI = {
         .eq("id", id);
       if (e2) throw e2;
     }
+
+    // ── Prune stale assignments ────────────────────────────────────────────
+    // After changing a fee type's class_filter / applicable_to / fee_category,
+    // delete any UNPAID student_fees rows for students who no longer qualify
+    // under the new criteria.  Fully-paid (or over-paid) rows are preserved
+    // as historical payment records.
+    try {
+      const newClassFilter = data.classFilter || null;
+      const newApplicableTo = data.applicableTo || "All Students";
+      const newFeeCategory = data.feeCategory || "standard";
+
+      // Fetch all existing ledger rows for this fee with student attributes joined
+      const { data: assignedRows } = await supabase
+        .from("student_fees")
+        .select(
+          "id, student_id, amount_due, amount_paid, students(student_class, student_status, admission_type)",
+        )
+        .eq("fee_type_id", id);
+
+      // Only touch rows that are still (at least partially) unpaid
+      const unpaid = (assignedRows || []).filter(
+        (sf: any) => Number(sf.amount_due) > Number(sf.amount_paid),
+      );
+
+      const staleIds: number[] = [];
+      for (const sf of unpaid) {
+        const s = sf.students as any;
+        if (!s) { staleIds.push(sf.id); continue; } // student deleted — orphan
+
+        // Class scope changed: student must be in the new class list
+        if (newClassFilter) {
+          const classList = newClassFilter
+            .split(",")
+            .map((c: string) => c.trim());
+          if (!classList.includes(s.student_class)) {
+            staleIds.push(sf.id);
+            continue;
+          }
+        }
+
+        // Housing-tier scope changed
+        if (newApplicableTo === "Day" && s.student_status !== "Day") {
+          staleIds.push(sf.id); continue;
+        }
+        if (newApplicableTo === "Boarding" && s.student_status !== "Boarding") {
+          staleIds.push(sf.id); continue;
+        }
+
+        // Category changed to standard → New-admission students no longer qualify
+        if (newFeeCategory === "standard" && s.admission_type === "New") {
+          staleIds.push(sf.id); continue;
+        }
+      }
+
+      if (staleIds.length > 0) {
+        await supabase.from("student_fees").delete().in("id", staleIds);
+      }
+    } catch {
+      // Best-effort — the fee type row itself was already saved successfully
+    }
+
     return { success: true };
   },
   async delete(id: number) {
@@ -1099,13 +1160,15 @@ export const studentFeeAPI = {
 
   // Full recalibration pass:
   //  A. Delete orphaned student_fee rows whose fee_type no longer exists.
-  //  B. For every fee type, find every student who matches its class / housing-tier
-  //     / admission-type criteria and inject any missing student_fees row so that
-  //     ad-hoc fees (e.g. "Payment of Cutlasses") are never silently skipped.
-  //  C. Recompute current_fees_owed for every student from the now-complete ledger.
+  //  B. Delete STALE rows: fee_type exists but the student no longer matches its
+  //     current class / housing-tier / admission-type criteria (unpaid only).
+  //  C. For every fee type, inject any missing student_fees row for qualifying
+  //     students so ad-hoc fees are never silently skipped.
+  //  D. Recompute current_fees_owed for every student from the now-complete ledger.
   async recalibrateAllBalances(): Promise<{
     updated: number;
     orphansRemoved: number;
+    staleRemoved: number;
     feesInjected: number;
   }> {
     // ── 1. Load master data ───────────────────────────────────────────────────
@@ -1122,50 +1185,80 @@ export const studentFeeAPI = {
 
     const validIds = new Set((feeTypes || []).map((ft: any) => ft.id));
 
-    // ── 2. Remove orphaned rows ───────────────────────────────────────────────
+    // ── 2. Remove rows whose fee_type was deleted entirely ────────────────────
     const orphans = (allSFs || []).filter(
       (sf: any) => !validIds.has(sf.fee_type_id),
     );
-    for (const orphan of orphans) {
-      await supabase.from("student_fees").delete().eq("id", orphan.id);
+    const orphanIds = orphans.map((sf: any) => sf.id);
+    if (orphanIds.length > 0) {
+      await supabase.from("student_fees").delete().in("id", orphanIds);
     }
 
-    // ── 3. Build lookup of already-assigned (student_id, fee_type_id) pairs ──
+    // ── 2.5. Purge stale assignments ──────────────────────────────────────────
+    // Build the canonical set of (student_id, fee_type_id) pairs that SHOULD
+    // exist given each fee's current criteria.  Any UNPAID row outside this set
+    // is a leftover from a previous assignment scope — delete it.
+    const ftMap = new Map((feeTypes || []).map((ft: any) => [ft.id, ft]));
+    const studentMap = new Map(
+      (students || []).map((s: any) => [s.student_id, s]),
+    );
+
+    const validPairs = new Set<string>();
+    for (const ft of feeTypes || []) {
+      const appTo: string = ft.applicable_to || "All Students";
+      for (const s of students || []) {
+        if (ft.class_filter) {
+          const classList = ft.class_filter
+            .split(",")
+            .map((c: string) => c.trim());
+          if (!classList.includes(s.student_class)) continue;
+        }
+        if (appTo === "Day" && s.student_status !== "Day") continue;
+        if (appTo === "Boarding" && s.student_status !== "Boarding") continue;
+        if (ft.fee_category === "standard" && s.admission_type === "New")
+          continue;
+        validPairs.add(`${s.student_id}:${ft.id}`);
+      }
+    }
+
+    // Stale = fee_type still valid, student still exists, but pairing is wrong,
+    // AND the row is still unpaid (preserve paid history).
+    const staleRows = (allSFs || []).filter((sf: any) => {
+      if (!validIds.has(sf.fee_type_id)) return false; // orphan — handled above
+      if (!studentMap.has(sf.student_id)) return false; // orphan — handled above
+      if (Number(sf.amount_due) <= Number(sf.amount_paid)) return false; // paid — keep history
+      return !validPairs.has(`${sf.student_id}:${sf.fee_type_id}`);
+    });
+    const staleIds = staleRows.map((sf: any) => sf.id);
+    if (staleIds.length > 0) {
+      await supabase.from("student_fees").delete().in("id", staleIds);
+    }
+
+    // ── 3. Build lookup of what is still assigned after cleanup ──────────────
+    const deletedIds = new Set([...orphanIds, ...staleIds]);
     const assignedSet = new Set(
       (allSFs || [])
-        .filter((sf: any) => validIds.has(sf.fee_type_id))
+        .filter((sf: any) => !deletedIds.has(sf.id))
         .map((sf: any) => `${sf.student_id}:${sf.fee_type_id}`),
     );
 
     // ── 4. Inject missing ledger rows ─────────────────────────────────────────
-    // For each fee type, determine which students it applies to and insert any
-    // student_fees rows that are absent from the ledger.  This catches ad-hoc
-    // fees (class supplies, activity charges, etc.) that were configured but
-    // never written to every qualifying student's ledger.
     let feesInjected = 0;
     for (const ft of feeTypes || []) {
       const appTo: string = ft.applicable_to || "All Students";
 
       const qualifying = (students || []).filter((s: any) => {
-        // Class filter: null / empty means "all classes"; otherwise the
-        // fee's class_filter is a comma-separated list of class names.
         if (ft.class_filter) {
           const classList = ft.class_filter
             .split(",")
             .map((c: string) => c.trim());
           if (!classList.includes(s.student_class)) return false;
         }
-
-        // Housing-tier guard
         if (appTo === "Day" && s.student_status !== "Day") return false;
         if (appTo === "Boarding" && s.student_status !== "Boarding")
           return false;
-
-        // Standard fees are for Returning students only; New students pay
-        // registration fees instead, so skip them here.
         if (ft.fee_category === "standard" && s.admission_type === "New")
           return false;
-
         return true;
       });
 
@@ -1211,7 +1304,12 @@ export const studentFeeAPI = {
       updated++;
     }
 
-    return { updated, orphansRemoved: orphans.length, feesInjected };
+    return {
+      updated,
+      orphansRemoved: orphans.length,
+      staleRemoved: staleRows.length,
+      feesInjected,
+    };
   },
 
   // Returns the total unpaid balance across ALL students from the live ledger.
