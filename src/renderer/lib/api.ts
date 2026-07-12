@@ -1964,26 +1964,26 @@ export const transactionAPI = {
 // ─── ADMIN ANALYTICS ─────────────────────────────────────────────────────────
 export const adminAPI = {
   async getStats() {
+    // Fetch store transactions WITH their nested items in one call so we can
+    // derive both storeRevenue and COGS from the same STORE_PURCHASE scope.
+    // This is the critical separation: bundle/acceptance transactions must NOT
+    // contribute to COGS — their physical items have no matching store revenue.
     const [
       txnResult,
-      storeResult,
+      storeResult,   // STORE_PURCHASE txns + nested items (for revenue + COGS)
       feesResult,
-      cogsResult,
       feesOwedResult,
       countResult,
     ] = await Promise.all([
       supabase.from("transactions").select("amount_paid"),
       supabase
         .from("transactions")
-        .select("amount_paid")
+        .select("amount_paid, transaction_items(quantity, item_id)")
         .eq("type", "STORE_PURCHASE"),
       supabase
         .from("transactions")
         .select("amount_paid")
         .eq("type", "FEES_CASH_COLLECTION"),
-      supabase
-        .from("transaction_items")
-        .select("quantity, unit_price, item_id"),
       // Use the live ledger aggregate (amount_due − amount_paid) rather than the
       // denormalised students.current_fees_owed column which can drift over time.
       supabase.from("student_fees").select("amount_due, amount_paid"),
@@ -1991,26 +1991,39 @@ export const adminAPI = {
         .from("transactions")
         .select("transaction_id", { count: "exact", head: true }),
     ]);
+
     const { data: invData } = await supabase
       .from("inventory")
       .select("item_id, cost_price");
+
     const totalRevenue = (txnResult.data || []).reduce(
       (s: number, t: any) => s + Number(t.amount_paid),
       0,
     );
+
+    // Store revenue and COGS both derived from STORE_PURCHASE transactions only.
+    // Bundle/acceptance physical items are excluded — their cost is absorbed into
+    // the bundle price and their revenue is already captured separately.
     const storeRevenue = (storeResult.data || []).reduce(
-      (s: number, t: any) => s + Number(t.amount_paid),
-      0,
-    );
-    const feesCollected = (feesResult.data || []).reduce(
       (s: number, t: any) => s + Number(t.amount_paid),
       0,
     );
     const costMap = new Map(
       (invData || []).map((i: any) => [i.item_id, Number(i.cost_price)]),
     );
-    const cogs = (cogsResult.data || []).reduce(
-      (s: number, ti: any) => s + ti.quantity * (costMap.get(ti.item_id) || 0),
+    const cogs = (storeResult.data || []).reduce(
+      (txnSum: number, t: any) =>
+        txnSum +
+        (t.transaction_items || []).reduce(
+          (itemSum: number, ti: any) =>
+            itemSum + ti.quantity * (costMap.get(ti.item_id) || 0),
+          0,
+        ),
+      0,
+    );
+
+    const feesCollected = (feesResult.data || []).reduce(
+      (s: number, t: any) => s + Number(t.amount_paid),
       0,
     );
     const profit = storeRevenue - cogs;
@@ -2073,14 +2086,23 @@ export const adminAPI = {
       .sort((a, b) => b.total_revenue - a.total_revenue);
   },
   async getTopProducts(limit: number = 10) {
-    const { data, error } = await supabase
-      .from("transaction_items")
-      .select("item_id, quantity, total_price, inventory(item_name)")
-      .order("total_price", { ascending: false })
-      .limit(limit);
+    // Scope to STORE_PURCHASE transactions only — bundle/acceptance physical items
+    // and any overhead service lines (item_id = null) must not appear here.
+    const { data: storeTxns, error } = await supabase
+      .from("transactions")
+      .select(
+        "transaction_id, transaction_items(item_id, quantity, total_price, inventory(item_name))",
+      )
+      .eq("type", "STORE_PURCHASE");
     if (error) throw error;
+
+    // Flatten + exclude any null item_id rows that may exist in historical data
+    const allItems = (storeTxns || [])
+      .flatMap((t: any) => t.transaction_items || [])
+      .filter((ti: any) => ti.item_id != null);
+
     const grouped: Record<number, any> = {};
-    for (const ti of data || []) {
+    for (const ti of allItems) {
       const id = ti.item_id;
       if (!grouped[id])
         grouped[id] = {
@@ -2091,9 +2113,9 @@ export const adminAPI = {
       grouped[id].total_quantity += ti.quantity;
       grouped[id].total_revenue += Number(ti.total_price);
     }
-    return Object.values(grouped).sort(
-      (a, b) => b.total_revenue - a.total_revenue,
-    );
+    return Object.values(grouped)
+      .sort((a, b) => b.total_revenue - a.total_revenue)
+      .slice(0, limit);
   },
   async getInventoryValuation() {
     const { data, error } = await supabase
@@ -2650,8 +2672,14 @@ export const bundlePaymentAPI = {
       }
     }
 
-    // Create transaction_items only for items actually in stock (for receipt printing) —
-    // out-of-stock items are excluded so the storekeeper never expects to hand them over.
+    // Persist only tangible inventory items in transaction_items.
+    // The administrative fee / package markup portion is NOT stored here —
+    // storing it as a null-item_id row would pollute COGS calculations because
+    // the gross profit query scopes to STORE_PURCHASE items only; any fake
+    // service line here would have zero cost and distort the inventory metrics.
+    // The full amount_paid is captured on the transactions row itself, and the
+    // TransactionHistory detail view recomputes the admin fee as a display label
+    // (amount_paid − sum(physical items)) without touching the DB.
     const itemRows = inStockItems.map((item: any) => ({
       transaction_id: txn.transaction_id,
       item_id: item.item_id,
@@ -2661,31 +2689,6 @@ export const bundlePaymentAPI = {
       total_price: item.selling_price * item.quantity,
     }));
     if (itemRows.length > 0) await supabase.from("transaction_items").insert(itemRows);
-
-    // Inject a non-inventory overhead service line so itemised totals always equal
-    // the bundle price paid. e.g. Acceptance Fee ₦10,000 with physical items ₦4,300
-    // → injects "Acceptance Admin Processing Fee" ₦5,700 so the receipt balances.
-    const physicalTotal = inStockItems.reduce(
-      (s: number, i: any) => s + i.selling_price * i.quantity,
-      0,
-    );
-    const overhead = amountPaid - physicalTotal;
-    if (overhead > 0.01) {
-      const overheadLabel =
-        bundle.bundle_type === "acceptance"
-          ? "Acceptance Admin Processing Fee"
-          : "Registration Package Overhead";
-      // item_id is intentionally NULL — this is a service line, not an inventory item.
-      // Requires transaction_items.item_id to be nullable (migration 20260711000000).
-      await supabase.from("transaction_items").insert({
-        transaction_id: txn.transaction_id,
-        item_id: null,
-        item_name: overheadLabel,
-        quantity: 1,
-        unit_price: overhead,
-        total_price: overhead,
-      });
-    }
 
     // Update applicant_payments
     await supabase

@@ -565,7 +565,7 @@ const TransactionHistory: React.FC = () => {
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-sm font-semibold text-gray-700">Items</div>
                     {BUNDLE_TYPES.has(editType) && (
-                      <div className="text-xs text-gray-400 italic">Includes package overhead balancing line</div>
+                      <div className="text-xs text-gray-400 italic">Physical items only — admin fee shown as computed balancing line</div>
                     )}
                   </div>
                   <div className="border rounded-lg overflow-hidden">
