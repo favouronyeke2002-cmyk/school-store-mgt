@@ -1097,22 +1097,32 @@ export const studentFeeAPI = {
     );
   },
 
-  // One-time cleanup: delete orphaned student_fee rows (fee_type_id deleted from fee_types),
-  // then recalculate and write the correct current_fees_owed for every student.
+  // Full recalibration pass:
+  //  A. Delete orphaned student_fee rows whose fee_type no longer exists.
+  //  B. For every fee type, find every student who matches its class / housing-tier
+  //     / admission-type criteria and inject any missing student_fees row so that
+  //     ad-hoc fees (e.g. "Payment of Cutlasses") are never silently skipped.
+  //  C. Recompute current_fees_owed for every student from the now-complete ledger.
   async recalibrateAllBalances(): Promise<{
     updated: number;
     orphansRemoved: number;
+    feesInjected: number;
   }> {
-    // 1. Valid fee type IDs
-    const { data: feeTypes } = await supabase.from("fee_types").select("id");
+    // ── 1. Load master data ───────────────────────────────────────────────────
+    const [{ data: feeTypes }, { data: students }, { data: allSFs }] =
+      await Promise.all([
+        supabase.from("fee_types").select("*"),
+        supabase
+          .from("students")
+          .select("student_id, student_class, student_status, admission_type"),
+        supabase
+          .from("student_fees")
+          .select("id, student_id, fee_type_id, amount_due, amount_paid"),
+      ]);
+
     const validIds = new Set((feeTypes || []).map((ft: any) => ft.id));
 
-    // 2. All student_fees rows
-    const { data: allSFs } = await supabase
-      .from("student_fees")
-      .select("id, student_id, fee_type_id, amount_due, amount_paid");
-
-    // 3. Remove orphaned rows (fee_type deleted or no longer in master list)
+    // ── 2. Remove orphaned rows ───────────────────────────────────────────────
     const orphans = (allSFs || []).filter(
       (sf: any) => !validIds.has(sf.fee_type_id),
     );
@@ -1120,20 +1130,74 @@ export const studentFeeAPI = {
       await supabase.from("student_fees").delete().eq("id", orphan.id);
     }
 
-    // 4. Compute correct balance per student from valid rows only
-    const validSFs = (allSFs || []).filter((sf: any) =>
-      validIds.has(sf.fee_type_id),
+    // ── 3. Build lookup of already-assigned (student_id, fee_type_id) pairs ──
+    const assignedSet = new Set(
+      (allSFs || [])
+        .filter((sf: any) => validIds.has(sf.fee_type_id))
+        .map((sf: any) => `${sf.student_id}:${sf.fee_type_id}`),
     );
+
+    // ── 4. Inject missing ledger rows ─────────────────────────────────────────
+    // For each fee type, determine which students it applies to and insert any
+    // student_fees rows that are absent from the ledger.  This catches ad-hoc
+    // fees (class supplies, activity charges, etc.) that were configured but
+    // never written to every qualifying student's ledger.
+    let feesInjected = 0;
+    for (const ft of feeTypes || []) {
+      const appTo: string = ft.applicable_to || "All Students";
+
+      const qualifying = (students || []).filter((s: any) => {
+        // Class filter: null / empty means "all classes"; otherwise the
+        // fee's class_filter is a comma-separated list of class names.
+        if (ft.class_filter) {
+          const classList = ft.class_filter
+            .split(",")
+            .map((c: string) => c.trim());
+          if (!classList.includes(s.student_class)) return false;
+        }
+
+        // Housing-tier guard
+        if (appTo === "Day" && s.student_status !== "Day") return false;
+        if (appTo === "Boarding" && s.student_status !== "Boarding")
+          return false;
+
+        // Standard fees are for Returning students only; New students pay
+        // registration fees instead, so skip them here.
+        if (ft.fee_category === "standard" && s.admission_type === "New")
+          return false;
+
+        return true;
+      });
+
+      for (const s of qualifying) {
+        const key = `${s.student_id}:${ft.id}`;
+        if (!assignedSet.has(key)) {
+          const { error } = await supabase.from("student_fees").insert({
+            student_id: s.student_id,
+            fee_type_id: ft.id,
+            amount_due: ft.amount,
+            amount_paid: 0,
+          });
+          if (!error) {
+            assignedSet.add(key);
+            feesInjected++;
+          }
+        }
+      }
+    }
+
+    // ── 5. Re-fetch the now-complete ledger and compute per-student balances ──
+    const { data: freshSFs } = await supabase
+      .from("student_fees")
+      .select("student_id, amount_due, amount_paid");
+
     const balanceMap = new Map<string, number>();
-    for (const sf of validSFs) {
+    for (const sf of freshSFs || []) {
       const bal = Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid));
       balanceMap.set(sf.student_id, (balanceMap.get(sf.student_id) || 0) + bal);
     }
 
-    // 5. Write corrected balances to every student record
-    const { data: students } = await supabase
-      .from("students")
-      .select("student_id");
+    // ── 6. Write corrected balances to every student record ───────────────────
     let updated = 0;
     for (const stu of students || []) {
       const correct = balanceMap.get(stu.student_id) || 0;
@@ -1147,7 +1211,7 @@ export const studentFeeAPI = {
       updated++;
     }
 
-    return { updated, orphansRemoved: orphans.length };
+    return { updated, orphansRemoved: orphans.length, feesInjected };
   },
 
   // Returns the total unpaid balance across ALL students from the live ledger.

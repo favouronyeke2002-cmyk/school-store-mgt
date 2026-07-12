@@ -102,7 +102,7 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
   // Recalibrate balances
   const [showRecalibrate, setShowRecalibrate] = useState(false);
   const [recalibrateRunning, setRecalibrateRunning] = useState(false);
-  const [recalibrateResult, setRecalibrateResult] = useState<{ updated: number; orphansRemoved: number } | null>(null);
+  const [recalibrateResult, setRecalibrateResult] = useState<{ updated: number; orphansRemoved: number; feesInjected: number } | null>(null);
 
   useEffect(() => {
     load();
@@ -1187,7 +1187,7 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
                 </div>
                 <h2 className="text-lg font-bold text-center mb-1">Recalibration Complete</h2>
                 <p className="text-sm text-gray-400 text-center mb-5">All student balances have been recalculated from the fee ledger.</p>
-                <div className="grid grid-cols-2 gap-3 mb-5">
+                <div className="grid grid-cols-2 gap-3 mb-3">
                   <div className="bg-success-50 rounded-xl p-3 text-center border border-success-100">
                     <div className="text-2xl font-extrabold text-success-700">{recalibrateResult.updated}</div>
                     <div className="text-xs text-success-600 mt-0.5">Students updated</div>
@@ -1196,6 +1196,10 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
                     <div className="text-2xl font-extrabold text-warning-700">{recalibrateResult.orphansRemoved}</div>
                     <div className="text-xs text-warning-600 mt-0.5">Orphaned rows removed</div>
                   </div>
+                </div>
+                <div className={`rounded-xl p-3 text-center border mb-5 ${recalibrateResult.feesInjected > 0 ? 'bg-primary-50 border-primary-100' : 'bg-gray-50 border-gray-100'}`}>
+                  <div className={`text-2xl font-extrabold ${recalibrateResult.feesInjected > 0 ? 'text-primary-700' : 'text-gray-400'}`}>{recalibrateResult.feesInjected}</div>
+                  <div className={`text-xs mt-0.5 ${recalibrateResult.feesInjected > 0 ? 'text-primary-600' : 'text-gray-400'}`}>Missing fee rows injected</div>
                 </div>
                 <button onClick={() => setShowRecalibrate(false)} className="w-full py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700">Done</button>
               </>
@@ -1209,8 +1213,9 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
                 <p className="text-sm text-gray-500 text-center mb-3">This will:</p>
                 <ul className="text-sm text-gray-600 space-y-1.5 mb-5 bg-gray-50 rounded-xl p-4">
                   <li className="flex items-start gap-2"><span className="text-warning-600 font-bold mt-0.5">1.</span> Delete all orphaned fee rows whose fee type has been removed</li>
-                  <li className="flex items-start gap-2"><span className="text-warning-600 font-bold mt-0.5">2.</span> Recalculate the outstanding balance for every student by summing their actual unpaid fee records</li>
-                  <li className="flex items-start gap-2"><span className="text-warning-600 font-bold mt-0.5">3.</span> Overwrite the stored balance counter with the correct figure</li>
+                  <li className="flex items-start gap-2"><span className="text-warning-600 font-bold mt-0.5">2.</span> Scan every fee type and inject any missing ledger rows for qualifying students — including ad-hoc fees like class supplies or activity charges</li>
+                  <li className="flex items-start gap-2"><span className="text-warning-600 font-bold mt-0.5">3.</span> Recalculate each student's outstanding balance by summing their actual unpaid fee records</li>
+                  <li className="flex items-start gap-2"><span className="text-warning-600 font-bold mt-0.5">4.</span> Overwrite the stored balance counter with the correct figure</li>
                 </ul>
                 <p className="text-xs text-gray-400 text-center mb-5">This is safe to run any number of times. It will not affect paid amounts or transaction history.</p>
                 <div className="flex gap-3">
