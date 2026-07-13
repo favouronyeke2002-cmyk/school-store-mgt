@@ -1,46 +1,43 @@
 # School POS & Store Management System
 
-A React + Supabase web app for school store point-of-sale and fees management.
+A web-based Point of Sale and School Store Management app built with **React + Vite + Supabase**.
 
-## Stack
-- **Frontend**: React 18, TypeScript, Tailwind CSS, Vite
-- **Backend**: Supabase (PostgreSQL + auth)
-- **Charts**: Recharts
-- **Icons**: Lucide React
+## Running the App
 
-## How to Run
+The app runs on port 5000 via the **Start application** workflow (`npm run client`).
 
-The configured workflow (`Start application`) runs:
-```
-npm run client
-```
-This starts the Vite dev server on port 5000.
+Open the preview pane to see it live.
 
 ## Required Secrets
 
-Set these in Replit Secrets before running:
-- `VITE_SUPABASE_URL` — your Supabase project URL (Project Settings → API)
-- `VITE_SUPABASE_ANON_KEY` — your Supabase anon/public key (Project Settings → API)
+These must be set as Replit Secrets:
 
-## Features
+| Secret | Description |
+|---|---|
+| `VITE_SUPABASE_URL` | Your Supabase project URL (e.g. `https://xxxx.supabase.co`) |
+| `VITE_SUPABASE_ANON_KEY` | Your Supabase project's anon/public key |
 
-- **Admin view** (password login): Dashboard, Student Management, Inventory, Transaction History, Shift History, User Management, Bulk CSV Import
-- **Cashier view** (4-digit PIN): Shift-based POS, store purchases, fee collection, thermal receipt printing
+Find these in your Supabase dashboard under **Project Settings → API**.
 
-## Project Structure
+## Stack
 
-```
-src/renderer/
-├── components/
-│   ├── admin/      # Admin dashboard panels
-│   ├── auth/       # Login screen
-│   └── cashier/    # POS interface
-├── context/        # AuthContext, ShiftContext
-├── lib/
-│   ├── api.ts      # All Supabase API calls
-│   ├── supabase.ts # Supabase client init
-│   └── feeEngine.ts
-└── App.tsx
+- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS
+- **Database**: Supabase (PostgreSQL)
+- **Charts**: Recharts
+- **Icons**: Lucide React
+
+## Login
+
+- **Cashier**: 4-digit PIN (set up via Admin → User Management)
+- **Admin**: Password login (Admin Password tab on login screen)
+
+## Development
+
+```bash
+npm run client     # Frontend only (Vite on port 5000)
+npm run dev        # Frontend + backend concurrently
 ```
 
 ## User Preferences
+
+<!-- Add user preferences here -->
