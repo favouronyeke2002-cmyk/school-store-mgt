@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, ChevronDown, ChevronRight, ChevronLeft, Users, Tag, X, AlertCircle, CheckCircle, Pencil, Trash2, BarChart2, Search, Receipt, FileText, GraduationCap, RefreshCw } from 'lucide-react';
 import { feeTypeAPI, studentFeeAPI, studentAPI, settingsAPI } from '../../lib/api';
-import StudentTimeline from './StudentTimeline';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 interface FeeType { id: number; name: string; description: string | null; academic_session: string; term: string | null; amount: number; class_filter: string | null; fee_category: string; applicable_to?: string; }
 interface StudentFee { id: number; student_id: string; student_name: string; student_class: string; admission_type: string; student_status: string; fee_name: string; fee_category: string; academic_session: string; amount_due: number; amount_paid: number; balance: number; }
 
-interface Props { focusStudentId?: string | null; }
+interface Props {
+  focusStudentId?: string | null;
+  onNavigate?: (view: string, studentId: string, studentName: string, studentClass: string) => void;
+}
 
-const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
+const FeesManagement: React.FC<Props> = ({ focusStudentId, onNavigate }) => {
   const [tab, setTab] = useState<'types' | 'ledger'>('types');
   const [feeTypes, setFeeTypes] = useState<FeeType[]>([]);
   const [ledger, setLedger] = useState<StudentFee[]>([]);
@@ -95,8 +97,7 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
   const [manageFeeAssigned, setManageFeeAssigned] = useState<any[]>([]);
   const [manageFeeAssignedLoading, setManageFeeAssignedLoading] = useState(false);
 
-  // Timeline (per-student financial history)
-  const [timelineStudent, setTimelineStudent] = useState<{ student_id: string; student_name: string; student_class: string } | null>(null);
+  // (timeline is now a full-screen page via onNavigate)
   const focusApplied = useRef(false);
 
   // Recalibrate balances
@@ -260,7 +261,9 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
 
   const openTimeline = (s: { student_id: string; student_name: string; student_class: string }) => {
     setOpenActionMenu(null);
-    setTimelineStudent(s);
+    if (onNavigate) {
+      onNavigate('student_profile', s.student_id, s.student_name, s.student_class);
+    }
   };
 
   const runRecalibrate = async () => {
@@ -1236,18 +1239,6 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
         </div>
       )}
 
-      {/* Student Financial Timeline Modal */}
-      {timelineStudent && (
-        <StudentTimeline
-          studentId={timelineStudent.student_id}
-          studentName={timelineStudent.student_name}
-          studentClass={timelineStudent.student_class}
-          currentSession={currentSession}
-          currentTerm={currentTerm}
-          onClose={() => setTimelineStudent(null)}
-          onManageFees={() => { setTimelineStudent(null); openManageFees(timelineStudent); }}
-        />
-      )}
     </div>
   );
 };

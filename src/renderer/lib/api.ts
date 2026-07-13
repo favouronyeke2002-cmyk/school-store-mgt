@@ -1938,10 +1938,23 @@ export const transactionAPI = {
     if (!txns || txns.length === 0) return [];
 
     const txnIds = txns.map((t: any) => t.transaction_id || t.id);
-    const { data: allItems } = await supabase
+
+    // Try to include issued_at / issued_by — columns may not exist yet, fall back gracefully
+    let allItems: any[] | null = null;
+    const { data: itemsWithIssued, error: issuedErr } = await supabase
       .from("transaction_items")
-      .select("*, inventory(item_name)")
+      .select("*, inventory(item_name), issued_at, issued_by")
       .in("transaction_id", txnIds);
+    if (issuedErr) {
+      // Columns don't exist — retry without them
+      const { data: fallbackItems } = await supabase
+        .from("transaction_items")
+        .select("*, inventory(item_name)")
+        .in("transaction_id", txnIds);
+      allItems = fallbackItems;
+    } else {
+      allItems = itemsWithIssued;
+    }
 
     const byTxn = new Map<number, any[]>();
     for (const item of allItems || []) {
@@ -1958,6 +1971,20 @@ export const transactionAPI = {
         items: byTxn.get(currentId) || [],
       };
     });
+  },
+
+  // Mark transaction_items as issued (requires issued_at / issued_by columns in DB)
+  async markItemsIssued(transactionItemIds: number[], issuedBy: string): Promise<{ success: boolean; error?: string }> {
+    if (!transactionItemIds || transactionItemIds.length === 0) return { success: true };
+    const { error } = await supabase
+      .from("transaction_items")
+      .update({
+        issued_at: new Date().toISOString(),
+        issued_by: issuedBy,
+      })
+      .in("id", transactionItemIds);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
   },
 };
 
