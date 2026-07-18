@@ -499,13 +499,14 @@ const BundlePaymentModal: React.FC<{
   bundle: Bundle;
   minFloor: number;
   applicantName: string;
-  onComplete: (amount: number, paymentMode: 'Cash' | 'POS_Transfer') => void;
+  onComplete: (amount: number, paymentMode: 'Cash' | 'POS_Transfer', autoIssue: boolean) => void;
   onCancel: () => void;
   processing: boolean;
   error: string;
 }> = ({ bundle, minFloor, applicantName, onComplete, onCancel, processing, error }) => {
   const [amount, setAmount] = useState(String(bundle.base_price));
   const [paymentMode, setPaymentMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
+  const [autoIssue, setAutoIssue] = useState(true);
   const [stockLevels, setStockLevels] = useState<Record<number, number>>({});
 
   useEffect(() => {
@@ -521,7 +522,7 @@ const BundlePaymentModal: React.FC<{
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onComplete(parseFloat(amount) || 0, paymentMode);
+    onComplete(parseFloat(amount) || 0, paymentMode, autoIssue);
   };
 
   const isPartial = parseFloat(amount) < bundle.base_price;
@@ -586,6 +587,25 @@ const BundlePaymentModal: React.FC<{
               <button type="button" onClick={() => setPaymentMode('POS_Transfer')} className={`flex items-center justify-center gap-2 py-3 rounded-xl font-semibold border-2 transition-all text-sm ${paymentMode === 'POS_Transfer' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-primary-400'}`}><CreditCard className="w-4 h-4" /> POS</button>
             </div>
           </div>
+
+          {/* Auto-issuance toggle — only shown when at least one item is in stock */}
+          {stockCappedItems.some((i) => !i.outOfStock) && (
+            <label className="flex items-start gap-3 cursor-pointer bg-success-50 border border-success-200 rounded-xl px-3 py-2.5 hover:border-success-400 transition-colors">
+              <input
+                type="checkbox"
+                checked={autoIssue}
+                onChange={(e) => setAutoIssue(e.target.checked)}
+                className="mt-0.5 rounded accent-success-600"
+              />
+              <div>
+                <span className="text-sm font-semibold text-success-800">Hand over available items right now</span>
+                <p className="text-xs text-success-600 mt-0.5">
+                  Items in stock will be marked as <strong>Issued</strong> and deducted from inventory immediately.
+                  Uncheck to create <strong>Pending Collection</strong> entries instead.
+                </p>
+              </div>
+            </label>
+          )}
 
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
@@ -1000,7 +1020,7 @@ const WalkInRegistrationFeeModal: React.FC<{
   studentStatus: 'Day' | 'Boarding';
   matchedBundle: Bundle | null;
   categoryGroup: string | null;
-  onConfirm: (mode: 'Cash' | 'POS_Transfer', total: number, coachingIncluded: boolean, balanceDue?: number) => void;
+  onConfirm: (mode: 'Cash' | 'POS_Transfer', total: number, coachingIncluded: boolean, balanceDue?: number, autoIssue?: boolean) => void;
   onCancel: () => void;
   processing: boolean;
   error: string;
@@ -1008,6 +1028,7 @@ const WalkInRegistrationFeeModal: React.FC<{
   const [payMode, setPayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
   const [coachingAddon, setCoachingAddon] = useState(false);
   const [paymentType, setPaymentType] = useState<'full' | 'half'>('full');
+  const [autoIssue, setAutoIssue] = useState(true);
   const [stockLevels, setStockLevels] = useState<Record<number, number>>({});
   const [stockLoaded, setStockLoaded] = useState(false);
 
@@ -1202,11 +1223,21 @@ const WalkInRegistrationFeeModal: React.FC<{
           </>
         )}
 
+        {/* Auto-issuance toggle — show only when bundle has physical items */}
+        {inStockBundleItems.length > 0 && (
+          <label className="flex items-start gap-3 cursor-pointer bg-success-50 border border-success-200 rounded-xl px-3 py-2.5 mb-3 hover:border-success-400 transition-colors">
+            <input type="checkbox" checked={autoIssue} onChange={(e) => setAutoIssue(e.target.checked)} className="mt-0.5 rounded accent-success-600" />
+            <div>
+              <span className="text-sm font-semibold text-success-800">Hand over available items right now</span>
+              <p className="text-xs text-success-600 mt-0.5">Items in stock will be <strong>Issued</strong> and deducted from inventory immediately. Uncheck for <strong>Pending Collection</strong>.</p>
+            </div>
+          </label>
+        )}
         <div className="flex gap-3">
           <button onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
           {canProceed && (
             <button
-              onClick={() => onConfirm(payMode, total, coachingAddon, paymentType === 'half' ? balanceDue : undefined)}
+              onClick={() => onConfirm(payMode, total, coachingAddon, paymentType === 'half' ? balanceDue : undefined, autoIssue)}
               disabled={processing || (isBundleMode && (matchedBundle!.items?.length || 0) > 0 && !stockLoaded)}
               className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50"
             >
@@ -1222,12 +1253,13 @@ const WalkInRegistrationFeeModal: React.FC<{
 // ─── Walk-In Locked Form Payment Modal ───────────────────────────────────────
 const WalkInFormModal: React.FC<{
   applicantName: string;
-  onConfirm: (mode: 'Cash' | 'POS_Transfer') => void;
+  onConfirm: (mode: 'Cash' | 'POS_Transfer', autoIssue: boolean) => void;
   onCancel: () => void;
   processing: boolean;
   error: string;
 }> = ({ applicantName, onConfirm, onCancel, processing, error }) => {
   const [payMode, setPayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
+  const [autoIssue, setAutoIssue] = useState(true);
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
       <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6">
@@ -1254,9 +1286,16 @@ const WalkInFormModal: React.FC<{
           <button type="button" onClick={() => setPayMode('Cash')} className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${payMode === 'Cash' ? 'bg-success-600 border-success-600 text-white' : 'bg-white border-gray-200 text-gray-600'}`}>Cash</button>
           <button type="button" onClick={() => setPayMode('POS_Transfer')} className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${payMode === 'POS_Transfer' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600'}`}>POS / Transfer</button>
         </div>
+        <label className="flex items-start gap-3 cursor-pointer bg-success-50 border border-success-200 rounded-xl px-3 py-2.5 mb-4 hover:border-success-400 transition-colors">
+          <input type="checkbox" checked={autoIssue} onChange={(e) => setAutoIssue(e.target.checked)} className="mt-0.5 rounded accent-success-600" />
+          <div>
+            <span className="text-sm font-semibold text-success-800">Hand over the form right now</span>
+            <p className="text-xs text-success-600 mt-0.5">Uncheck to create a <strong>Pending Collection</strong> entry without deducting inventory yet.</p>
+          </div>
+        </label>
         <div className="flex gap-3">
           <button onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-          <button onClick={() => onConfirm(payMode)} disabled={processing} className="flex-1 py-2.5 bg-warning-500 text-white rounded-xl text-sm font-semibold hover:bg-warning-600 disabled:opacity-50">{processing ? 'Processing…' : 'Confirm ₦3,000'}</button>
+          <button onClick={() => onConfirm(payMode, autoIssue)} disabled={processing} className="flex-1 py-2.5 bg-warning-500 text-white rounded-xl text-sm font-semibold hover:bg-warning-600 disabled:opacity-50">{processing ? 'Processing…' : 'Confirm ₦3,000'}</button>
         </div>
       </div>
     </div>
@@ -1268,12 +1307,13 @@ const WalkInBundleModal: React.FC<{
   title: string;
   applicantName: string;
   bundle: Bundle;
-  onConfirm: (mode: 'Cash' | 'POS_Transfer') => void;
+  onConfirm: (mode: 'Cash' | 'POS_Transfer', autoIssue: boolean) => void;
   onCancel: () => void;
   processing: boolean;
   error: string;
 }> = ({ title, applicantName, bundle, onConfirm, onCancel, processing, error }) => {
   const [payMode, setPayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
+  const [autoIssue, setAutoIssue] = useState(true);
   const [stockLevels, setStockLevels] = useState<Record<number, number>>({});
   const [stockLoaded, setStockLoaded] = useState(false);
 
@@ -1328,7 +1368,7 @@ const WalkInBundleModal: React.FC<{
         </div>
         <div className="flex gap-3">
           <button onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-          <button onClick={() => onConfirm(payMode)} disabled={processing} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">{processing ? 'Processing…' : `Confirm ${fmt(bundle.base_price)}`}</button>
+          <button onClick={() => onConfirm(payMode, autoIssue)} disabled={processing} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">{processing ? 'Processing…' : `Confirm ${fmt(bundle.base_price)}`}</button>
         </div>
       </div>
     </div>
@@ -1946,12 +1986,14 @@ const CashierPOS: React.FC = () => {
     }
   };
 
-  const handleWalkInFormConfirm = async (mode: 'Cash' | 'POS_Transfer') => {
+  const handleWalkInFormConfirm = async (mode: 'Cash' | 'POS_Transfer', autoIssue: boolean) => {
     if (!walkInApplicant || !activeShift) return;
     setWalkInModalProcessing(true);
     setWalkInModalError('');
     try {
-      const result = await bundlePaymentAPI.processFormPayment({ applicantId: walkInApplicant.id, shiftId: activeShift.id, paymentMode: mode });
+      const result = await bundlePaymentAPI.processFormPayment({
+        applicantId: walkInApplicant.id, shiftId: activeShift.id, paymentMode: mode, autoIssue,
+      });
       if (result.success) {
         setShowWalkInForm(false);
         const receiptTxn = { transaction_id: result.transactionId, timestamp: new Date().toISOString(), student_name: walkInApplicant.full_name, student_class: walkInApplicant.proposed_class || 'Applicant', payment_mode: mode, fee_type_name: 'Admission Form' };
@@ -1964,7 +2006,7 @@ const CashierPOS: React.FC = () => {
     setWalkInModalProcessing(false);
   };
 
-  const handleWalkInAcceptanceConfirm = async (mode: 'Cash' | 'POS_Transfer') => {
+  const handleWalkInAcceptanceConfirm = async (mode: 'Cash' | 'POS_Transfer', autoIssue: boolean) => {
     if (!walkInApplicant || !walkInAcceptanceBundle || !activeShift) return;
     setWalkInModalProcessing(true);
     setWalkInModalError('');
@@ -1974,6 +2016,7 @@ const CashierPOS: React.FC = () => {
         amountPaid: walkInAcceptanceBundle.base_price, paymentMode: mode,
         minPartialFloor: schoolSettings?.min_acceptance_partial_floor || 5000,
         customerName: walkInApplicant.full_name, targetClass: walkInApplicant.proposed_class || undefined,
+        autoIssue,
       });
       if (result.success) {
         setShowWalkInAcceptance(false);
@@ -1987,30 +2030,29 @@ const CashierPOS: React.FC = () => {
     setWalkInModalProcessing(false);
   };
 
-  const handleWalkInRegistrationConfirm = async (mode: 'Cash' | 'POS_Transfer', total: number, coachingIncluded: boolean, balanceDue?: number) => {
+  const handleWalkInRegistrationConfirm = async (
+    mode: 'Cash' | 'POS_Transfer',
+    total: number,
+    coachingIncluded: boolean,
+    balanceDue?: number,
+    autoIssue: boolean = true,
+  ) => {
     if (!walkInApplicant || !activeShift) return;
     setWalkInModalProcessing(true);
     setWalkInModalError('');
     try {
       const categoryGroup = classCategoryMap[walkInApplicant.proposed_class || ''] || 'UNKNOWN';
       const studentStatus = walkInApplicant.student_status || 'Day';
-      // Pass actual bundle items if available (textbooks, uniforms, etc.), capped to
-      // live stock so out-of-stock items never get decremented or handed to the storekeeper.
+      // Pass all bundle items to the API — the API's autoIssue logic handles
+      // which ones to deduct from inventory vs. which go to Pending Collection.
       let bundleItems: { item_id: number; item_name: string; quantity: number; selling_price: number }[] | undefined = undefined;
       if (walkInRegistrationBundle?.items?.length) {
-        const itemIds = walkInRegistrationBundle.items.map((i: any) => i.item_id);
-        const stockLevels = await inventoryAPI.getStockLevels(itemIds);
-        bundleItems = walkInRegistrationBundle.items
-          .map((item: any) => {
-            const available = stockLevels[item.item_id] ?? 0;
-            return {
-              item_id: item.item_id,
-              item_name: item.item_name,
-              quantity: Math.max(0, Math.min(item.quantity, available)),
-              selling_price: item.selling_price,
-            };
-          })
-          .filter((item) => item.quantity > 0);
+        bundleItems = walkInRegistrationBundle.items.map((item: any) => ({
+          item_id: item.item_id,
+          item_name: item.item_name,
+          quantity: item.quantity,       // API will cap to live stock server-side
+          selling_price: item.selling_price,
+        }));
       }
       const result = await bundlePaymentAPI.processDirectRegistrationPayment({
         applicantId: walkInApplicant.id, shiftId: activeShift.id,
@@ -2019,6 +2061,7 @@ const CashierPOS: React.FC = () => {
         targetClass: walkInApplicant.proposed_class || undefined,
         balanceDue,
         bundleItems,
+        autoIssue,
       });
       if (result.success) {
         setShowWalkInRegistration(false);
@@ -2042,7 +2085,7 @@ const CashierPOS: React.FC = () => {
   };
 
   // Bundle payment handler
-  const handleBundlePayment = async () => {
+  const handleBundlePayment = async (autoIssue: boolean = true) => {
     if (!walkInApplicant || !selectedBundle || !activeShift) return;
     const amount = parseFloat(bundleAmount);
     if (isNaN(amount) || amount <= 0) { setBundleError('Enter a valid amount'); return; }
@@ -2063,6 +2106,7 @@ const CashierPOS: React.FC = () => {
         minPartialFloor: minFloor,
         customerName: walkInApplicant.full_name,
         targetClass: walkInApplicant.proposed_class || undefined,
+        autoIssue,
       });
       if (result.success) {
         setShowBundlePayment(false);
@@ -2990,7 +3034,7 @@ const CashierPOS: React.FC = () => {
             ? (schoolSettings?.min_acceptance_partial_floor || 5000)
             : (schoolSettings?.min_partial_payment_floor || 30000)}
           applicantName={walkInApplicant.full_name}
-          onComplete={(_amount, _mode) => handleBundlePayment()}
+          onComplete={(_amount, _mode, ai) => handleBundlePayment(ai)}
           onCancel={() => { setShowBundlePayment(false); setSelectedBundle(null); setWalkInApplicant(null); setBundleError(''); }}
           processing={bundleProcessing}
           error={bundleError}

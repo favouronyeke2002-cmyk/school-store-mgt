@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, AlertTriangle, X, Banknote, CreditCard, Plus, Trash2 } from 'lucide-react';
-import { expenseAPI, transactionAPI } from '../../lib/api';
+import { Wallet, AlertTriangle, X, Banknote, CreditCard, Plus, Trash2, User } from 'lucide-react';
+import { expenseAPI } from '../../lib/api';
 
-const fmt = (n: number) => `N${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const EXPENSE_CATEGORIES = [
   'Utilities',
@@ -21,9 +21,14 @@ interface ExpenseRecord {
   amount: number;
   payment_mode: string;
   description: string | null;
+  payee: string | null;
   created_at: string;
   shift_id: number | null;
 }
+
+// Map DB-stored payment_mode values to display labels
+const paymentLabel = (mode: string) =>
+  mode === 'Cash Drawer' ? 'Cash' : 'POS / Bank Transfer';
 
 const ExpenseManagement: React.FC = () => {
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
@@ -36,8 +41,9 @@ const ExpenseManagement: React.FC = () => {
   // Form state
   const [category, setCategory] = useState('Other');
   const [amount, setAmount] = useState('');
-  const [paymentMode, setPaymentMode] = useState<'Cash' | 'Bank Transfer'>('Cash');
+  const [paymentMode, setPaymentMode] = useState<'Cash' | 'POS / Bank Transfer'>('Cash');
   const [description, setDescription] = useState('');
+  const [payee, setPayee] = useState('');
 
   // Filter state
   const [startDate, setStartDate] = useState('');
@@ -45,9 +51,7 @@ const ExpenseManagement: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [paymentFilter, setPaymentFilter] = useState('');
 
-  useEffect(() => {
-    loadExpenses();
-  }, []);
+  useEffect(() => { loadExpenses(); }, []);
 
   useEffect(() => {
     if (success) {
@@ -60,13 +64,13 @@ const ExpenseManagement: React.FC = () => {
     setLoading(true);
     try {
       const data = await expenseAPI.getExpensesForHistory({});
-      // Transform to match ExpenseRecord shape
       setExpenses(data.map((e: any) => ({
         id: e.expense_id,
         category: e.category,
         amount: e.amount_paid,
         payment_mode: e.payment_mode,
         description: e.description,
+        payee: e.payee ?? null,
         created_at: e.timestamp,
         shift_id: e.shift_id,
       })));
@@ -84,17 +88,22 @@ const ExpenseManagement: React.FC = () => {
       setError('Please fill in all required fields');
       return;
     }
+    if (!payee.trim()) {
+      setError('Payee / Vendor Name is required');
+      return;
+    }
 
     setSaving(true);
     setError('');
     try {
       const result = await expenseAPI.addExpense({
-        shiftId: undefined, // Admin expenses have no shift
+        shiftId: undefined,
         category,
         amount: amountNum,
         paymentMode: paymentMode === 'Cash' ? 'Cash Drawer' : 'Bank Transfer',
         description: description.trim() || undefined,
-        createdBy: undefined, // Will record as Admin
+        payee: payee.trim(),
+        createdBy: undefined,
       });
 
       if (result.success) {
@@ -102,6 +111,7 @@ const ExpenseManagement: React.FC = () => {
         setCategory('Other');
         setAmount('');
         setDescription('');
+        setPayee('');
         setPaymentMode('Cash');
         setShowModal(false);
         loadExpenses();
@@ -149,7 +159,7 @@ const ExpenseManagement: React.FC = () => {
           <p className="text-gray-500">Record and track school operational expenses</p>
         </div>
         <button
-          onClick={() => setShowModal(true)}
+          onClick={() => { setError(''); setShowModal(true); }}
           className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
         >
           <Plus className="w-4 h-4" />
@@ -161,14 +171,14 @@ const ExpenseManagement: React.FC = () => {
       <div className="grid grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow-sm p-5">
           <div className="text-sm text-gray-500">Total Expenses</div>
-          <div className="text-2xl font-bold">{fmt(totalAmount)}</div>
+          <div className="text-2xl font-bold text-danger-600">{fmt(totalAmount)}</div>
         </div>
         <div className="bg-white rounded-lg shadow-sm p-5">
           <div className="text-sm text-gray-500">Cash Payments</div>
           <div className="text-2xl font-bold text-warning-600">{fmt(cashTotal)}</div>
         </div>
         <div className="bg-white rounded-lg shadow-sm p-5">
-          <div className="text-sm text-gray-500">Bank Transfers</div>
+          <div className="text-sm text-gray-500">POS / Bank Transfers</div>
           <div className="text-2xl font-bold text-primary-600">{fmt(bankTotal)}</div>
         </div>
         <div className="bg-white rounded-lg shadow-sm p-5">
@@ -198,14 +208,12 @@ const ExpenseManagement: React.FC = () => {
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
             className="px-3 py-2 border rounded-md text-sm"
-            placeholder="Start Date"
           />
           <input
             type="date"
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
             className="px-3 py-2 border rounded-md text-sm"
-            placeholder="End Date"
           />
           <select
             value={categoryFilter}
@@ -224,15 +232,10 @@ const ExpenseManagement: React.FC = () => {
           >
             <option value="">All Methods</option>
             <option value="Cash Drawer">Cash</option>
-            <option value="Bank Transfer">Bank Transfer</option>
+            <option value="Bank Transfer">POS / Bank Transfer</option>
           </select>
           <button
-            onClick={() => {
-              setStartDate('');
-              setEndDate('');
-              setCategoryFilter('');
-              setPaymentFilter('');
-            }}
+            onClick={() => { setStartDate(''); setEndDate(''); setCategoryFilter(''); setPaymentFilter(''); }}
             className="px-4 py-2 bg-gray-100 rounded-md text-sm hover:bg-gray-200"
           >
             Clear Filters
@@ -249,6 +252,7 @@ const ExpenseManagement: React.FC = () => {
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">ID</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Date</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Category</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Payee / Vendor</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Payment Method</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Description</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Amount</th>
@@ -258,15 +262,11 @@ const ExpenseManagement: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-12 text-gray-400">
-                    Loading...
-                  </td>
+                  <td colSpan={8} className="text-center py-12 text-gray-400">Loading...</td>
                 </tr>
               ) : filteredExpenses.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-12 text-gray-400">
-                    No expenses found
-                  </td>
+                  <td colSpan={8} className="text-center py-12 text-gray-400">No expenses found</td>
                 </tr>
               ) : (
                 filteredExpenses.map((expense) => (
@@ -279,9 +279,12 @@ const ExpenseManagement: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="px-2 py-1 rounded text-xs bg-gray-100 text-gray-700">
+                      <span className="px-2 py-1 rounded text-xs bg-red-100 text-red-700 font-medium">
                         {expense.category}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-800">
+                      {expense.payee || <span className="text-gray-400 italic">—</span>}
                     </td>
                     <td className="px-4 py-3 text-sm">
                       <span className={`inline-flex items-center gap-1 ${expense.payment_mode === 'Cash Drawer' ? 'text-warning-600' : 'text-primary-600'}`}>
@@ -290,11 +293,11 @@ const ExpenseManagement: React.FC = () => {
                         ) : (
                           <CreditCard className="w-4 h-4" />
                         )}
-                        {expense.payment_mode === 'Cash Drawer' ? 'Cash' : 'Bank Transfer'}
+                        {paymentLabel(expense.payment_mode)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-500">
-                      {expense.description || '-'}
+                      {expense.description || '—'}
                     </td>
                     <td className="px-4 py-3 text-right font-bold text-danger-600">
                       {fmt(expense.amount)}
@@ -333,6 +336,7 @@ const ExpenseManagement: React.FC = () => {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Category */}
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Category *</label>
                 <select
@@ -346,10 +350,29 @@ const ExpenseManagement: React.FC = () => {
                 </select>
               </div>
 
+              {/* Payee / Vendor Name */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">
+                  Payee / Vendor Name *
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={payee}
+                    onChange={(e) => setPayee(e.target.value)}
+                    required
+                    className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                    placeholder="e.g. Mandy Catering Services, Power Company"
+                  />
+                </div>
+              </div>
+
+              {/* Amount */}
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Amount *</label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-gray-500">N</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-gray-500">₦</span>
                   <input
                     type="number"
                     min="0"
@@ -362,6 +385,7 @@ const ExpenseManagement: React.FC = () => {
                 </div>
               </div>
 
+              {/* Payment Method */}
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-2 block">Payment Method *</label>
                 <div className="grid grid-cols-2 gap-3">
@@ -379,9 +403,9 @@ const ExpenseManagement: React.FC = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPaymentMode('Bank Transfer')}
+                    onClick={() => setPaymentMode('POS / Bank Transfer')}
                     className={`flex items-center justify-center gap-2 py-3 rounded-xl font-bold border-2 transition-all ${
-                      paymentMode === 'Bank Transfer'
+                      paymentMode === 'POS / Bank Transfer'
                         ? 'bg-primary-50 border-primary-500 text-primary-700'
                         : 'bg-white border-gray-200 text-gray-500 hover:border-primary-300'
                     }`}
@@ -392,6 +416,7 @@ const ExpenseManagement: React.FC = () => {
                 </div>
               </div>
 
+              {/* Description */}
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Description (Optional)</label>
                 <input
@@ -399,9 +424,16 @@ const ExpenseManagement: React.FC = () => {
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-                  placeholder="e.g. Payment for generator fuel"
+                  placeholder="e.g. Monthly generator fuel refill"
                 />
               </div>
+
+              {error && (
+                <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-3 py-2 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  {error}
+                </div>
+              )}
 
               <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500">
                 <div className="font-medium text-gray-700 mb-1">Admin Expense</div>
@@ -418,7 +450,7 @@ const ExpenseManagement: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={saving || !amount || parseFloat(amount) <= 0}
+                  disabled={saving || !amount || parseFloat(amount) <= 0 || !payee.trim()}
                   className="flex-1 py-2.5 bg-danger-600 text-white rounded-xl text-sm font-semibold hover:bg-danger-700 disabled:opacity-50"
                 >
                   {saving ? 'Recording...' : 'Record Expense'}

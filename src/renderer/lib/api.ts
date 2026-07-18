@@ -1,5 +1,41 @@
 import { supabase } from "./supabase";
 
+// ─── RBAC HELPERS ─────────────────────────────────────────────────────────────
+// The app manages its own auth via pos_users + localStorage ('pos_user').
+// These helpers read the active session and enforce role restrictions at the
+// API layer, providing a second line of defence beyond the UI-level gates.
+
+function getSessionUser(): { role: string; username: string } {
+  try {
+    const stored = localStorage.getItem("pos_user");
+    if (!stored) return { role: "unknown", username: "unknown" };
+    const u = JSON.parse(stored);
+    return { role: u?.role || "unknown", username: u?.username || "unknown" };
+  } catch {
+    return { role: "unknown", username: "unknown" };
+  }
+}
+
+/** Returns true only for admin / superadmin roles. */
+function sessionIsAdmin(): boolean {
+  const { role } = getSessionUser();
+  return role === "admin" || role === "superadmin";
+}
+
+/**
+ * Throws a 403-like Error if the calling session is not admin/superadmin.
+ * @param action - human-readable name of the restricted action, for error messages.
+ */
+function requireAdmin(action: string): void {
+  if (!sessionIsAdmin()) {
+    const err = new Error(
+      `Access denied: '${action}' requires admin or superadmin privileges.`,
+    ) as any;
+    err.status = 403;
+    throw err;
+  }
+}
+
 // ─── SCHOOL SETTINGS ──────────────────────────────────────────────────────────
 const LS_TERM = "pos_current_term";
 const LS_CLASSES = "pos_class_list";
@@ -628,6 +664,7 @@ export const inventoryAPI = {
       categoryId?: number | null;
     },
   ) {
+    requireAdmin("edit item price / details");
     const { error } = await supabase
       .from("inventory")
       .update({
@@ -1748,6 +1785,7 @@ export const transactionAPI = {
   },
 
   async update(transactionId: number, updates: { type?: string; payment_mode?: string }) {
+    requireAdmin("edit transaction type / payment mode");
     const { error } = await supabase
       .from("transactions")
       .update(updates)
@@ -1757,6 +1795,7 @@ export const transactionAPI = {
   },
 
   async void(transactionId: number) {
+    requireAdmin("void transaction");
     // 1. Fetch the transaction to understand what to reverse
     const { data: txn, error: fetchErr } = await supabase
       .from("transactions")
@@ -1973,9 +2012,42 @@ export const transactionAPI = {
     });
   },
 
-  // Mark transaction_items as issued (requires issued_at / issued_by columns in DB)
-  async markItemsIssued(transactionItemIds: number[], issuedBy: string): Promise<{ success: boolean; error?: string }> {
+  // Mark transaction_items as issued and deduct the issued quantities from inventory.
+  // Allowed for all roles (cashier, storekeeper, admin) — this is the issuance endpoint.
+  async markItemsIssued(
+    transactionItemIds: number[],
+    issuedBy: string,
+  ): Promise<{ success: boolean; error?: string }> {
     if (!transactionItemIds || transactionItemIds.length === 0) return { success: true };
+
+    // 1. Fetch the rows we're about to mark so we know item_id + quantity to deduct.
+    const { data: rows, error: fetchErr } = await supabase
+      .from("transaction_items")
+      .select("id, item_id, quantity")
+      .in("id", transactionItemIds)
+      .is("issued_at", null); // only process genuinely pending rows
+    if (fetchErr) return { success: false, error: fetchErr.message };
+
+    // 2. Deduct inventory for each item.  We do a live re-fetch of stock to
+    //    avoid races — stock_quantity can never go below zero.
+    const itemIds = (rows || [])
+      .map((r: any) => r.item_id)
+      .filter(Boolean) as number[];
+
+    if (itemIds.length > 0) {
+      const stockMap = await inventoryAPI.getStockLevels(itemIds);
+      for (const row of rows || []) {
+        if (!row.item_id) continue; // service-line row — no inventory to deduct
+        const current = stockMap[row.item_id] ?? 0;
+        const newQty = Math.max(0, current - (row.quantity || 1));
+        await supabase
+          .from("inventory")
+          .update({ stock_quantity: newQty })
+          .eq("item_id", row.item_id);
+      }
+    }
+
+    // 3. Flip the status columns.
     const { error } = await supabase
       .from("transaction_items")
       .update({
@@ -1984,6 +2056,7 @@ export const transactionAPI = {
       })
       .in("id", transactionItemIds);
     if (error) return { success: false, error: error.message };
+
     return { success: true };
   },
 };
@@ -1991,6 +2064,9 @@ export const transactionAPI = {
 // ─── ADMIN ANALYTICS ─────────────────────────────────────────────────────────
 export const adminAPI = {
   async getStats() {
+    // Fee revenue totals are admin-only — cashiers/storekeepers must not see them.
+    requireAdmin("fetch school fee revenue summaries");
+
     // Fetch store transactions WITH their nested items in one call so we can
     // derive both storeRevenue and COGS from the same STORE_PURCHASE scope.
     // This is the critical separation: bundle/acceptance transactions must NOT
@@ -2590,6 +2666,9 @@ export const bundlePaymentAPI = {
     minPartialFloor: number;
     customerName?: string;
     targetClass?: string;
+    /** true (default) = issue available items immediately and deduct inventory.
+     *  false = create all item rows as "Pending Collection" without touching stock. */
+    autoIssue?: boolean;
   }) {
     const {
       applicantId,
@@ -2600,7 +2679,9 @@ export const bundlePaymentAPI = {
       minPartialFloor,
       customerName,
       targetClass,
+      autoIssue = true,
     } = params;
+    const { username: issuedBy } = getSessionUser();
 
     // Get bundle details
     const bundle = await bundleAPI.getById(bundleId);
@@ -2672,50 +2753,73 @@ export const bundlePaymentAPI = {
       balance_due: balanceDue > 0 ? balanceDue : 0,
     });
 
-    // Live stock check: never decrement or hand off items that are actually out of stock.
-    // Cap each item's quantity to what's really on the shelf and drop items with none left.
+    // Live stock check — determine what's on the shelf right now.
     const bundleItemIds = bundle.items.map((item: any) => item.item_id);
     const liveStock = await inventoryAPI.getStockLevels(bundleItemIds);
-    const inStockItems = bundle.items
-      .map((item: any) => {
-        const available = liveStock[item.item_id] ?? 0;
-        return { ...item, quantity: Math.max(0, Math.min(item.quantity, available)) };
-      })
-      .filter((item: any) => item.quantity > 0);
+    const issuedAt = autoIssue ? new Date().toISOString() : null;
 
-    // Decrement bundle items from inventory
-    for (const item of inStockItems) {
-      const { data: inv } = await supabase
-        .from("inventory")
-        .select("stock_quantity")
-        .eq("item_id", item.item_id)
-        .single();
-      if (inv) {
-        const newStock = Math.max(0, inv.stock_quantity - item.quantity);
-        await supabase
-          .from("inventory")
-          .update({ stock_quantity: newStock })
-          .eq("item_id", item.item_id);
+    if (autoIssue) {
+      // ── AUTO-ISSUE PATH ──────────────────────────────────────────────────
+      // In-stock items: deduct inventory + mark as Issued immediately.
+      // Out-of-stock items: insert as Pending Collection (no deduction).
+      const inStockItems = bundle.items
+        .map((item: any) => {
+          const available = liveStock[item.item_id] ?? 0;
+          return { ...item, quantity: Math.max(0, Math.min(item.quantity, available)), available };
+        })
+        .filter((item: any) => item.quantity > 0);
+
+      for (const item of inStockItems) {
+        const newStock = Math.max(0, item.available - item.quantity);
+        await supabase.from("inventory").update({ stock_quantity: newStock }).eq("item_id", item.item_id);
       }
+
+      const issuedRows = inStockItems.map((item: any) => ({
+        transaction_id: txn.transaction_id,
+        item_id: item.item_id,
+        item_name: item.item_name,
+        quantity: item.quantity,
+        unit_price: item.selling_price,
+        total_price: item.selling_price * item.quantity,
+        issued_at: issuedAt,
+        issued_by: issuedBy,
+      }));
+
+      const outOfStockItems = bundle.items.filter(
+        (item: any) => (liveStock[item.item_id] ?? 0) <= 0,
+      );
+      const pendingRows = outOfStockItems.map((item: any) => ({
+        transaction_id: txn.transaction_id,
+        item_id: item.item_id,
+        item_name: item.item_name,
+        quantity: item.quantity,
+        unit_price: item.selling_price,
+        total_price: item.selling_price * item.quantity,
+        // null issued_at/issued_by → Pending Collection
+      }));
+
+      const allRows = [...issuedRows, ...pendingRows];
+      if (allRows.length > 0) await supabase.from("transaction_items").insert(allRows);
+    } else {
+      // ── DEFERRED-ISSUANCE PATH ───────────────────────────────────────────
+      // Insert ALL items as Pending Collection — no inventory deduction yet.
+      // The storekeeper will issue them manually later via markItemsIssued(),
+      // which deducts stock atomically at hand-over time.
+      const pendingRows = bundle.items.map((item: any) => ({
+        transaction_id: txn.transaction_id,
+        item_id: item.item_id,
+        item_name: item.item_name,
+        quantity: item.quantity,
+        unit_price: item.selling_price,
+        total_price: item.selling_price * item.quantity,
+        // null issued_at/issued_by → Pending Collection
+      }));
+      if (pendingRows.length > 0) await supabase.from("transaction_items").insert(pendingRows);
     }
 
-    // Persist only tangible inventory items in transaction_items.
-    // The administrative fee / package markup portion is NOT stored here —
-    // storing it as a null-item_id row would pollute COGS calculations because
-    // the gross profit query scopes to STORE_PURCHASE items only; any fake
-    // service line here would have zero cost and distort the inventory metrics.
-    // The full amount_paid is captured on the transactions row itself, and the
-    // TransactionHistory detail view recomputes the admin fee as a display label
-    // (amount_paid − sum(physical items)) without touching the DB.
-    const itemRows = inStockItems.map((item: any) => ({
-      transaction_id: txn.transaction_id,
-      item_id: item.item_id,
-      item_name: item.item_name,
-      quantity: item.quantity,
-      unit_price: item.selling_price,
-      total_price: item.selling_price * item.quantity,
-    }));
-    if (itemRows.length > 0) await supabase.from("transaction_items").insert(itemRows);
+    // NOTE: The administrative fee / package markup is NOT stored as a
+    // transaction_items row — it would pollute COGS for STORE_PURCHASE reports.
+    // The TransactionHistory detail view recomputes it as (amount_paid − Σ physical items).
 
     // Update applicant_payments
     await supabase
@@ -2747,8 +2851,11 @@ export const bundlePaymentAPI = {
     applicantId: number;
     shiftId: number;
     paymentMode: "Cash" | "POS_Transfer";
+    /** true (default) = deduct stock + mark issued now; false = create Pending row */
+    autoIssue?: boolean;
   }) {
-    const { applicantId, shiftId, paymentMode } = params;
+    const { applicantId, shiftId, paymentMode, autoIssue = true } = params;
+    const { username: issuedBy } = getSessionUser();
     const FORM_PRICE = 3000;
 
     // Auto-fetch applicant to stamp name/class snapshot
@@ -2773,7 +2880,7 @@ export const bundlePaymentAPI = {
       target_class: targetClass,
     });
 
-    // Find an "Admission Form" inventory item and decrement by 1
+    // Find an "Admission Form" inventory item
     const { data: formItems } = await supabase
       .from("inventory")
       .select("item_id, stock_quantity, item_name")
@@ -2781,11 +2888,15 @@ export const bundlePaymentAPI = {
       .limit(1);
     const formItem = formItems?.[0] as any;
     const items: any[] = [];
+
     if (formItem) {
-      await supabase
-        .from("inventory")
-        .update({ stock_quantity: Math.max(0, formItem.stock_quantity - 1) })
-        .eq("item_id", formItem.item_id);
+      // Deduct stock only when handing over right now
+      if (autoIssue) {
+        await supabase
+          .from("inventory")
+          .update({ stock_quantity: Math.max(0, formItem.stock_quantity - 1) })
+          .eq("item_id", formItem.item_id);
+      }
       await supabase.from("transaction_items").insert({
         transaction_id: txn.transaction_id,
         item_id: formItem.item_id,
@@ -2793,18 +2904,25 @@ export const bundlePaymentAPI = {
         quantity: 1,
         unit_price: FORM_PRICE,
         total_price: FORM_PRICE,
+        ...(autoIssue
+          ? { issued_at: new Date().toISOString(), issued_by: issuedBy }
+          : {}),
       });
-      items.push({
-        item_name: formItem.item_name,
-        quantity: 1,
-        total_price: FORM_PRICE,
-      });
+      items.push({ item_name: formItem.item_name, quantity: 1, total_price: FORM_PRICE });
     } else {
-      items.push({
+      // No inventory item found — still record a Pending row so the storekeeper knows
+      await supabase.from("transaction_items").insert({
+        transaction_id: txn.transaction_id,
+        item_id: null,
         item_name: "Admission Application Form",
         quantity: 1,
+        unit_price: FORM_PRICE,
         total_price: FORM_PRICE,
+        ...(autoIssue
+          ? { issued_at: new Date().toISOString(), issued_by: issuedBy }
+          : {}),
       });
+      items.push({ item_name: "Admission Application Form", quantity: 1, total_price: FORM_PRICE });
     }
 
     await applicantAPI.markEligible(applicantId);
@@ -2831,6 +2949,8 @@ export const bundlePaymentAPI = {
     targetClass?: string;
     balanceDue?: number;
     bundleItems?: { item_id: number; item_name: string; quantity: number; selling_price: number }[];
+    /** true (default) = issue available items immediately; false = create Pending rows */
+    autoIssue?: boolean;
   }) {
     const {
       applicantId,
@@ -2844,7 +2964,9 @@ export const bundlePaymentAPI = {
       targetClass,
       balanceDue,
       bundleItems,
+      autoIssue = true,
     } = params;
+    const { username: issuedBy } = getSessionUser();
 
     const baseAmount = coachingIncluded ? amount - 10_000 : amount;
     const notes = `Registration Fee — ${categoryGroup} (${studentStatus})${coachingIncluded ? " + Coaching Add-on" : ""}${balanceDue ? ` — Balance: ₦${balanceDue.toLocaleString()}` : ""}`;
@@ -2868,53 +2990,75 @@ export const bundlePaymentAPI = {
       total_price: number;
     }[] = [];
 
-    // If bundle items were passed (actual textbooks/uniforms), persist and use them.
-    // Re-check live stock server-side (authoritative) — cap quantities and drop items
-    // that are actually out of stock so they're never decremented or handed off.
+    // Persist actual bundle items (textbooks/uniforms) with auto-issuance logic.
     if (bundleItems && bundleItems.length > 0) {
-      const liveStock = await inventoryAPI.getStockLevels(
-        bundleItems.map((item) => item.item_id),
-      );
-      const inStockBundleItems = bundleItems
-        .map((item) => {
-          const available = liveStock[item.item_id] ?? 0;
-          return { ...item, quantity: Math.max(0, Math.min(item.quantity, available)) };
-        })
-        .filter((item) => item.quantity > 0);
+      const liveStock = await inventoryAPI.getStockLevels(bundleItems.map((i) => i.item_id));
+      const issuedAt = autoIssue ? new Date().toISOString() : null;
 
-      // Decrement bundle items from inventory
-      for (const item of inStockBundleItems) {
-        const { data: inv } = await supabase
-          .from("inventory")
-          .select("stock_quantity")
-          .eq("item_id", item.item_id)
-          .single();
-        if (inv) {
-          const newStock = Math.max(0, inv.stock_quantity - item.quantity);
-          await supabase
-            .from("inventory")
-            .update({ stock_quantity: newStock })
-            .eq("item_id", item.item_id);
+      if (autoIssue) {
+        // ── AUTO-ISSUE: deduct in-stock items, create Pending rows for out-of-stock ──
+        const inStockItems = bundleItems
+          .map((item) => {
+            const available = liveStock[item.item_id] ?? 0;
+            return { ...item, quantity: Math.max(0, Math.min(item.quantity, available)), available };
+          })
+          .filter((item) => item.quantity > 0);
+
+        for (const item of inStockItems) {
+          const newStock = Math.max(0, item.available - item.quantity);
+          await supabase.from("inventory").update({ stock_quantity: newStock }).eq("item_id", item.item_id);
         }
+
+        const issuedRows = inStockItems.map((item) => ({
+          transaction_id: txn.transaction_id,
+          item_id: item.item_id,
+          item_name: item.item_name,
+          quantity: item.quantity,
+          unit_price: item.selling_price,
+          total_price: item.selling_price * item.quantity,
+          issued_at: issuedAt,
+          issued_by: issuedBy,
+        }));
+
+        const outOfStockRows = bundleItems
+          .filter((item) => (liveStock[item.item_id] ?? 0) <= 0)
+          .map((item) => ({
+            transaction_id: txn.transaction_id,
+            item_id: item.item_id,
+            item_name: item.item_name,
+            quantity: item.quantity,
+            unit_price: item.selling_price,
+            total_price: item.selling_price * item.quantity,
+            // null issued_* → Pending Collection
+          }));
+
+        const allRows = [...issuedRows, ...outOfStockRows];
+        if (allRows.length > 0) await supabase.from("transaction_items").insert(allRows);
+
+        lineItems.push(...inStockItems.map((item) => ({
+          item_name: item.item_name,
+          quantity: item.quantity,
+          total_price: item.selling_price * item.quantity,
+        })));
+      } else {
+        // ── DEFERRED ISSUANCE: all items as Pending, no stock deduction ──
+        const pendingRows = bundleItems.map((item) => ({
+          transaction_id: txn.transaction_id,
+          item_id: item.item_id,
+          item_name: item.item_name,
+          quantity: item.quantity,
+          unit_price: item.selling_price,
+          total_price: item.selling_price * item.quantity,
+          // null issued_* → Pending Collection
+        }));
+        if (pendingRows.length > 0) await supabase.from("transaction_items").insert(pendingRows);
+
+        lineItems.push(...bundleItems.map((item) => ({
+          item_name: item.item_name,
+          quantity: item.quantity,
+          total_price: item.selling_price * item.quantity,
+        })));
       }
-
-      // Insert transaction_items with item_name snapshot
-      const itemRows = inStockBundleItems.map((item) => ({
-        transaction_id: txn.transaction_id,
-        item_id: item.item_id,
-        item_name: item.item_name,
-        quantity: item.quantity,
-        unit_price: item.selling_price,
-        total_price: item.selling_price * item.quantity,
-      }));
-      if (itemRows.length > 0) await supabase.from("transaction_items").insert(itemRows);
-
-      // Return actual items for receipt (out-of-stock items already excluded)
-      lineItems.push(...inStockBundleItems.map((item) => ({
-        item_name: item.item_name,
-        quantity: item.quantity,
-        total_price: item.selling_price * item.quantity,
-      })));
     }
 
     // Add summary line items
@@ -3177,9 +3321,10 @@ export const expenseAPI = {
     amount: number;
     paymentMode: "Cash Drawer" | "Bank Transfer";
     description?: string;
+    payee?: string;
     createdBy?: number;
   }) {
-    const { shiftId, category, amount, paymentMode, description, createdBy } = params;
+    const { shiftId, category, amount, paymentMode, description, payee, createdBy } = params;
     const { data, error } = await supabase
       .from("expenses")
       .insert({
@@ -3188,6 +3333,7 @@ export const expenseAPI = {
         amount,
         payment_mode: paymentMode,
         description: description || null,
+        payee: payee || null,
         created_by: createdBy || null,
       })
       .select("id")
@@ -3321,6 +3467,7 @@ export const expenseAPI = {
       payment_mode: e.payment_mode,
       timestamp: e.created_at,
       description: e.description,
+      payee: e.payee ?? null,
       shift_id: e.shift_id,
     }));
   },
