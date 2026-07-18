@@ -39,11 +39,15 @@ const ExpenseManagement: React.FC = () => {
   const [success, setSuccess] = useState('');
 
   // Form state
-  const [category, setCategory] = useState('Other');
+  const [categorySelect, setCategorySelect] = useState('Other');
+  const [customCategory, setCustomCategory] = useState('');
   const [amount, setAmount] = useState('');
   const [paymentMode, setPaymentMode] = useState<'Cash' | 'POS / Bank Transfer'>('Cash');
   const [description, setDescription] = useState('');
   const [payee, setPayee] = useState('');
+
+  const isCustomCat = categorySelect === '__custom__';
+  const effectiveCategory = isCustomCat ? customCategory.trim() : categorySelect;
 
   // Filter state
   const [startDate, setStartDate] = useState('');
@@ -84,7 +88,7 @@ const ExpenseManagement: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const amountNum = parseFloat(amount) || 0;
-    if (!category || amountNum <= 0) {
+    if (!effectiveCategory || amountNum <= 0) {
       setError('Please fill in all required fields');
       return;
     }
@@ -98,7 +102,7 @@ const ExpenseManagement: React.FC = () => {
     try {
       const result = await expenseAPI.addExpense({
         shiftId: undefined,
-        category,
+        category: effectiveCategory,
         amount: amountNum,
         paymentMode: paymentMode === 'Cash' ? 'Cash Drawer' : 'Bank Transfer',
         description: description.trim() || undefined,
@@ -108,7 +112,8 @@ const ExpenseManagement: React.FC = () => {
 
       if (result.success) {
         setSuccess('Expense recorded successfully');
-        setCategory('Other');
+        setCategorySelect('Other');
+        setCustomCategory('');
         setAmount('');
         setDescription('');
         setPayee('');
@@ -335,95 +340,102 @@ const ExpenseManagement: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Category */}
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">Category *</label>
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-                >
-                  {EXPENSE_CATEGORIES.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Payee / Vendor Name */}
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">
-                  Payee / Vendor Name *
-                </label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    value={payee}
-                    onChange={(e) => setPayee(e.target.value)}
-                    required
-                    className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-                    placeholder="e.g. Mandy Catering Services, Power Company"
-                  />
-                </div>
-              </div>
-
-              {/* Amount */}
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">Amount *</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-gray-500">₦</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="100"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className="w-full pl-8 pr-3 py-3 border-2 border-gray-200 rounded-xl text-xl font-bold focus:outline-none focus:border-primary-400"
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
-
-              {/* Payment Method */}
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">Payment Method *</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMode('Cash')}
-                    className={`flex items-center justify-center gap-2 py-3 rounded-xl font-bold border-2 transition-all ${
-                      paymentMode === 'Cash'
-                        ? 'bg-warning-50 border-warning-500 text-warning-700'
-                        : 'bg-white border-gray-200 text-gray-500 hover:border-warning-300'
-                    }`}
+            <form onSubmit={handleSubmit} className="space-y-3">
+              {/* Row 1: Category + Payee */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Category *</label>
+                  <select
+                    value={categorySelect}
+                    onChange={(e) => { setCategorySelect(e.target.value); if (e.target.value !== '__custom__') setCustomCategory(''); }}
+                    className="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
                   >
-                    <Banknote className="w-5 h-5" />
-                    Cash
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMode('POS / Bank Transfer')}
-                    className={`flex items-center justify-center gap-2 py-3 rounded-xl font-bold border-2 transition-all ${
-                      paymentMode === 'POS / Bank Transfer'
-                        ? 'bg-primary-50 border-primary-500 text-primary-700'
-                        : 'bg-white border-gray-200 text-gray-500 hover:border-primary-300'
-                    }`}
-                  >
-                    <CreditCard className="w-5 h-5" />
-                    POS / Bank Transfer
-                  </button>
+                    {EXPENSE_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                    <option value="__custom__">➕ Add Custom Category…</option>
+                  </select>
+                  {isCustomCat && (
+                    <input
+                      autoFocus
+                      type="text"
+                      value={customCategory}
+                      onChange={(e) => setCustomCategory(e.target.value)}
+                      className="mt-1.5 w-full px-2.5 py-2 border border-primary-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                      placeholder="Enter category name"
+                    />
+                  )}
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Payee / Vendor Name *</label>
+                  <div className="relative">
+                    <User className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                    <input
+                      type="text"
+                      value={payee}
+                      onChange={(e) => setPayee(e.target.value)}
+                      required
+                      className="w-full pl-8 pr-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                      placeholder="e.g. Power Company"
+                    />
+                  </div>
                 </div>
               </div>
 
-              {/* Description */}
+              {/* Row 2: Amount + Payment Method */}
+              <div className="grid grid-cols-2 gap-3 items-end">
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Amount *</label>
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 font-bold text-gray-500 text-sm">₦</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="100"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      className="w-full pl-7 pr-2.5 py-2.5 border-2 border-gray-200 rounded-xl text-lg font-bold focus:outline-none focus:border-primary-400"
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Payment Method *</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMode('Cash')}
+                      className={`flex items-center justify-center gap-1 py-2.5 rounded-xl font-semibold border-2 text-xs transition-all ${
+                        paymentMode === 'Cash'
+                          ? 'bg-warning-50 border-warning-500 text-warning-700'
+                          : 'bg-white border-gray-200 text-gray-500 hover:border-warning-300'
+                      }`}
+                    >
+                      <Banknote className="w-3.5 h-3.5" /> Cash
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMode('POS / Bank Transfer')}
+                      className={`flex items-center justify-center gap-1 py-2.5 rounded-xl font-semibold border-2 text-xs transition-all ${
+                        paymentMode === 'POS / Bank Transfer'
+                          ? 'bg-primary-50 border-primary-500 text-primary-700'
+                          : 'bg-white border-gray-200 text-gray-500 hover:border-primary-300'
+                      }`}
+                    >
+                      <CreditCard className="w-3.5 h-3.5" /> POS
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 3: Description */}
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">Description (Optional)</label>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Description (Optional)</label>
                 <input
                   type="text"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                  className="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
                   placeholder="e.g. Monthly generator fuel refill"
                 />
               </div>
@@ -435,12 +447,11 @@ const ExpenseManagement: React.FC = () => {
                 </div>
               )}
 
-              <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500">
-                <div className="font-medium text-gray-700 mb-1">Admin Expense</div>
-                This expense will be recorded as an administrative expense and is not tied to any cashier shift.
+              <div className="bg-gray-50 rounded-lg p-2.5 text-xs text-gray-500">
+                Admin expense — not tied to any cashier shift.
               </div>
 
-              <div className="flex gap-3 pt-2">
+              <div className="flex gap-3 pt-1">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
@@ -450,7 +461,7 @@ const ExpenseManagement: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={saving || !amount || parseFloat(amount) <= 0 || !payee.trim()}
+                  disabled={saving || !amount || parseFloat(amount) <= 0 || !payee.trim() || !effectiveCategory}
                   className="flex-1 py-2.5 bg-danger-600 text-white rounded-xl text-sm font-semibold hover:bg-danger-700 disabled:opacity-50"
                 >
                   {saving ? 'Recording...' : 'Record Expense'}

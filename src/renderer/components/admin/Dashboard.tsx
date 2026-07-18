@@ -105,16 +105,23 @@ const Dashboard: React.FC = () => {
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
         <div className="grid grid-cols-5 divide-x min-w-[480px]">
-          {[
-            { label: 'Gross Sales', value: fmt(stats?.storeRevenue || 0), color: 'text-gray-900' },
-            { label: 'Fees Collected', value: fmt(stats?.feesCollected || 0), color: 'text-gray-900' },
-            { label: 'Cost of Goods', value: fmt(stats?.cogs || 0), color: 'text-gray-900' },
-            { label: 'Net Sales', value: fmt(storeRevenue - (stats?.cogs || 0)), color: 'text-primary-700' },
-            { label: 'Gross Profit', value: fmt(netProfit), color: netProfit >= 0 ? 'text-success-700' : 'text-danger-700' },
-          ].map((item) => (
+          {(() => {
+            const cogs = stats?.cogs || 0;
+            const grossProfit = storeRevenue - cogs;
+            const adminExpenses = stats?.adminExpenses || 0;
+            const netSales = grossProfit - adminExpenses;
+            return [
+              { label: 'Gross Sales', value: fmt(storeRevenue), color: 'text-gray-900' },
+              { label: 'Fees Collected', value: fmt(stats?.feesCollected || 0), color: 'text-gray-900' },
+              { label: 'Cost of Goods', value: fmt(cogs), color: 'text-gray-900' },
+              { label: 'Gross Profit', value: fmt(grossProfit), color: grossProfit >= 0 ? 'text-primary-700' : 'text-danger-700', sub: 'Before admin expenses' },
+              { label: 'Net Sales', value: fmt(netSales), color: netSales >= 0 ? 'text-success-700' : 'text-danger-700', sub: adminExpenses > 0 ? `−${fmt(adminExpenses)} expenses` : 'No admin expenses' },
+            ];
+          })().map((item) => (
             <div key={item.label} className="px-5 py-4">
               <div className="text-xs text-gray-400 font-medium mb-1">{item.label}</div>
               <div className={`text-xl font-extrabold ${item.color}`}>{item.value}</div>
+              {(item as any).sub && <div className="text-[10px] text-gray-400 mt-0.5">{(item as any).sub}</div>}
             </div>
           ))}
         </div>

@@ -2137,6 +2137,17 @@ export const adminAPI = {
         s + Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid)),
       0,
     );
+
+    // Admin expenses: recorded without a cashier shift (shift_id IS NULL)
+    const { data: adminExpData } = await supabase
+      .from("expenses")
+      .select("amount")
+      .is("shift_id", null);
+    const adminExpenses = (adminExpData || []).reduce(
+      (s: number, e: any) => s + Number(e.amount),
+      0,
+    );
+
     return {
       totalRevenue,
       storeRevenue,
@@ -2146,6 +2157,7 @@ export const adminAPI = {
       profitMargin,
       uncollectedFees,
       transactionCount: countResult.count || 0,
+      adminExpenses,
     };
   },
   async getDailySales(days: number = 30) {

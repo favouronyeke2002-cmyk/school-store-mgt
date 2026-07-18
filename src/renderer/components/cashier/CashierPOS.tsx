@@ -620,152 +620,178 @@ const BundlePaymentModal: React.FC<{
 };
 
 // ─── Add Expense Modal ───────────────────────────────────────────────────────
-const EXPENSE_CATEGORIES = [
+const CASHIER_EXPENSE_CATEGORIES = [
   'Water Tanker',
   'Generator Fuel',
   'Kitchen Supplies',
   'Repairs',
   'Salaries',
+  'Operations',
   'Other',
-] as const;
+];
 
 const AddExpenseModal: React.FC<{
   shiftId: number;
   openingCash: number;
   currentCashSales: number;
-  onConfirm: (data: { category: string; amount: number; paymentMode: 'Cash Drawer'; description: string }) => void;
+  onConfirm: (data: { category: string; amount: number; paymentMode: 'Cash Drawer'; description: string; payee: string }) => void;
   onCancel: () => void;
   saving: boolean;
   error: string;
 }> = ({ shiftId, openingCash, currentCashSales, onConfirm, onCancel, saving, error }) => {
-  const [category, setCategory] = useState<string>('Other');
+  const [categorySelect, setCategorySelect] = useState<string>('Other');
+  const [customCategory, setCustomCategory] = useState('');
+  const [payee, setPayee] = useState('');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [showWarning, setShowWarning] = useState(false);
+
+  const isCustom = categorySelect === '__custom__';
+  const effectiveCategory = isCustom ? customCategory.trim() : categorySelect;
 
   const amountNum = parseFloat(amount) || 0;
   const expectedCash = openingCash + currentCashSales;
   const remainingCash = expectedCash - amountNum;
   const isNegative = remainingCash < 0;
   const isInsufficient = amountNum > expectedCash;
-  const paymentMode = 'Cash Drawer'; // Always cash drawer for cashiers
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!category || amountNum <= 0) return;
-    if (isInsufficient) return; // Block if insufficient funds
-    if (!showWarning) {
-      setShowWarning(true);
-      return;
-    }
-    onConfirm({ category, amount: amountNum, paymentMode: 'Cash Drawer', description: description.trim() });
+    if (!effectiveCategory || amountNum <= 0 || !payee.trim()) return;
+    if (isInsufficient) return;
+    if (!showWarning) { setShowWarning(true); return; }
+    onConfirm({ category: effectiveCategory, amount: amountNum, paymentMode: 'Cash Drawer', description: description.trim(), payee: payee.trim() });
   };
+
+  const canSubmit = effectiveCategory && amountNum > 0 && payee.trim() && !isInsufficient && !saving;
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 max-h-[90vh] overflow-auto">
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-danger-100 rounded-xl flex items-center justify-center"><Wallet className="w-5 h-5 text-danger-600" /></div>
-            <h2 className="text-lg font-bold">Record Cash Expense</h2>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 p-5 max-h-[90vh] overflow-auto">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-danger-100 rounded-lg flex items-center justify-center"><Wallet className="w-4 h-4 text-danger-600" /></div>
+            <h2 className="text-base font-bold">Record Cash Expense</h2>
           </div>
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
         </div>
 
-        {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{error}</div>}
+        {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-3 py-2 mb-3">{error}</div>}
 
-        {/* Insufficient funds error - shown when amount exceeds cash at hand */}
+        {/* Insufficient funds error */}
         {isInsufficient && amountNum > 0 && (
-          <div className="bg-danger-100 border-2 border-danger-400 rounded-xl p-4 mb-4 flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-danger-600" />
+          <div className="bg-danger-100 border-2 border-danger-400 rounded-xl p-3 mb-3 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-danger-600" />
             <div className="text-sm">
-              <div className="font-bold text-danger-800">ERROR: Insufficient cash in drawer. This transaction is blocked.</div>
-              <div className="text-danger-700 mt-1 font-medium">Current cash at hand is only {fmt(expectedCash)}.</div>
+              <div className="font-bold text-danger-800">Insufficient cash in drawer — transaction blocked.</div>
+              <div className="text-danger-700 font-medium">Current cash at hand: {fmt(expectedCash)}</div>
             </div>
           </div>
         )}
 
-        {/* Cash drawer summary warning */}
-        <div className={`rounded-xl p-4 mb-4 ${showWarning && !isInsufficient ? 'bg-warning-50 border border-warning-200' : 'bg-gray-50 border border-gray-200'}`}>
-          <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Cash Drawer Impact</div>
-          <div className="space-y-1 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-500">Opening Cash</span>
-              <span className="font-medium">{fmt(openingCash)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">+ Cash Sales</span>
-              <span className="font-medium text-success-600">+ {fmt(currentCashSales)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">= Current Cash at Hand</span>
-              <span className="font-bold">{fmt(expectedCash)}</span>
-            </div>
-            {amountNum > 0 && (
-              <>
-                <div className="border-t border-dashed my-2 border-gray-300" />
-                <div className="flex justify-between">
-                  <span className="text-gray-500">- Expense</span>
-                  <span className="font-medium text-danger-600">- {fmt(amountNum)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="font-semibold text-gray-700">Remaining</span>
-                  <span className={`font-bold ${isNegative ? 'text-danger-600' : 'text-gray-900'}`}>{fmt(remainingCash)}</span>
-                </div>
-              </>
-            )}
+        {/* Compact cash drawer summary */}
+        <div className={`rounded-xl p-3 mb-4 ${showWarning && !isInsufficient ? 'bg-warning-50 border border-warning-200' : 'bg-gray-50 border border-gray-200'}`}>
+          <div className="text-xs font-semibold text-gray-500 uppercase mb-1.5">Cash Drawer Impact</div>
+          <div className="grid grid-cols-3 gap-2 text-sm">
+            <div><div className="text-xs text-gray-400">Opening</div><div className="font-semibold">{fmt(openingCash)}</div></div>
+            <div><div className="text-xs text-gray-400">+ Cash Sales</div><div className="font-semibold text-success-600">{fmt(currentCashSales)}</div></div>
+            <div><div className="text-xs text-gray-400">At Hand</div><div className="font-bold">{fmt(expectedCash)}</div></div>
           </div>
+          {amountNum > 0 && (
+            <div className="mt-2 pt-2 border-t border-dashed border-gray-300 flex justify-between text-sm">
+              <span className="text-gray-500">Remaining after expense</span>
+              <span className={`font-bold ${isNegative ? 'text-danger-600' : 'text-gray-900'}`}>{fmt(remainingCash)}</span>
+            </div>
+          )}
         </div>
 
         {/* Warning confirmation */}
         {showWarning && !isInsufficient && (
-          <div className={`rounded-xl p-4 mb-4 flex items-start gap-3 ${isNegative ? 'bg-danger-50 border border-danger-300' : 'bg-warning-50 border border-warning-300'}`}>
-            <AlertTriangle className={`w-5 h-5 shrink-0 mt-0.5 ${isNegative ? 'text-danger-600' : 'text-warning-600'}`} />
+          <div className={`rounded-xl p-3 mb-3 flex items-start gap-2 ${isNegative ? 'bg-danger-50 border border-danger-300' : 'bg-warning-50 border border-warning-300'}`}>
+            <AlertTriangle className={`w-4 h-4 shrink-0 mt-0.5 ${isNegative ? 'text-danger-600' : 'text-warning-600'}`} />
             <div className="text-sm">
               <div className={`font-semibold ${isNegative ? 'text-danger-800' : 'text-warning-800'}`}>
-                {isNegative ? 'Warning: This expense exceeds the cash in your drawer!' : 'This expense will be deducted from your shift\'s expected cash.'}
+                {isNegative ? 'Warning: Expense exceeds drawer cash!' : 'Expense will reduce shift cash.'}
               </div>
-              <div className={`${isNegative ? 'text-danger-700' : 'text-warning-700'} mt-1`}>
-                {isNegative ? 'Your expected cash will become negative. Make sure this is intentional.' : 'This reduces the amount you are expected to turn in at close of shift.'}
+              <div className={`text-xs mt-0.5 ${isNegative ? 'text-danger-700' : 'text-warning-700'}`}>
+                {isNegative ? 'Expected cash balance will go negative.' : 'This reduces the amount you turn in at shift close.'}
               </div>
             </div>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="text-sm font-medium text-gray-700 mb-1 block">Category *</label>
-            <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
-              {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-gray-700 mb-1 block">Amount *</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-gray-500">N</span>
-              <input type="number" min="0" step="100" value={amount} onChange={(e) => { setAmount(e.target.value); setShowWarning(false); }} className="w-full pl-8 pr-3 py-3 border-2 border-gray-200 rounded-xl text-xl font-bold focus:outline-none focus:border-primary-400" placeholder="0.00" />
+        <form onSubmit={handleSubmit} className="space-y-3">
+          {/* Row 1: Category + Payee */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-700 mb-1 block">Category *</label>
+              <select
+                value={categorySelect}
+                onChange={(e) => { setCategorySelect(e.target.value); if (e.target.value !== '__custom__') setCustomCategory(''); }}
+                className="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+              >
+                {CASHIER_EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                <option value="__custom__">➕ Add Custom Category…</option>
+              </select>
+              {isCustom && (
+                <input
+                  autoFocus
+                  type="text"
+                  value={customCategory}
+                  onChange={(e) => setCustomCategory(e.target.value)}
+                  className="mt-1.5 w-full px-2.5 py-2 border border-primary-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                  placeholder="Enter category name"
+                />
+              )}
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-700 mb-1 block">Payee / Vendor *</label>
+              <input
+                type="text"
+                value={payee}
+                onChange={(e) => setPayee(e.target.value)}
+                required
+                className="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                placeholder="e.g. Alhaji Tanker Co."
+              />
             </div>
           </div>
 
-          {/* Payment mode is always Cash Drawer for cashiers - shown as static badge */}
-          <div>
-            <label className="text-sm font-medium text-gray-700 mb-2 block">Payment Mode</label>
-            <div className="flex items-center gap-2 px-4 py-3 bg-warning-50 border border-warning-200 rounded-xl">
-              <Banknote className="w-5 h-5 text-warning-600" />
-              <span className="font-semibold text-warning-700">Cash Drawer</span>
-              <span className="text-xs text-gray-400 ml-auto">Deducted from shift cash</span>
+          {/* Row 2: Amount + Payment Mode */}
+          <div className="grid grid-cols-2 gap-3 items-end">
+            <div>
+              <label className="text-xs font-medium text-gray-700 mb-1 block">Amount *</label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 font-bold text-gray-500 text-sm">₦</span>
+                <input
+                  type="number" min="0" step="100"
+                  value={amount}
+                  onChange={(e) => { setAmount(e.target.value); setShowWarning(false); }}
+                  className="w-full pl-7 pr-2.5 py-2.5 border-2 border-gray-200 rounded-xl text-lg font-bold focus:outline-none focus:border-primary-400"
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-700 mb-1 block">Payment Mode</label>
+              <div className="flex items-center gap-1.5 px-3 py-2.5 bg-warning-50 border border-warning-200 rounded-xl">
+                <Banknote className="w-4 h-4 text-warning-600" />
+                <span className="font-semibold text-warning-700 text-sm">Cash Drawer</span>
+              </div>
             </div>
           </div>
 
+          {/* Row 3: Description */}
           <div>
-            <label className="text-sm font-medium text-gray-700 mb-1 block">Description (Optional)</label>
-            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" placeholder="e.g. Fuel for generator, Water for kitchen" />
+            <label className="text-xs font-medium text-gray-700 mb-1 block">Description (Optional)</label>
+            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)}
+              className="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+              placeholder="e.g. Fuel for generator, Water for kitchen" />
           </div>
 
-          <div className="flex gap-3 pt-2">
+          <div className="flex gap-3 pt-1">
             <button type="button" onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-            <button type="submit" disabled={saving || amountNum <= 0 || isInsufficient} className="flex-1 py-2.5 bg-danger-600 text-white rounded-xl text-sm font-semibold hover:bg-danger-700 disabled:opacity-50">
+            <button type="submit" disabled={!canSubmit} className="flex-1 py-2.5 bg-danger-600 text-white rounded-xl text-sm font-semibold hover:bg-danger-700 disabled:opacity-50">
               {saving ? 'Recording…' : showWarning ? 'Confirm Expense' : 'Record Expense'}
             </button>
           </div>
@@ -1887,7 +1913,7 @@ const CashierPOS: React.FC = () => {
   };
 
   // Expense handlers
-  const handleAddExpense = async (data: { category: string; amount: number; paymentMode: 'Cash Drawer'; description: string }) => {
+  const handleAddExpense = async (data: { category: string; amount: number; paymentMode: 'Cash Drawer'; description: string; payee: string }) => {
     if (!activeShift) return;
     setExpenseSaving(true);
     setExpenseError('');
@@ -1898,6 +1924,7 @@ const CashierPOS: React.FC = () => {
         amount: data.amount,
         paymentMode: 'Cash Drawer',
         description: data.description,
+        payee: data.payee,
         createdBy: user?.id,
       });
       if (result.success) {
