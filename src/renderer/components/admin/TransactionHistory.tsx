@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Printer, Save, CheckCircle, Ban, AlertTriangle } from "lucide-react";
 import { transactionAPI, expenseAPI, settingsAPI } from "../../lib/api";
-import { useAuth } from "../../context/AuthContext";
 
 // ─── Receipt printer (mirrors CashierPOS) ────────────────────────────────────
 function printReceipt(html: string) {
@@ -18,15 +17,8 @@ function printReceipt(html: string) {
   }, 300);
 }
 
-const fmtCurrency = (n: number) => {
-  const abs = Math.abs(n || 0);
-  const formatted = abs.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return n < 0 ? `-₦${formatted}` : `₦${formatted}`;
-};
-
-// Map DB-stored expense payment_mode values to human-readable labels
-const expensePaymentLabel = (mode: string) =>
-  mode === "Cash Drawer" ? "Cash" : "POS / Bank Transfer";
+const fmtCurrency = (n: number) =>
+  `₦${(n || 0).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 function buildReceiptHtml(settings: any, txn: any, total: number, items: any[], isFees = false, isRegistration = false): string {
   const schoolName = settings?.school_name || "School Store";
@@ -121,15 +113,11 @@ interface Transaction {
   student_class?: string;
   category?: string;
   description?: string;
-  payee?: string;
   status?: string; // 'ACTIVE' | 'VOIDED' — undefined treated as ACTIVE for legacy rows
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 const TransactionHistory: React.FC = () => {
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin" || user?.role === "superadmin";
-
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -137,7 +125,6 @@ const TransactionHistory: React.FC = () => {
   const [endDate, setEndDate] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("");
-  const [viewTab, setViewTab] = useState<"all" | "store" | "fees">("all");
   const [selected, setSelected] = useState<Transaction | null>(null);
   const [details, setDetails] = useState<any>(null);
   const [settings, setSettings] = useState<any>(null);
@@ -196,7 +183,7 @@ const TransactionHistory: React.FC = () => {
     if (t.type === "EXPENSE") {
       setDetails({
         items: [],
-        transaction: { type: "EXPENSE", amount_paid: t.amount_paid, payment_mode: t.payment_mode, category: t.category, description: t.description, payee: t.payee },
+        transaction: { type: "EXPENSE", amount_paid: t.amount_paid, payment_mode: t.payment_mode, category: t.category, description: t.description },
       });
     } else {
       const d = await transactionAPI.getDetails(t.transaction_id as number);
@@ -304,19 +291,8 @@ const TransactionHistory: React.FC = () => {
   const activeOnly = transactions.filter(t => t.status !== "VOIDED");
   const total = activeOnly.reduce((s, t) => s + t.amount_paid, 0);
   const storeTotal = activeOnly.filter(t => t.type === "STORE_PURCHASE").reduce((s, t) => s + t.amount_paid, 0);
-  const feesTotal = activeOnly
-    .filter(t => t.type === "FEES_CASH_COLLECTION" || t.type === "BUNDLE_PURCHASE" || t.type === "ACCEPTANCE_FEE")
-    .reduce((s, t) => s + t.amount_paid, 0);
+  const feesTotal = activeOnly.filter(t => t.type === "FEES_CASH_COLLECTION").reduce((s, t) => s + t.amount_paid, 0);
   const expensesTotal = activeOnly.filter(t => t.type === "EXPENSE").reduce((s, t) => s + t.amount_paid, 0);
-
-  // ── Tab-filtered display list ──────────────────────────────────────────────
-  const displayTransactions = useMemo(() => {
-    if (viewTab === "store") return transactions.filter(t => t.type === "STORE_PURCHASE");
-    if (viewTab === "fees") return transactions.filter(
-      t => t.type === "FEES_CASH_COLLECTION" || t.type === "BUNDLE_PURCHASE" || t.type === "ACCEPTANCE_FEE"
-    );
-    return transactions;
-  }, [transactions, viewTab]);
 
   return (
     <div>
@@ -324,7 +300,7 @@ const TransactionHistory: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold">Transaction History</h1>
           <p className="text-gray-500">
-            {transactions.length} transactions — Total: {fmtCurrency(storeTotal + feesTotal - expensesTotal)}
+            {transactions.length} transactions — Total: {fmtCurrency(total)}
           </p>
         </div>
         <button
@@ -336,39 +312,18 @@ const TransactionHistory: React.FC = () => {
       </div>
 
       {/* Stats */}
-      <div className={`grid gap-4 mb-4 ${isAdmin ? "grid-cols-5" : "grid-cols-3"}`}>
+      <div className="grid grid-cols-5 gap-4 mb-6">
         {[
-          { label: "Transactions", value: transactions.length, show: true },
-          { label: "Store Sales", value: fmtCurrency(storeTotal), show: true },
-          { label: "Fees Collected", value: fmtCurrency(feesTotal), show: isAdmin },
-          { label: "Expenses", value: fmtCurrency(expensesTotal), isExpense: true, show: isAdmin },
-          { label: "Net Total", value: fmtCurrency(storeTotal + feesTotal - expensesTotal), show: isAdmin },
-        ].filter(s => s.show).map((s, i) => (
+          { label: "Transactions", value: transactions.length },
+          { label: "Store Purchases", value: fmtCurrency(storeTotal) },
+          { label: "Fees Collected", value: fmtCurrency(feesTotal) },
+          { label: "Expenses", value: fmtCurrency(expensesTotal), isExpense: true },
+          { label: "Net Total", value: fmtCurrency(total - expensesTotal) },
+        ].map((s, i) => (
           <div key={i} className="bg-white rounded-lg shadow-sm p-5">
             <div className={`text-sm ${s.isExpense ? "text-red-500" : "text-gray-500"}`}>{s.label}</div>
             <div className={`text-2xl font-bold ${s.isExpense ? "text-red-600" : ""}`}>{s.value}</div>
           </div>
-        ))}
-      </div>
-
-      {/* Tab bar */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg mb-4 w-fit">
-        {([
-          ["all", "All Transactions"],
-          ["store", "Store Sales"],
-          ["fees", "School Fees & Bundles"],
-        ] as const).map(([val, lbl]) => (
-          <button
-            key={val}
-            onClick={() => setViewTab(val)}
-            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
-              viewTab === val
-                ? "bg-white shadow-sm text-gray-900"
-                : "text-gray-500 hover:text-gray-700"
-            }`}
-          >
-            {lbl}
-          </button>
         ))}
       </div>
 
@@ -423,9 +378,9 @@ const TransactionHistory: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr><td colSpan={8} className="text-center py-12 text-gray-400">Loading…</td></tr>
-              ) : displayTransactions.length === 0 ? (
+              ) : transactions.length === 0 ? (
                 <tr><td colSpan={8} className="text-center py-12 text-gray-400">No transactions found</td></tr>
-              ) : displayTransactions.map(t => {
+              ) : transactions.map(t => {
                 const voided = t.status === "VOIDED";
                 return (
                   <tr
@@ -442,14 +397,10 @@ const TransactionHistory: React.FC = () => {
                     </td>
                     <td className="px-4 py-3">
                       <div className={`font-medium ${voided ? "line-through text-gray-400" : ""}`}>
-                        {t.type === "EXPENSE"
-                          ? <span className="font-bold text-red-700">{t.category}</span>
-                          : t.student_name}
+                        {t.type === "EXPENSE" ? t.category : t.student_name}
                       </div>
-                      <div className="text-xs text-gray-500">
-                        {t.type === "EXPENSE"
-                          ? ([t.payee && `Payee: ${t.payee}`, t.description].filter(Boolean).join(" | ") || "—")
-                          : (t.student_id || "—")}
+                      <div className="text-xs text-gray-500 font-mono">
+                        {t.type === "EXPENSE" ? (t.description || "—") : (t.student_id || "—")}
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -479,7 +430,7 @@ const TransactionHistory: React.FC = () => {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm">{t.type === "EXPENSE" ? expensePaymentLabel(t.payment_mode) : paymentLabel(t.payment_mode)}</td>
+                    <td className="px-4 py-3 text-sm">{t.type === "EXPENSE" ? "Cash Drawer" : paymentLabel(t.payment_mode)}</td>
                     <td className={`px-4 py-3 text-right font-bold ${t.type === "EXPENSE" ? "text-red-600" : ""} ${voided ? "line-through text-gray-400" : ""}`}>
                       {fmtCurrency(t.amount_paid)}
                     </td>
@@ -507,7 +458,7 @@ const TransactionHistory: React.FC = () => {
                 {selected.type === "EXPENSE" ? "Expense Details" : "Transaction Details"}
               </h2>
               <div className="flex items-center gap-2">
-                {isAdmin && selected.type !== "EXPENSE" && !isVoided && (
+                {selected.type !== "EXPENSE" && !isVoided && (
                   <button
                     onClick={() => setShowVoidConfirm(true)}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
@@ -564,7 +515,7 @@ const TransactionHistory: React.FC = () => {
                       <select
                         value={editType}
                         onChange={e => { setEditType(e.target.value); setSaveSuccess(false); }}
-                        disabled={isVoided || !isAdmin}
+                        disabled={isVoided}
                         className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
                       >
                         {TRANSACTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -575,7 +526,7 @@ const TransactionHistory: React.FC = () => {
                       <select
                         value={editPaymentMode}
                         onChange={e => { setEditPaymentMode(e.target.value); setSaveSuccess(false); }}
-                        disabled={isVoided || !isAdmin}
+                        disabled={isVoided}
                         className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary-400 disabled:bg-gray-100 disabled:cursor-not-allowed"
                       >
                         {PAYMENT_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
@@ -585,7 +536,7 @@ const TransactionHistory: React.FC = () => {
                 ) : (
                   <>
                     <div><span className="text-gray-500">Type:</span>{" "}<span className="px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">Expense</span></div>
-                    <div><span className="text-gray-500">Payment:</span> {expensePaymentLabel(selected.payment_mode)}</div>
+                    <div><span className="text-gray-500">Payment:</span> Cash Drawer</div>
                   </>
                 )}
               </div>
@@ -594,13 +545,8 @@ const TransactionHistory: React.FC = () => {
               {selected.type === "EXPENSE" ? (
                 <div className="bg-red-50 rounded-lg p-4">
                   <div className="text-sm text-gray-500 mb-1">Expense Details</div>
-                  <div className="font-bold text-lg text-red-700">{selected.category}</div>
-                  {selected.payee && (
-                    <div className="text-sm font-medium text-gray-700 mt-1">
-                      Payee: {selected.payee}
-                    </div>
-                  )}
-                  {selected.description && <div className="text-sm text-gray-600 mt-0.5">{selected.description}</div>}
+                  <div className="font-bold text-lg">{selected.category}</div>
+                  {selected.description && <div className="text-sm text-gray-600 mt-1">{selected.description}</div>}
                 </div>
               ) : (
                 <div className={`bg-primary-50 rounded-lg p-4 ${isVoided ? "opacity-60" : ""}`}>
@@ -674,8 +620,8 @@ const TransactionHistory: React.FC = () => {
                 </div>
               )}
 
-              {/* Admin edit controls — hidden when voided or for non-admin roles */}
-              {isAdmin && selected.type !== "EXPENSE" && !isVoided && (
+              {/* Admin edit controls — hidden when voided */}
+              {selected.type !== "EXPENSE" && !isVoided && (
                 <div className="border-t pt-4">
                   <div className="text-xs text-gray-400 mb-3">
                     Admin correction — only Type and Payment Method may be changed. Item totals are locked.

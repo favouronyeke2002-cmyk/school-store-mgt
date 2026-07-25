@@ -16,9 +16,8 @@ import SchoolSettings from './SchoolSettings';
 import BundleManagement from './BundleManagement';
 import PendingAdmissions from './PendingAdmissions';
 import ExpenseManagement from './ExpenseManagement';
-import StudentProfile from './StudentProfile';
 
-type AdminView = 'dashboard' | 'students' | 'inventory' | 'transactions' | 'shifts' | 'expenses' | 'fees' | 'bundles' | 'admissions' | 'users' | 'import' | 'settings' | 'student_profile';
+type AdminView = 'dashboard' | 'students' | 'inventory' | 'transactions' | 'shifts' | 'expenses' | 'fees' | 'bundles' | 'admissions' | 'users' | 'import' | 'settings';
 
 const navItems: { id: AdminView; label: string; icon: React.ElementType; group?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, group: 'Overview' },
@@ -40,23 +39,13 @@ const AdminLayout: React.FC = () => {
   const [currentView, setCurrentView] = useState<AdminView>('dashboard');
   const [feesStudentId, setFeesStudentId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [profileStudent, setProfileStudent] = useState<{
-    studentId: string; studentName: string; studentClass: string;
-  } | null>(null);
-  const [prevView, setPrevView] = useState<AdminView>('fees');
 
-  const navigateTo = (view: string, studentId?: string, studentName?: string, studentClass?: string) => {
-    setPrevView(currentView as AdminView);
+  const navigateTo = (view: string, studentId?: string) => {
     setCurrentView(view as AdminView);
     setFeesStudentId(view === 'fees' && studentId ? studentId : null);
-    if (view === 'student_profile' && studentId) {
-      setProfileStudent({ studentId, studentName: studentName || '', studentClass: studentClass || '' });
-    }
   };
 
-  const currentLabel = currentView === 'student_profile' && profileStudent
-    ? profileStudent.studentName
-    : navItems.find((n) => n.id === currentView)?.label || '';
+  const currentLabel = navItems.find((n) => n.id === currentView)?.label || '';
 
   const groups = ['Overview', 'Store', 'People', 'Admin'];
 
@@ -172,21 +161,7 @@ const AdminLayout: React.FC = () => {
           {currentView === 'transactions' && <TransactionHistory />}
           {currentView === 'shifts' && <ShiftHistory />}
           {currentView === 'expenses' && <ExpenseManagement />}
-          {currentView === 'fees' && (
-            <FeesManagement
-              focusStudentId={feesStudentId}
-              onNavigate={navigateTo}
-            />
-          )}
-          {currentView === 'student_profile' && profileStudent && (
-            <StudentProfile
-              studentId={profileStudent.studentId}
-              studentName={profileStudent.studentName}
-              studentClass={profileStudent.studentClass}
-              onBack={() => setCurrentView(prevView === 'student_profile' ? 'fees' : prevView)}
-              onManageFees={() => navigateTo('fees', profileStudent.studentId)}
-            />
-          )}
+          {currentView === 'fees' && <FeesManagement focusStudentId={feesStudentId} />}
           {currentView === 'bundles' && <BundleManagement />}
           {currentView === 'admissions' && <PendingAdmissions />}
           {currentView === 'users' && <UserManagement />}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Upload, Image, AlertCircle, X, Plus, Trash2, GraduationCap, Pencil, CheckCircle, RefreshCw } from 'lucide-react';
+import { Save, Upload, Image, AlertCircle, X, Plus, Trash2, GraduationCap, Pencil, CheckCircle } from 'lucide-react';
 import { settingsAPI, studentAPI } from '../../lib/api';
 import { CATEGORY_GROUPS, type CategoryGroup } from '../../lib/feeEngine';
 
@@ -42,8 +42,6 @@ const SchoolSettings: React.FC = () => {
   const [editingClass, setEditingClass] = useState<string | null>(null);
   const [editClassValue, setEditClassValue] = useState('');
   const [classCategoryMap, setClassCategoryMap] = useState<Record<string, string>>({});
-  const [showPromoteModal, setShowPromoteModal] = useState(false);
-  const [promoteSaving, setPromoteSaving] = useState(false);
 
   useEffect(() => {
     setClassCategoryMap(settingsAPI.getClassCategoryMap());
@@ -195,79 +193,6 @@ const SchoolSettings: React.FC = () => {
         </div>
       )}
 
-      {/* Promote Students / Session Rollover Modal */}
-      {showPromoteModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center shrink-0">
-                <RefreshCw className="w-6 h-6 text-amber-600" />
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">Promote Students / Session Rollover</h2>
-                <p className="text-sm text-gray-500">Advance the academic year across the system</p>
-              </div>
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-sm text-amber-800 space-y-1.5">
-              <div className="font-semibold text-amber-900">This action will:</div>
-              <ul className="list-disc pl-4 space-y-1 text-amber-700">
-                <li>Update the <strong>Academic Session</strong> to the next year</li>
-                <li>
-                  Current: <strong>{settings.academic_session || '—'}</strong> →
-                  New: <strong>{(() => {
-                    const s = (settings.academic_session || '2025/2026').split('/');
-                    const y1 = parseInt(s[0]) || 2025;
-                    const y2 = parseInt(s[1]) || 2026;
-                    return `${y1 + 1}/${y2 + 1}`;
-                  })()}</strong>
-                </li>
-              </ul>
-              <div className="text-xs text-amber-600 mt-2 pt-2 border-t border-amber-200">
-                Student class promotion and fee reset are managed separately. This only advances the session label.
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                type="button"
-                disabled={promoteSaving}
-                onClick={() => setShowPromoteModal(false)}
-                className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={promoteSaving}
-                onClick={async () => {
-                  setPromoteSaving(true);
-                  const s = (settings.academic_session || '2025/2026').split('/');
-                  const y1 = parseInt(s[0]) || 2025;
-                  const y2 = parseInt(s[1]) || 2026;
-                  const nextSession = `${y1 + 1}/${y2 + 1}`;
-                  try {
-                    const updated = { ...settings, academic_session: nextSession };
-                    await settingsAPI.save(updated);
-                    setSettings(updated);
-                    setShowPromoteModal(false);
-                    setSaved(true);
-                    setTimeout(() => setSaved(false), 3000);
-                  } catch (err) {
-                    setErrorMsg('Failed to update session: ' + (err as Error).message);
-                  }
-                  setPromoteSaving(false);
-                }}
-                className="flex-1 py-2.5 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                <RefreshCw className={`w-4 h-4 ${promoteSaving ? 'animate-spin' : ''}`} />
-                {promoteSaving ? 'Updating…' : 'Confirm Rollover'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Receipt Preview */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b">
@@ -326,24 +251,6 @@ const SchoolSettings: React.FC = () => {
           {field('School Name', 'school_name', "e.g. St. Mary's Secondary School")}
           {field('Motto / Tagline / Slogan', 'tagline', 'e.g. Excellence in Education', 'Displayed on the receipt under the school name')}
           {field('Academic Session', 'academic_session', 'e.g. 2025/2026', 'Used as the default session when creating new fees')}
-
-          {/* Promote Students / Session Rollover */}
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between gap-4">
-            <div>
-              <div className="text-sm font-semibold text-amber-900">Promote Students / Session Rollover</div>
-              <div className="text-xs text-amber-700 mt-0.5">
-                Advance the academic session year (e.g. {settings.academic_session || '2025/2026'} → {(() => { const s = (settings.academic_session || '2025/2026').split('/'); const y1 = parseInt(s[0]) || 2025; const y2 = parseInt(s[1]) || 2026; return `${y1 + 1}/${y2 + 1}`; })()})
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowPromoteModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-semibold text-sm whitespace-nowrap shrink-0"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Promote / Rollover
-            </button>
-          </div>
         </div>
 
         {/* Term Management */}

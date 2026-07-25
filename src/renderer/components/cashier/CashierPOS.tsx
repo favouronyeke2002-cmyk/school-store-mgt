@@ -499,14 +499,13 @@ const BundlePaymentModal: React.FC<{
   bundle: Bundle;
   minFloor: number;
   applicantName: string;
-  onComplete: (amount: number, paymentMode: 'Cash' | 'POS_Transfer', autoIssue: boolean) => void;
+  onComplete: (amount: number, paymentMode: 'Cash' | 'POS_Transfer') => void;
   onCancel: () => void;
   processing: boolean;
   error: string;
 }> = ({ bundle, minFloor, applicantName, onComplete, onCancel, processing, error }) => {
   const [amount, setAmount] = useState(String(bundle.base_price));
   const [paymentMode, setPaymentMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
-  const [autoIssue, setAutoIssue] = useState(true);
   const [stockLevels, setStockLevels] = useState<Record<number, number>>({});
 
   useEffect(() => {
@@ -522,7 +521,7 @@ const BundlePaymentModal: React.FC<{
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onComplete(parseFloat(amount) || 0, paymentMode, autoIssue);
+    onComplete(parseFloat(amount) || 0, paymentMode);
   };
 
   const isPartial = parseFloat(amount) < bundle.base_price;
@@ -588,25 +587,6 @@ const BundlePaymentModal: React.FC<{
             </div>
           </div>
 
-          {/* Auto-issuance toggle — only shown when at least one item is in stock */}
-          {stockCappedItems.some((i) => !i.outOfStock) && (
-            <label className="flex items-start gap-3 cursor-pointer bg-success-50 border border-success-200 rounded-xl px-3 py-2.5 hover:border-success-400 transition-colors">
-              <input
-                type="checkbox"
-                checked={autoIssue}
-                onChange={(e) => setAutoIssue(e.target.checked)}
-                className="mt-0.5 rounded accent-success-600"
-              />
-              <div>
-                <span className="text-sm font-semibold text-success-800">Hand over available items right now</span>
-                <p className="text-xs text-success-600 mt-0.5">
-                  Items in stock will be marked as <strong>Issued</strong> and deducted from inventory immediately.
-                  Uncheck to create <strong>Pending Collection</strong> entries instead.
-                </p>
-              </div>
-            </label>
-          )}
-
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
             <button type="submit" disabled={processing || isBelowFloor || parseFloat(amount) <= 0} className="flex-1 py-2.5 bg-success-600 text-white rounded-xl text-sm font-semibold hover:bg-success-700 disabled:opacity-50">
@@ -620,178 +600,152 @@ const BundlePaymentModal: React.FC<{
 };
 
 // ─── Add Expense Modal ───────────────────────────────────────────────────────
-const CASHIER_EXPENSE_CATEGORIES = [
+const EXPENSE_CATEGORIES = [
   'Water Tanker',
   'Generator Fuel',
   'Kitchen Supplies',
   'Repairs',
   'Salaries',
-  'Operations',
   'Other',
-];
+] as const;
 
 const AddExpenseModal: React.FC<{
   shiftId: number;
   openingCash: number;
   currentCashSales: number;
-  onConfirm: (data: { category: string; amount: number; paymentMode: 'Cash Drawer'; description: string; payee: string }) => void;
+  onConfirm: (data: { category: string; amount: number; paymentMode: 'Cash Drawer'; description: string }) => void;
   onCancel: () => void;
   saving: boolean;
   error: string;
 }> = ({ shiftId, openingCash, currentCashSales, onConfirm, onCancel, saving, error }) => {
-  const [categorySelect, setCategorySelect] = useState<string>('Other');
-  const [customCategory, setCustomCategory] = useState('');
-  const [payee, setPayee] = useState('');
+  const [category, setCategory] = useState<string>('Other');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [showWarning, setShowWarning] = useState(false);
-
-  const isCustom = categorySelect === '__custom__';
-  const effectiveCategory = isCustom ? customCategory.trim() : categorySelect;
 
   const amountNum = parseFloat(amount) || 0;
   const expectedCash = openingCash + currentCashSales;
   const remainingCash = expectedCash - amountNum;
   const isNegative = remainingCash < 0;
   const isInsufficient = amountNum > expectedCash;
+  const paymentMode = 'Cash Drawer'; // Always cash drawer for cashiers
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!effectiveCategory || amountNum <= 0 || !payee.trim()) return;
-    if (isInsufficient) return;
-    if (!showWarning) { setShowWarning(true); return; }
-    onConfirm({ category: effectiveCategory, amount: amountNum, paymentMode: 'Cash Drawer', description: description.trim(), payee: payee.trim() });
+    if (!category || amountNum <= 0) return;
+    if (isInsufficient) return; // Block if insufficient funds
+    if (!showWarning) {
+      setShowWarning(true);
+      return;
+    }
+    onConfirm({ category, amount: amountNum, paymentMode: 'Cash Drawer', description: description.trim() });
   };
-
-  const canSubmit = effectiveCategory && amountNum > 0 && payee.trim() && !isInsufficient && !saving;
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 p-5 max-h-[90vh] overflow-auto">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-danger-100 rounded-lg flex items-center justify-center"><Wallet className="w-4 h-4 text-danger-600" /></div>
-            <h2 className="text-base font-bold">Record Cash Expense</h2>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 max-h-[90vh] overflow-auto">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-danger-100 rounded-xl flex items-center justify-center"><Wallet className="w-5 h-5 text-danger-600" /></div>
+            <h2 className="text-lg font-bold">Record Cash Expense</h2>
           </div>
           <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
         </div>
 
-        {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-3 py-2 mb-3">{error}</div>}
+        {error && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{error}</div>}
 
-        {/* Insufficient funds error */}
+        {/* Insufficient funds error - shown when amount exceeds cash at hand */}
         {isInsufficient && amountNum > 0 && (
-          <div className="bg-danger-100 border-2 border-danger-400 rounded-xl p-3 mb-3 flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-danger-600" />
+          <div className="bg-danger-100 border-2 border-danger-400 rounded-xl p-4 mb-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-danger-600" />
             <div className="text-sm">
-              <div className="font-bold text-danger-800">Insufficient cash in drawer — transaction blocked.</div>
-              <div className="text-danger-700 font-medium">Current cash at hand: {fmt(expectedCash)}</div>
+              <div className="font-bold text-danger-800">ERROR: Insufficient cash in drawer. This transaction is blocked.</div>
+              <div className="text-danger-700 mt-1 font-medium">Current cash at hand is only {fmt(expectedCash)}.</div>
             </div>
           </div>
         )}
 
-        {/* Compact cash drawer summary */}
-        <div className={`rounded-xl p-3 mb-4 ${showWarning && !isInsufficient ? 'bg-warning-50 border border-warning-200' : 'bg-gray-50 border border-gray-200'}`}>
-          <div className="text-xs font-semibold text-gray-500 uppercase mb-1.5">Cash Drawer Impact</div>
-          <div className="grid grid-cols-3 gap-2 text-sm">
-            <div><div className="text-xs text-gray-400">Opening</div><div className="font-semibold">{fmt(openingCash)}</div></div>
-            <div><div className="text-xs text-gray-400">+ Cash Sales</div><div className="font-semibold text-success-600">{fmt(currentCashSales)}</div></div>
-            <div><div className="text-xs text-gray-400">At Hand</div><div className="font-bold">{fmt(expectedCash)}</div></div>
-          </div>
-          {amountNum > 0 && (
-            <div className="mt-2 pt-2 border-t border-dashed border-gray-300 flex justify-between text-sm">
-              <span className="text-gray-500">Remaining after expense</span>
-              <span className={`font-bold ${isNegative ? 'text-danger-600' : 'text-gray-900'}`}>{fmt(remainingCash)}</span>
+        {/* Cash drawer summary warning */}
+        <div className={`rounded-xl p-4 mb-4 ${showWarning && !isInsufficient ? 'bg-warning-50 border border-warning-200' : 'bg-gray-50 border border-gray-200'}`}>
+          <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Cash Drawer Impact</div>
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-500">Opening Cash</span>
+              <span className="font-medium">{fmt(openingCash)}</span>
             </div>
-          )}
+            <div className="flex justify-between">
+              <span className="text-gray-500">+ Cash Sales</span>
+              <span className="font-medium text-success-600">+ {fmt(currentCashSales)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">= Current Cash at Hand</span>
+              <span className="font-bold">{fmt(expectedCash)}</span>
+            </div>
+            {amountNum > 0 && (
+              <>
+                <div className="border-t border-dashed my-2 border-gray-300" />
+                <div className="flex justify-between">
+                  <span className="text-gray-500">- Expense</span>
+                  <span className="font-medium text-danger-600">- {fmt(amountNum)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-semibold text-gray-700">Remaining</span>
+                  <span className={`font-bold ${isNegative ? 'text-danger-600' : 'text-gray-900'}`}>{fmt(remainingCash)}</span>
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Warning confirmation */}
         {showWarning && !isInsufficient && (
-          <div className={`rounded-xl p-3 mb-3 flex items-start gap-2 ${isNegative ? 'bg-danger-50 border border-danger-300' : 'bg-warning-50 border border-warning-300'}`}>
-            <AlertTriangle className={`w-4 h-4 shrink-0 mt-0.5 ${isNegative ? 'text-danger-600' : 'text-warning-600'}`} />
+          <div className={`rounded-xl p-4 mb-4 flex items-start gap-3 ${isNegative ? 'bg-danger-50 border border-danger-300' : 'bg-warning-50 border border-warning-300'}`}>
+            <AlertTriangle className={`w-5 h-5 shrink-0 mt-0.5 ${isNegative ? 'text-danger-600' : 'text-warning-600'}`} />
             <div className="text-sm">
               <div className={`font-semibold ${isNegative ? 'text-danger-800' : 'text-warning-800'}`}>
-                {isNegative ? 'Warning: Expense exceeds drawer cash!' : 'Expense will reduce shift cash.'}
+                {isNegative ? 'Warning: This expense exceeds the cash in your drawer!' : 'This expense will be deducted from your shift\'s expected cash.'}
               </div>
-              <div className={`text-xs mt-0.5 ${isNegative ? 'text-danger-700' : 'text-warning-700'}`}>
-                {isNegative ? 'Expected cash balance will go negative.' : 'This reduces the amount you turn in at shift close.'}
+              <div className={`${isNegative ? 'text-danger-700' : 'text-warning-700'} mt-1`}>
+                {isNegative ? 'Your expected cash will become negative. Make sure this is intentional.' : 'This reduces the amount you are expected to turn in at close of shift.'}
               </div>
             </div>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-3">
-          {/* Row 1: Category + Payee */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-gray-700 mb-1 block">Category *</label>
-              <select
-                value={categorySelect}
-                onChange={(e) => { setCategorySelect(e.target.value); if (e.target.value !== '__custom__') setCustomCategory(''); }}
-                className="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-              >
-                {CASHIER_EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                <option value="__custom__">➕ Add Custom Category…</option>
-              </select>
-              {isCustom && (
-                <input
-                  autoFocus
-                  type="text"
-                  value={customCategory}
-                  onChange={(e) => setCustomCategory(e.target.value)}
-                  className="mt-1.5 w-full px-2.5 py-2 border border-primary-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-                  placeholder="Enter category name"
-                />
-              )}
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-700 mb-1 block">Payee / Vendor *</label>
-              <input
-                type="text"
-                value={payee}
-                onChange={(e) => setPayee(e.target.value)}
-                required
-                className="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-                placeholder="e.g. Alhaji Tanker Co."
-              />
-            </div>
-          </div>
-
-          {/* Row 2: Amount + Payment Mode */}
-          <div className="grid grid-cols-2 gap-3 items-end">
-            <div>
-              <label className="text-xs font-medium text-gray-700 mb-1 block">Amount *</label>
-              <div className="relative">
-                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 font-bold text-gray-500 text-sm">₦</span>
-                <input
-                  type="number" min="0" step="100"
-                  value={amount}
-                  onChange={(e) => { setAmount(e.target.value); setShowWarning(false); }}
-                  className="w-full pl-7 pr-2.5 py-2.5 border-2 border-gray-200 rounded-xl text-lg font-bold focus:outline-none focus:border-primary-400"
-                  placeholder="0.00"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-700 mb-1 block">Payment Mode</label>
-              <div className="flex items-center gap-1.5 px-3 py-2.5 bg-warning-50 border border-warning-200 rounded-xl">
-                <Banknote className="w-4 h-4 text-warning-600" />
-                <span className="font-semibold text-warning-700 text-sm">Cash Drawer</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Row 3: Description */}
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="text-xs font-medium text-gray-700 mb-1 block">Description (Optional)</label>
-            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)}
-              className="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-              placeholder="e.g. Fuel for generator, Water for kitchen" />
+            <label className="text-sm font-medium text-gray-700 mb-1 block">Category *</label>
+            <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400">
+              {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
 
-          <div className="flex gap-3 pt-1">
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-1 block">Amount *</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-gray-500">N</span>
+              <input type="number" min="0" step="100" value={amount} onChange={(e) => { setAmount(e.target.value); setShowWarning(false); }} className="w-full pl-8 pr-3 py-3 border-2 border-gray-200 rounded-xl text-xl font-bold focus:outline-none focus:border-primary-400" placeholder="0.00" />
+            </div>
+          </div>
+
+          {/* Payment mode is always Cash Drawer for cashiers - shown as static badge */}
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-2 block">Payment Mode</label>
+            <div className="flex items-center gap-2 px-4 py-3 bg-warning-50 border border-warning-200 rounded-xl">
+              <Banknote className="w-5 h-5 text-warning-600" />
+              <span className="font-semibold text-warning-700">Cash Drawer</span>
+              <span className="text-xs text-gray-400 ml-auto">Deducted from shift cash</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-1 block">Description (Optional)</label>
+            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400" placeholder="e.g. Fuel for generator, Water for kitchen" />
+          </div>
+
+          <div className="flex gap-3 pt-2">
             <button type="button" onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-            <button type="submit" disabled={!canSubmit} className="flex-1 py-2.5 bg-danger-600 text-white rounded-xl text-sm font-semibold hover:bg-danger-700 disabled:opacity-50">
+            <button type="submit" disabled={saving || amountNum <= 0 || isInsufficient} className="flex-1 py-2.5 bg-danger-600 text-white rounded-xl text-sm font-semibold hover:bg-danger-700 disabled:opacity-50">
               {saving ? 'Recording…' : showWarning ? 'Confirm Expense' : 'Record Expense'}
             </button>
           </div>
@@ -1046,7 +1000,7 @@ const WalkInRegistrationFeeModal: React.FC<{
   studentStatus: 'Day' | 'Boarding';
   matchedBundle: Bundle | null;
   categoryGroup: string | null;
-  onConfirm: (mode: 'Cash' | 'POS_Transfer', total: number, coachingIncluded: boolean, balanceDue?: number, autoIssue?: boolean) => void;
+  onConfirm: (mode: 'Cash' | 'POS_Transfer', total: number, coachingIncluded: boolean, balanceDue?: number) => void;
   onCancel: () => void;
   processing: boolean;
   error: string;
@@ -1054,7 +1008,6 @@ const WalkInRegistrationFeeModal: React.FC<{
   const [payMode, setPayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
   const [coachingAddon, setCoachingAddon] = useState(false);
   const [paymentType, setPaymentType] = useState<'full' | 'half'>('full');
-  const [autoIssue, setAutoIssue] = useState(true);
   const [stockLevels, setStockLevels] = useState<Record<number, number>>({});
   const [stockLoaded, setStockLoaded] = useState(false);
 
@@ -1249,21 +1202,11 @@ const WalkInRegistrationFeeModal: React.FC<{
           </>
         )}
 
-        {/* Auto-issuance toggle — show only when bundle has physical items */}
-        {inStockBundleItems.length > 0 && (
-          <label className="flex items-start gap-3 cursor-pointer bg-success-50 border border-success-200 rounded-xl px-3 py-2.5 mb-3 hover:border-success-400 transition-colors">
-            <input type="checkbox" checked={autoIssue} onChange={(e) => setAutoIssue(e.target.checked)} className="mt-0.5 rounded accent-success-600" />
-            <div>
-              <span className="text-sm font-semibold text-success-800">Hand over available items right now</span>
-              <p className="text-xs text-success-600 mt-0.5">Items in stock will be <strong>Issued</strong> and deducted from inventory immediately. Uncheck for <strong>Pending Collection</strong>.</p>
-            </div>
-          </label>
-        )}
         <div className="flex gap-3">
           <button onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
           {canProceed && (
             <button
-              onClick={() => onConfirm(payMode, total, coachingAddon, paymentType === 'half' ? balanceDue : undefined, autoIssue)}
+              onClick={() => onConfirm(payMode, total, coachingAddon, paymentType === 'half' ? balanceDue : undefined)}
               disabled={processing || (isBundleMode && (matchedBundle!.items?.length || 0) > 0 && !stockLoaded)}
               className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50"
             >
@@ -1279,13 +1222,12 @@ const WalkInRegistrationFeeModal: React.FC<{
 // ─── Walk-In Locked Form Payment Modal ───────────────────────────────────────
 const WalkInFormModal: React.FC<{
   applicantName: string;
-  onConfirm: (mode: 'Cash' | 'POS_Transfer', autoIssue: boolean) => void;
+  onConfirm: (mode: 'Cash' | 'POS_Transfer') => void;
   onCancel: () => void;
   processing: boolean;
   error: string;
 }> = ({ applicantName, onConfirm, onCancel, processing, error }) => {
   const [payMode, setPayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
-  const [autoIssue, setAutoIssue] = useState(true);
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
       <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6">
@@ -1312,16 +1254,9 @@ const WalkInFormModal: React.FC<{
           <button type="button" onClick={() => setPayMode('Cash')} className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${payMode === 'Cash' ? 'bg-success-600 border-success-600 text-white' : 'bg-white border-gray-200 text-gray-600'}`}>Cash</button>
           <button type="button" onClick={() => setPayMode('POS_Transfer')} className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${payMode === 'POS_Transfer' ? 'bg-primary-600 border-primary-600 text-white' : 'bg-white border-gray-200 text-gray-600'}`}>POS / Transfer</button>
         </div>
-        <label className="flex items-start gap-3 cursor-pointer bg-success-50 border border-success-200 rounded-xl px-3 py-2.5 mb-4 hover:border-success-400 transition-colors">
-          <input type="checkbox" checked={autoIssue} onChange={(e) => setAutoIssue(e.target.checked)} className="mt-0.5 rounded accent-success-600" />
-          <div>
-            <span className="text-sm font-semibold text-success-800">Hand over the form right now</span>
-            <p className="text-xs text-success-600 mt-0.5">Uncheck to create a <strong>Pending Collection</strong> entry without deducting inventory yet.</p>
-          </div>
-        </label>
         <div className="flex gap-3">
           <button onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-          <button onClick={() => onConfirm(payMode, autoIssue)} disabled={processing} className="flex-1 py-2.5 bg-warning-500 text-white rounded-xl text-sm font-semibold hover:bg-warning-600 disabled:opacity-50">{processing ? 'Processing…' : 'Confirm ₦3,000'}</button>
+          <button onClick={() => onConfirm(payMode)} disabled={processing} className="flex-1 py-2.5 bg-warning-500 text-white rounded-xl text-sm font-semibold hover:bg-warning-600 disabled:opacity-50">{processing ? 'Processing…' : 'Confirm ₦3,000'}</button>
         </div>
       </div>
     </div>
@@ -1333,13 +1268,12 @@ const WalkInBundleModal: React.FC<{
   title: string;
   applicantName: string;
   bundle: Bundle;
-  onConfirm: (mode: 'Cash' | 'POS_Transfer', autoIssue: boolean) => void;
+  onConfirm: (mode: 'Cash' | 'POS_Transfer') => void;
   onCancel: () => void;
   processing: boolean;
   error: string;
 }> = ({ title, applicantName, bundle, onConfirm, onCancel, processing, error }) => {
   const [payMode, setPayMode] = useState<'Cash' | 'POS_Transfer'>('Cash');
-  const [autoIssue, setAutoIssue] = useState(true);
   const [stockLevels, setStockLevels] = useState<Record<number, number>>({});
   const [stockLoaded, setStockLoaded] = useState(false);
 
@@ -1394,7 +1328,7 @@ const WalkInBundleModal: React.FC<{
         </div>
         <div className="flex gap-3">
           <button onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-          <button onClick={() => onConfirm(payMode, autoIssue)} disabled={processing} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">{processing ? 'Processing…' : `Confirm ${fmt(bundle.base_price)}`}</button>
+          <button onClick={() => onConfirm(payMode)} disabled={processing} className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50">{processing ? 'Processing…' : `Confirm ${fmt(bundle.base_price)}`}</button>
         </div>
       </div>
     </div>
@@ -1913,7 +1847,7 @@ const CashierPOS: React.FC = () => {
   };
 
   // Expense handlers
-  const handleAddExpense = async (data: { category: string; amount: number; paymentMode: 'Cash Drawer'; description: string; payee: string }) => {
+  const handleAddExpense = async (data: { category: string; amount: number; paymentMode: 'Cash Drawer'; description: string }) => {
     if (!activeShift) return;
     setExpenseSaving(true);
     setExpenseError('');
@@ -1924,7 +1858,6 @@ const CashierPOS: React.FC = () => {
         amount: data.amount,
         paymentMode: 'Cash Drawer',
         description: data.description,
-        payee: data.payee,
         createdBy: user?.id,
       });
       if (result.success) {
@@ -2013,14 +1946,12 @@ const CashierPOS: React.FC = () => {
     }
   };
 
-  const handleWalkInFormConfirm = async (mode: 'Cash' | 'POS_Transfer', autoIssue: boolean) => {
+  const handleWalkInFormConfirm = async (mode: 'Cash' | 'POS_Transfer') => {
     if (!walkInApplicant || !activeShift) return;
     setWalkInModalProcessing(true);
     setWalkInModalError('');
     try {
-      const result = await bundlePaymentAPI.processFormPayment({
-        applicantId: walkInApplicant.id, shiftId: activeShift.id, paymentMode: mode, autoIssue,
-      });
+      const result = await bundlePaymentAPI.processFormPayment({ applicantId: walkInApplicant.id, shiftId: activeShift.id, paymentMode: mode });
       if (result.success) {
         setShowWalkInForm(false);
         const receiptTxn = { transaction_id: result.transactionId, timestamp: new Date().toISOString(), student_name: walkInApplicant.full_name, student_class: walkInApplicant.proposed_class || 'Applicant', payment_mode: mode, fee_type_name: 'Admission Form' };
@@ -2033,7 +1964,7 @@ const CashierPOS: React.FC = () => {
     setWalkInModalProcessing(false);
   };
 
-  const handleWalkInAcceptanceConfirm = async (mode: 'Cash' | 'POS_Transfer', autoIssue: boolean) => {
+  const handleWalkInAcceptanceConfirm = async (mode: 'Cash' | 'POS_Transfer') => {
     if (!walkInApplicant || !walkInAcceptanceBundle || !activeShift) return;
     setWalkInModalProcessing(true);
     setWalkInModalError('');
@@ -2043,7 +1974,6 @@ const CashierPOS: React.FC = () => {
         amountPaid: walkInAcceptanceBundle.base_price, paymentMode: mode,
         minPartialFloor: schoolSettings?.min_acceptance_partial_floor || 5000,
         customerName: walkInApplicant.full_name, targetClass: walkInApplicant.proposed_class || undefined,
-        autoIssue,
       });
       if (result.success) {
         setShowWalkInAcceptance(false);
@@ -2057,29 +1987,30 @@ const CashierPOS: React.FC = () => {
     setWalkInModalProcessing(false);
   };
 
-  const handleWalkInRegistrationConfirm = async (
-    mode: 'Cash' | 'POS_Transfer',
-    total: number,
-    coachingIncluded: boolean,
-    balanceDue?: number,
-    autoIssue: boolean = true,
-  ) => {
+  const handleWalkInRegistrationConfirm = async (mode: 'Cash' | 'POS_Transfer', total: number, coachingIncluded: boolean, balanceDue?: number) => {
     if (!walkInApplicant || !activeShift) return;
     setWalkInModalProcessing(true);
     setWalkInModalError('');
     try {
       const categoryGroup = classCategoryMap[walkInApplicant.proposed_class || ''] || 'UNKNOWN';
       const studentStatus = walkInApplicant.student_status || 'Day';
-      // Pass all bundle items to the API — the API's autoIssue logic handles
-      // which ones to deduct from inventory vs. which go to Pending Collection.
+      // Pass actual bundle items if available (textbooks, uniforms, etc.), capped to
+      // live stock so out-of-stock items never get decremented or handed to the storekeeper.
       let bundleItems: { item_id: number; item_name: string; quantity: number; selling_price: number }[] | undefined = undefined;
       if (walkInRegistrationBundle?.items?.length) {
-        bundleItems = walkInRegistrationBundle.items.map((item: any) => ({
-          item_id: item.item_id,
-          item_name: item.item_name,
-          quantity: item.quantity,       // API will cap to live stock server-side
-          selling_price: item.selling_price,
-        }));
+        const itemIds = walkInRegistrationBundle.items.map((i: any) => i.item_id);
+        const stockLevels = await inventoryAPI.getStockLevels(itemIds);
+        bundleItems = walkInRegistrationBundle.items
+          .map((item: any) => {
+            const available = stockLevels[item.item_id] ?? 0;
+            return {
+              item_id: item.item_id,
+              item_name: item.item_name,
+              quantity: Math.max(0, Math.min(item.quantity, available)),
+              selling_price: item.selling_price,
+            };
+          })
+          .filter((item) => item.quantity > 0);
       }
       const result = await bundlePaymentAPI.processDirectRegistrationPayment({
         applicantId: walkInApplicant.id, shiftId: activeShift.id,
@@ -2088,7 +2019,6 @@ const CashierPOS: React.FC = () => {
         targetClass: walkInApplicant.proposed_class || undefined,
         balanceDue,
         bundleItems,
-        autoIssue,
       });
       if (result.success) {
         setShowWalkInRegistration(false);
@@ -2112,7 +2042,7 @@ const CashierPOS: React.FC = () => {
   };
 
   // Bundle payment handler
-  const handleBundlePayment = async (autoIssue: boolean = true) => {
+  const handleBundlePayment = async () => {
     if (!walkInApplicant || !selectedBundle || !activeShift) return;
     const amount = parseFloat(bundleAmount);
     if (isNaN(amount) || amount <= 0) { setBundleError('Enter a valid amount'); return; }
@@ -2133,7 +2063,6 @@ const CashierPOS: React.FC = () => {
         minPartialFloor: minFloor,
         customerName: walkInApplicant.full_name,
         targetClass: walkInApplicant.proposed_class || undefined,
-        autoIssue,
       });
       if (result.success) {
         setShowBundlePayment(false);
@@ -3061,7 +2990,7 @@ const CashierPOS: React.FC = () => {
             ? (schoolSettings?.min_acceptance_partial_floor || 5000)
             : (schoolSettings?.min_partial_payment_floor || 30000)}
           applicantName={walkInApplicant.full_name}
-          onComplete={(_amount, _mode, ai) => handleBundlePayment(ai)}
+          onComplete={(_amount, _mode) => handleBundlePayment()}
           onCancel={() => { setShowBundlePayment(false); setSelectedBundle(null); setWalkInApplicant(null); setBundleError(''); }}
           processing={bundleProcessing}
           error={bundleError}
