@@ -2225,12 +2225,34 @@ function clearBundleCategoryCache(id: number) {
 function mapBundleItems(bundle_items: any[]) {
   return (bundle_items || []).map((bi: any) => ({
     id: bi.id,
-    item_id: bi.inventory?.item_id,
+    item_id: bi.inventory?.item_id ?? bi.item_id,
     item_name: bi.inventory?.item_name,
     selling_price: Number(bi.inventory?.selling_price || 0),
     stock_quantity: bi.inventory?.stock_quantity || 0,
     quantity: bi.quantity,
   }));
+}
+
+async function enrichMissingInventory(items: ReturnType<typeof mapBundleItems>) {
+  const missing = items.filter((i) => !i.item_name && i.item_id);
+  if (missing.length === 0) return items;
+  const ids = Array.from(new Set(missing.map((i) => i.item_id!)));
+  const { data } = await supabase
+    .from("inventory")
+    .select("item_id, item_name, selling_price, stock_quantity")
+    .in("item_id", ids);
+  const map = new Map((data || []).map((r: any) => [r.item_id, r]));
+  return items.map((i) => {
+    if (i.item_name || !i.item_id) return i;
+    const inv = map.get(i.item_id);
+    if (!inv) return i;
+    return {
+      ...i,
+      item_name: inv.item_name,
+      selling_price: Number(inv.selling_price || 0),
+      stock_quantity: inv.stock_quantity || 0,
+    };
+  });
 }
 
 export const bundleAPI = {
@@ -2243,16 +2265,20 @@ export const bundleAPI = {
       .order("created_at", { ascending: false });
     if (error) throw error;
     const cache = getBundleCategoryCache();
-    return (data || []).map((b: any) => {
-      const cached = cache[b.id];
-      return {
-        ...b,
-        applicable_to: b.applicable_to || "All Students",
-        class_category: b.class_category || cached?.class_category || null,
-        coaching_addon: b.coaching_addon ?? cached?.coaching_addon ?? false,
-        items: mapBundleItems(b.bundle_items),
-      };
-    });
+    const bundles = await Promise.all(
+      (data || []).map(async (b: any) => {
+        const cached = cache[b.id];
+        const items = await enrichMissingInventory(mapBundleItems(b.bundle_items));
+        return {
+          ...b,
+          applicable_to: b.applicable_to || "All Students",
+          class_category: b.class_category || cached?.class_category || null,
+          coaching_addon: b.coaching_addon ?? cached?.coaching_addon ?? false,
+          items,
+        };
+      }),
+    );
+    return bundles;
   },
   async getById(id: number) {
     const { data, error } = await supabase
@@ -2264,12 +2290,13 @@ export const bundleAPI = {
       .single();
     if (error) throw error;
     const cached = getBundleCategoryCache()[id];
+    const items = await enrichMissingInventory(mapBundleItems(data.bundle_items));
     return {
       ...data,
       applicable_to: data.applicable_to || "All Students",
       class_category: data.class_category || cached?.class_category || null,
       coaching_addon: data.coaching_addon ?? cached?.coaching_addon ?? false,
-      items: mapBundleItems(data.bundle_items),
+      items,
     };
   },
   async checkSchemaHasCategory(): Promise<boolean> {
