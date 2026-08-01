@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Trash2, Pencil, X, UserPlus, AlertCircle, ExternalLink, CheckCircle } from 'lucide-react';
-import { studentAPI, feeTypeAPI, settingsAPI, studentFeeAPI } from '../../lib/api';
+import { studentAPI, feeTypeAPI, settingsAPI, studentFeeAPI, ledgerAPI } from '../../lib/api';
 import PendingItems from '../shared/PendingItems';
+import { FileText, X } from 'lucide-react';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -50,6 +51,21 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
       .then((d) => { setStudents(d.students); setTotal(d.total); })
       .catch(console.error)
       .finally(() => setLoading(false));
+  };
+
+  const [showLedger, setShowLedger] = useState(false);
+  const [ledgerEntries, setLedgerEntries] = useState<any[]>([]);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+
+  const viewLedger = async (s: Student) => {
+    setSelectedStudent(s);
+    setShowLedger(true);
+    setLedgerLoading(true);
+    try {
+      const entries = await ledgerAPI.getStatement(s.student_id);
+      setLedgerEntries(entries);
+    } catch (err) { console.error('Failed to load ledger:', err); }
+    setLedgerLoading(false);
   };
 
   const loadTotalOutstanding = () => {
@@ -294,6 +310,7 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
                 <td className={`px-4 py-3 text-right font-semibold ${s.current_fees_owed > 0 ? 'text-danger-600' : 'text-success-600'}`}>{fmt(s.current_fees_owed)}</td>
                 <td className="px-4 py-3 text-center">
                   <button onClick={() => viewHistory(s)} className="px-2 py-1 text-sm bg-gray-100 rounded mr-1 hover:bg-gray-200">History</button>
+                  <button onClick={() => viewLedger(s)} className="px-2 py-1 text-sm bg-primary-100 text-primary-700 rounded mr-1 hover:bg-primary-200 inline-flex items-center gap-1"><FileText className="w-3 h-3" /> Ledger</button>
                   <button onClick={() => openEditStudent(s)} className="px-2 py-1 text-sm bg-primary-100 text-primary-700 rounded mr-1 hover:bg-primary-200 inline-flex items-center gap-1"><Pencil className="w-3 h-3" /> Edit</button>
                   <button onClick={() => openDeleteConfirm(s)} className="px-2 py-1 text-sm bg-danger-100 text-danger-700 rounded hover:bg-danger-200">Delete</button>
                 </td>
@@ -525,6 +542,88 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
               </table>
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {/* Statement of Account Modal */}
+      {showLedger && selectedStudent && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full mx-4 p-6 max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h2 className="text-xl font-bold">Statement of Account</h2>
+                <p className="text-gray-500">{selectedStudent.name} — {selectedStudent.student_id}</p>
+              </div>
+              <button onClick={() => setShowLedger(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+
+            {ledgerLoading ? (
+              <div className="flex items-center justify-center h-32 text-gray-400">Loading ledger…</div>
+            ) : ledgerEntries.length === 0 ? (
+              <div className="text-center py-8 text-gray-400">No ledger entries found for this student.</div>
+            ) : (() => {
+              const totalBilled = ledgerEntries.filter(e => e.entry_type === 'debit').reduce((s, e) => s + Number(e.amount), 0);
+              const totalPaid = ledgerEntries.filter(e => e.entry_type === 'credit').reduce((s, e) => s + Number(e.amount), 0);
+              return (
+                <>
+                  {/* Summary cards */}
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                      <div className="text-xs text-gray-500 font-medium">Total Billed</div>
+                      <div className="text-lg font-bold text-gray-800">{fmt(totalBilled)}</div>
+                    </div>
+                    <div className="bg-success-50 rounded-lg p-3 border border-success-100">
+                      <div className="text-xs text-success-600 font-medium">Total Paid</div>
+                      <div className="text-lg font-bold text-success-700">{fmt(totalPaid)}</div>
+                    </div>
+                    <div className={`rounded-lg p-3 border ${totalBilled - totalPaid > 0 ? 'bg-danger-50 border-danger-100' : 'bg-gray-50 border-gray-100'}`}>
+                      <div className={`text-xs font-medium ${totalBilled - totalPaid > 0 ? 'text-danger-600' : 'text-gray-500'}`}>Net Balance Due</div>
+                      <div className={`text-lg font-bold ${totalBilled - totalPaid > 0 ? 'text-danger-600' : 'text-success-600'}`}>{fmt(totalBilled - totalPaid)}</div>
+                    </div>
+                  </div>
+
+                  {/* Itemized ledger table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Date</th>
+                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Fee Type</th>
+                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Entry</th>
+                          <th className="text-right px-3 py-2 text-xs font-medium text-gray-500 uppercase">Amount Billed</th>
+                          <th className="text-right px-3 py-2 text-xs font-medium text-gray-500 uppercase">Amount Paid</th>
+                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Method</th>
+                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Cashier</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ledgerEntries.map((e) => (
+                          <tr key={e.id} className="border-t">
+                            <td className="px-3 py-2 text-xs text-gray-500">{new Date(e.created_at).toLocaleDateString()}</td>
+                            <td className="px-3 py-2 font-medium text-gray-800">{e.fee_type_name}</td>
+                            <td className="px-3 py-2">
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${e.entry_type === 'debit' ? 'bg-gray-100 text-gray-600' : 'bg-success-100 text-success-700'}`}>{e.entry_type === 'debit' ? 'Charge' : 'Payment'}</span>
+                            </td>
+                            <td className="px-3 py-2 text-right font-semibold text-gray-700">{e.entry_type === 'debit' ? fmt(Number(e.amount)) : '—'}</td>
+                            <td className="px-3 py-2 text-right font-semibold text-success-700">{e.entry_type === 'credit' ? fmt(Number(e.amount)) : '—'}</td>
+                            <td className="px-3 py-2 text-xs text-gray-500">{e.payment_mode || '—'}</td>
+                            <td className="px-3 py-2 text-xs text-gray-500">{e.cashier_name || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="font-bold border-t-2">
+                        <tr>
+                          <td colSpan={3} className="px-3 py-2">Totals:</td>
+                          <td className="px-3 py-2 text-right">{fmt(totalBilled)}</td>
+                          <td className="px-3 py-2 text-right text-success-700">{fmt(totalPaid)}</td>
+                          <td colSpan={2} className="px-3 py-2 text-right text-danger-600">Bal: {fmt(totalBilled - totalPaid)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   LayoutDashboard, Users, Package, FileText, Clock, Settings,
-  Upload, LogOut, ChevronRight, Store, DollarSign, Cog, Layers, UserPlus, Menu, X, Wallet
+  Upload, LogOut, ChevronRight, Store, DollarSign, Cog, Layers, UserPlus, Menu, X, Wallet, ClipboardCheck
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import Dashboard from './Dashboard';
@@ -16,8 +16,9 @@ import SchoolSettings from './SchoolSettings';
 import BundleManagement from './BundleManagement';
 import PendingAdmissions from './PendingAdmissions';
 import ExpenseManagement from './ExpenseManagement';
+import FulfillmentManagement from './FulfillmentManagement';
 
-type AdminView = 'dashboard' | 'students' | 'inventory' | 'transactions' | 'shifts' | 'expenses' | 'fees' | 'bundles' | 'admissions' | 'users' | 'import' | 'settings';
+type AdminView = 'dashboard' | 'students' | 'inventory' | 'fulfillment' | 'transactions' | 'shifts' | 'expenses' | 'fees' | 'bundles' | 'admissions' | 'users' | 'import' | 'settings';
 
 const navItems: { id: AdminView; label: string; icon: React.ElementType; group?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, group: 'Overview' },
@@ -25,6 +26,7 @@ const navItems: { id: AdminView; label: string; icon: React.ElementType; group?:
   { id: 'shifts', label: 'Shift History', icon: Clock, group: 'Overview' },
   { id: 'expenses', label: 'Expenses', icon: Wallet, group: 'Overview' },
   { id: 'inventory', label: 'Inventory', icon: Package, group: 'Store' },
+  { id: 'fulfillment', label: 'Fulfillment', icon: ClipboardCheck, group: 'Store' },
   { id: 'bundles', label: 'Bundles', icon: Layers, group: 'Store' },
   { id: 'students', label: 'Students', icon: Users, group: 'People' },
   { id: 'admissions', label: 'Pending Admissions', icon: UserPlus, group: 'People' },
@@ -158,6 +160,7 @@ const AdminLayout: React.FC = () => {
           {currentView === 'dashboard' && <Dashboard />}
           {currentView === 'students' && <StudentManagement onNavigate={navigateTo} />}
           {currentView === 'inventory' && <InventoryManagement />}
+          {currentView === 'fulfillment' && <FulfillmentManagement />}
           {currentView === 'transactions' && <TransactionHistory />}
           {currentView === 'shifts' && <ShiftHistory />}
           {currentView === 'expenses' && <ExpenseManagement />}

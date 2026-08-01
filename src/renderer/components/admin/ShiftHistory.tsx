@@ -27,8 +27,8 @@ const ShiftHistory: React.FC = () => {
 
   const viewDetails = async (s: Shift) => {
     setSelected(s);
-    const txns = await transactionAPI.getHistory({});
-    setTransactions(txns.filter((t: any) => t.shift_id === s.id));
+    const txns = await transactionAPI.getHistory({ shiftId: s.id });
+    setTransactions(txns);
   };
 
   const formatCurrency = (n: number | null) => n !== null ? `₦${(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-';

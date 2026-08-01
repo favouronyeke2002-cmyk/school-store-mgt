@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, ChevronDown, ChevronRight, ChevronLeft, Users, Tag, X, AlertCircle, CheckCircle, Pencil, Trash2, BarChart2, Search, Receipt, FileText, GraduationCap, RefreshCw } from 'lucide-react';
-import { feeTypeAPI, studentFeeAPI, studentAPI, settingsAPI } from '../../lib/api';
+import { feeTypeAPI, studentFeeAPI, studentAPI, settingsAPI, ledgerAPI } from '../../lib/api';
 import StudentTimeline from './StudentTimeline';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -98,6 +98,24 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
   // Timeline (per-student financial history)
   const [timelineStudent, setTimelineStudent] = useState<{ student_id: string; student_name: string; student_class: string } | null>(null);
   const focusApplied = useRef(false);
+
+  // Statement of Account modal
+  const [showStatement, setShowStatement] = useState(false);
+  const [statementStudent, setStatementStudent] = useState<{ student_id: string; student_name: string; student_class: string } | null>(null);
+  const [statementEntries, setStatementEntries] = useState<any[]>([]);
+  const [statementLoading, setStatementLoading] = useState(false);
+
+  const openStatement = async (s: { student_id: string; student_name: string; student_class: string }) => {
+    setOpenActionMenu(null);
+    setStatementStudent(s);
+    setShowStatement(true);
+    setStatementLoading(true);
+    try {
+      const entries = await ledgerAPI.getStatement(s.student_id);
+      setStatementEntries(entries);
+    } catch (err) { console.error('Failed to load statement:', err); }
+    setStatementLoading(false);
+  };
 
   // Recalibrate balances
   const [showRecalibrate, setShowRecalibrate] = useState(false);
@@ -695,6 +713,9 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
                           </button>
                           {openActionMenu === s.student_id && (
                             <div className="absolute right-4 top-10 z-30 bg-white border border-gray-200 rounded-xl shadow-xl w-48 py-1">
+                              <button onClick={() => openStatement(s)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-primary-50 flex items-center gap-2 text-gray-700 hover:text-primary-700">
+                                <FileText className="w-3.5 h-3.5" /> View Ledger
+                              </button>
                               <button onClick={() => openTimeline(s)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-primary-50 flex items-center gap-2 text-gray-700 hover:text-primary-700">
                                 <BarChart2 className="w-3.5 h-3.5" /> View Timeline
                               </button>
@@ -720,6 +741,89 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* Statement of Account Modal */}
+      {showStatement && statementStudent && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full mx-4 p-6 max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h2 className="text-xl font-bold">Statement of Account</h2>
+                <p className="text-gray-500">{statementStudent.student_name} — {statementStudent.student_id}</p>
+              </div>
+              <button onClick={() => setShowStatement(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+
+            {statementLoading ? (
+              <div className="flex items-center justify-center h-32 text-gray-400">Loading ledger…</div>
+            ) : statementEntries.length === 0 ? (
+              <div className="text-center py-8 text-gray-400">
+                <FileText className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                <p className="text-sm">No ledger entries found for this student.</p>
+              </div>
+            ) : (() => {
+              const totalBilled = statementEntries.filter((e: any) => e.entry_type === 'debit').reduce((s: number, e: any) => s + Number(e.amount), 0);
+              const totalPaid = statementEntries.filter((e: any) => e.entry_type === 'credit').reduce((s: number, e: any) => s + Number(e.amount), 0);
+              return (
+                <>
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                      <div className="text-xs text-gray-500 font-medium">Total Billed</div>
+                      <div className="text-lg font-bold text-gray-800">{fmt(totalBilled)}</div>
+                    </div>
+                    <div className="bg-success-50 rounded-lg p-3 border border-success-100">
+                      <div className="text-xs text-success-600 font-medium">Total Paid</div>
+                      <div className="text-lg font-bold text-success-700">{fmt(totalPaid)}</div>
+                    </div>
+                    <div className={`rounded-lg p-3 border ${totalBilled - totalPaid > 0 ? 'bg-danger-50 border-danger-100' : 'bg-gray-50 border-gray-100'}`}>
+                      <div className={`text-xs font-medium ${totalBilled - totalPaid > 0 ? 'text-danger-600' : 'text-gray-500'}`}>Net Balance Due</div>
+                      <div className={`text-lg font-bold ${totalBilled - totalPaid > 0 ? 'text-danger-600' : 'text-success-600'}`}>{fmt(totalBilled - totalPaid)}</div>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Date</th>
+                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Fee Type</th>
+                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Entry</th>
+                          <th className="text-right px-3 py-2 text-xs font-medium text-gray-500 uppercase">Amount Billed</th>
+                          <th className="text-right px-3 py-2 text-xs font-medium text-gray-500 uppercase">Amount Paid</th>
+                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Method</th>
+                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Cashier</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {statementEntries.map((e: any) => (
+                          <tr key={e.id} className="border-t">
+                            <td className="px-3 py-2 text-xs text-gray-500">{new Date(e.created_at).toLocaleDateString()}</td>
+                            <td className="px-3 py-2 font-medium text-gray-800">{e.fee_type_name}</td>
+                            <td className="px-3 py-2">
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${e.entry_type === 'debit' ? 'bg-gray-100 text-gray-600' : 'bg-success-100 text-success-700'}`}>{e.entry_type === 'debit' ? 'Charge' : 'Payment'}</span>
+                            </td>
+                            <td className="px-3 py-2 text-right font-semibold text-gray-700">{e.entry_type === 'debit' ? fmt(Number(e.amount)) : '—'}</td>
+                            <td className="px-3 py-2 text-right font-semibold text-success-700">{e.entry_type === 'credit' ? fmt(Number(e.amount)) : '—'}</td>
+                            <td className="px-3 py-2 text-xs text-gray-500">{e.payment_mode || '—'}</td>
+                            <td className="px-3 py-2 text-xs text-gray-500">{e.cashier_name || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="font-bold border-t-2">
+                        <tr>
+                          <td colSpan={3} className="px-3 py-2">Totals:</td>
+                          <td className="px-3 py-2 text-right">{fmt(totalBilled)}</td>
+                          <td className="px-3 py-2 text-right text-success-700">{fmt(totalPaid)}</td>
+                          <td colSpan={2} className="px-3 py-2 text-right text-danger-600">Bal: {fmt(totalBilled - totalPaid)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
         </div>
       )}
 

@@ -1637,7 +1637,7 @@ const CashierPOS: React.FC = () => {
       if (discount > 0) {
         await studentFeeAPI.applyDiscount(selectedFee.id, selectedStudent.student_id, discount);
       }
-      const result = await studentFeeAPI.recordPayment(selectedFee.id, amount, selectedStudent.student_id, activeShift.id, feesPayMode, selectedStudent.name, selectedStudent.student_class);
+      const result = await studentFeeAPI.recordPayment(selectedFee.id, amount, selectedStudent.student_id, activeShift.id, feesPayMode, selectedStudent.name, selectedStudent.student_class, user?.username);
       if (result.success) {
         const updated = await studentAPI.getById(selectedStudent.student_id);
         if (updated) setSelectedStudent(updated);

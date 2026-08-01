@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { BookOpen, CheckCircle, Package } from 'lucide-react';
 import { issuanceAPI } from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 
 interface PendingItem {
   id: number;
   book_name: string;
+  item_name: string;
+  bundle_name: string;
   quantity: number;
   status: string;
+  stock_deducted: boolean;
   created_at: string;
 }
 
@@ -22,6 +26,7 @@ const PendingItems: React.FC<PendingItemsProps> = ({ studentId, applicantId, var
   const [loading, setLoading] = useState(false);
   const [fulfillingId, setFulfillingId] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const { user } = useAuth();
 
   const load = useCallback(async () => {
     if (!studentId && !applicantId) return;
@@ -43,7 +48,7 @@ const PendingItems: React.FC<PendingItemsProps> = ({ studentId, applicantId, var
     setFulfillingId(id);
     setError('');
     try {
-      const result = await issuanceAPI.fulfill(id, 0);
+      const result = await issuanceAPI.fulfill(id, user?.id || 0);
       if (result.success) {
         await load();
         onFulfilled?.();
@@ -71,29 +76,34 @@ const PendingItems: React.FC<PendingItemsProps> = ({ studentId, applicantId, var
     <div className="bg-amber-50 border border-amber-300 rounded-xl p-4">
       <div className="flex items-center gap-2 mb-3">
         <BookOpen className="w-5 h-5 text-amber-600" />
-        <h3 className="font-bold text-amber-800 text-sm">Pending Items / Books Owed</h3>
+        <h3 className="font-bold text-amber-800 text-sm">Unassigned Items / Pending Fulfillment</h3>
       </div>
       {error && <div className="text-xs text-red-600 mb-2">{error}</div>}
       <div className="space-y-2">
-        {items.map((item) => (
-          <div key={item.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-amber-200">
-            <div className="flex items-center gap-2">
-              <Package className="w-4 h-4 text-amber-500" />
-              <div>
-                <div className="text-sm font-medium text-gray-800">{item.book_name}</div>
-                <div className="text-xs text-gray-500">Qty: {item.quantity} · Paid, awaiting stock</div>
+        {items.map((item) => {
+          const displayName = item.item_name || item.book_name;
+          return (
+            <div key={item.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-amber-200">
+              <div className="flex items-center gap-2">
+                <Package className="w-4 h-4 text-amber-500" />
+                <div>
+                  <div className="text-sm font-medium text-gray-800">{displayName}</div>
+                  <div className="text-xs text-gray-500">
+                    {item.bundle_name ? `${item.bundle_name} · ` : ''}Qty: {item.quantity} · Paid, awaiting stock
+                  </div>
+                </div>
               </div>
+              <button
+                onClick={() => handleFulfill(item.id)}
+                disabled={fulfillingId === item.id}
+                className="flex items-center gap-1 px-3 py-1.5 bg-success-600 text-white text-xs font-semibold rounded-lg hover:bg-success-700 disabled:opacity-50 transition-colors"
+              >
+                <CheckCircle className="w-3.5 h-3.5" />
+                {fulfillingId === item.id ? 'Assigning…' : 'Assign / Mark Delivered'}
+              </button>
             </div>
-            <button
-              onClick={() => handleFulfill(item.id)}
-              disabled={fulfillingId === item.id}
-              className="flex items-center gap-1 px-3 py-1.5 bg-success-600 text-white text-xs font-semibold rounded-lg hover:bg-success-700 disabled:opacity-50 transition-colors"
-            >
-              <CheckCircle className="w-3.5 h-3.5" />
-              {fulfillingId === item.id ? 'Assigning…' : 'Mark Delivered'}
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
