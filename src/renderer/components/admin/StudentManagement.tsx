@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Trash2, Pencil, X, UserPlus, AlertCircle, ExternalLink, CheckCircle } from 'lucide-react';
 import { studentAPI, feeTypeAPI, settingsAPI, studentFeeAPI } from '../../lib/api';
+import PendingItems from '../shared/PendingItems';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -284,9 +285,10 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
                 <td className="px-4 py-3 font-medium">{s.name}</td>
                 <td className="px-4 py-3"><span className="px-2 py-1 bg-primary-100 text-primary-800 rounded text-xs">{s.student_class}</span></td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center gap-1 flex-wrap">
+                  <div className="flex items-center gap-1">
                     <span className={`px-2 py-0.5 rounded text-xs ${(s.admission_type || 'Returning') === 'Returning' ? 'bg-gray-100 text-gray-700' : 'bg-warning-100 text-warning-700'}`}>{s.admission_type || 'Returning'}</span>
                     <span className={`px-2 py-0.5 rounded text-xs ${(s.student_status || 'Day') === 'Boarding' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600'}`}>{s.student_status || 'Day'}</span>
+                    <PendingItems studentId={s.student_id} variant="badge" />
                   </div>
                 </td>
                 <td className={`px-4 py-3 text-right font-semibold ${s.current_fees_owed > 0 ? 'text-danger-600' : 'text-success-600'}`}>{fmt(s.current_fees_owed)}</td>
@@ -485,6 +487,9 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
                 <p className="text-gray-500">{selectedStudent.name} — {selectedStudent.student_id}</p>
               </div>
               <button onClick={() => setShowHistory(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="mb-4">
+              <PendingItems studentId={selectedStudent.student_id} />
             </div>
             {history.length === 0 ? (
               <div className="text-center py-8 text-gray-400">No transactions found</div>

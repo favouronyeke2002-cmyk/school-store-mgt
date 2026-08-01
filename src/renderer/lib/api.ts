@@ -1840,65 +1840,41 @@ export const transactionAPI = {
   ) {
     const total = cart.reduce((s, i) => s + i.selling_price * i.quantity, 0);
 
-    const { data: txnData, error: txnError } = await supabase
-      .from("transactions")
-      .insert({
+    // Re-check live stock — only in-stock items go on the receipt and into
+    // transaction_items. Out-of-stock items are tracked in student_book_issuances.
+    const liveStock = await inventoryAPI.getStockLevels(cart.map((i) => i.item_id));
+    const inStockCart = cart.filter((i) => (liveStock[i.item_id] ?? 0) > 0);
+    const outOfStockCart = cart.filter((i) => (liveStock[i.item_id] ?? 0) <= 0);
+
+    let txnId: number | null = null;
+    const insertTxn = async (useFallback: boolean) => {
+      const row: any = {
         student_id: studentId,
         shift_id: shiftId,
         type: "STORE_PURCHASE",
         amount_paid: total,
         payment_mode: paymentMode,
-        customer_name: customerName || null,
-        target_class: targetClass || null,
-      })
-      .select("transaction_id")
-      .single();
-
-    if (txnError) {
-      // Fallback without customer_name/target_class if columns don't exist
-      const { data: fallbackTxn, error: fallbackError } = await supabase
+      };
+      if (!useFallback) {
+        row.customer_name = customerName || null;
+        row.target_class = targetClass || null;
+      }
+      const { data, error } = await supabase
         .from("transactions")
-        .insert({
-          student_id: studentId,
-          shift_id: shiftId,
-          type: "STORE_PURCHASE",
-          amount_paid: total,
-          payment_mode: paymentMode,
-        })
+        .insert(row)
         .select("transaction_id")
         .single();
-      if (fallbackError) return { success: false, error: fallbackError.message };
-      if (!fallbackTxn) return { success: false, error: "Failed to create transaction" };
-      const txnId = (fallbackTxn as any).transaction_id;
-      const itemRows = cart.map((i) => ({
-        transaction_id: txnId,
-        item_id: i.item_id,
-        item_name: i.item_name,
-        quantity: i.quantity,
-        unit_price: i.selling_price,
-        total_price: i.selling_price * i.quantity,
-      }));
-      const { error: itemsError } = await supabase.from("transaction_items").insert(itemRows);
-      if (itemsError) return { success: false, error: itemsError.message };
-      // Decrement inventory directly
-      for (const item of cart) {
-        const { data: inv } = await supabase
-          .from("inventory")
-          .select("stock_quantity")
-          .eq("item_id", item.item_id)
-          .single();
-        if (inv) {
-          await supabase
-            .from("inventory")
-            .update({ stock_quantity: Math.max(0, inv.stock_quantity - item.quantity) })
-            .eq("item_id", item.item_id);
-        }
-      }
-      return { success: true, transaction_id: txnId };
-    }
+      if (error && !useFallback) return null;
+      if (error) return null;
+      return (data as any)?.transaction_id ?? null;
+    };
 
-    const txnId = (txnData as any).transaction_id;
-    const itemRows = cart.map((i) => ({
+    txnId = await insertTxn(false);
+    if (txnId === null) txnId = await insertTxn(true);
+    if (txnId === null) return { success: false, error: "Failed to create transaction" };
+
+    // Insert ONLY in-stock items into transaction_items
+    const itemRows = inStockCart.map((i) => ({
       transaction_id: txnId,
       item_id: i.item_id,
       item_name: i.item_name,
@@ -1906,11 +1882,13 @@ export const transactionAPI = {
       unit_price: i.selling_price,
       total_price: i.selling_price * i.quantity,
     }));
-    const { error: itemsError } = await supabase.from("transaction_items").insert(itemRows);
-    if (itemsError) return { success: false, error: itemsError.message };
+    if (itemRows.length > 0) {
+      const { error: itemsError } = await supabase.from("transaction_items").insert(itemRows);
+      if (itemsError) return { success: false, error: itemsError.message };
+    }
 
-    // Decrement inventory directly
-    for (const item of cart) {
+    // Decrement inventory for in-stock items only
+    for (const item of inStockCart) {
       const { data: inv } = await supabase
         .from("inventory")
         .select("stock_quantity")
@@ -1924,7 +1902,20 @@ export const transactionAPI = {
       }
     }
 
-    return { success: true, transaction_id: txnId };
+    // Track out-of-stock items for pending fulfillment
+    if (outOfStockCart.length > 0 && studentId) {
+      const issuanceRows = outOfStockCart.map((i) => ({
+        student_id: studentId,
+        transaction_id: txnId,
+        item_id: i.item_id,
+        book_name: i.item_name,
+        quantity: i.quantity,
+        status: "unassigned",
+      }));
+      await supabase.from("student_book_issuances").insert(issuanceRows);
+    }
+
+    return { success: true, transaction_id: txnId, items: inStockCart.map((i) => ({ item_name: i.item_name, quantity: i.quantity })) };
   },
 
   async getForStudent(studentId: string) {
@@ -2699,13 +2690,9 @@ export const bundlePaymentAPI = {
       }
     }
 
-    // Persist ALL bundle items in transaction_items so reprinted receipts show
-    // every item included in the package (e.g. "Morning Assembly Manual" even
-    // when temporarily out of stock). Only in-stock items are decremented above;
-    // these rows are a record of what the package includes, not what was handed
-    // off. Bundle txns are typed ACCEPTANCE_FEE/BUNDLE_PURCHASE (never
-    // STORE_PURCHASE), so they don't affect COGS.
-    const allItemRows = bundle.items.map((item: any) => ({
+    // Persist ONLY in-stock items in transaction_items and on the receipt.
+    // Out-of-stock items are tracked in student_book_issuances for later fulfillment.
+    const inStockRows = inStockItems.map((item: any) => ({
       transaction_id: txn.transaction_id,
       item_id: item.item_id,
       item_name: item.item_name,
@@ -2713,7 +2700,24 @@ export const bundlePaymentAPI = {
       unit_price: item.selling_price,
       total_price: item.selling_price * item.quantity,
     }));
-    if (allItemRows.length > 0) await supabase.from("transaction_items").insert(allItemRows);
+    if (inStockRows.length > 0) await supabase.from("transaction_items").insert(inStockRows);
+
+    // Track out-of-stock items for pending fulfillment
+    const outOfStockItems = bundle.items.filter((item: any) => {
+      const available = liveStock[item.item_id] ?? 0;
+      return available <= 0;
+    });
+    if (outOfStockItems.length > 0) {
+      const issuanceRows = outOfStockItems.map((item: any) => ({
+        applicant_id: applicantId,
+        transaction_id: txn.transaction_id,
+        item_id: item.item_id,
+        book_name: item.item_name,
+        quantity: item.quantity,
+        status: "unassigned",
+      }));
+      await supabase.from("student_book_issuances").insert(issuanceRows);
+    }
 
     // Update applicant_payments
     await supabase
@@ -2729,10 +2733,7 @@ export const bundlePaymentAPI = {
       await applicantAPI.markEligible(applicantId);
     }
 
-    // Return ALL bundle items for the receipt — not just the in-stock ones that
-    // were decremented. Parents need to see every item included in the package
-    // (e.g. "Morning Assembly Manual") even when it's temporarily out of stock.
-    const receiptItems = bundle.items.map((item: any) => ({
+    const receiptItems = inStockItems.map((item: any) => ({
       item_name: item.item_name,
       quantity: item.quantity,
     }));
@@ -2903,12 +2904,9 @@ export const bundlePaymentAPI = {
         }
       }
 
-      // Insert ALL bundle items into transaction_items so reprinted receipts
-      // show every item included in the package, even out-of-stock ones.
-      // Only in-stock items were decremented above; these rows record what the
-      // package includes, not what was handed off. Registration txns are typed
-      // REGISTRATION_PAYMENT (never STORE_PURCHASE), so they don't affect COGS.
-      const itemRows = bundleItems.map((item) => ({
+      // Insert ONLY in-stock items into transaction_items and receipt.
+      // Out-of-stock items are tracked in student_book_issuances for fulfillment.
+      const itemRows = inStockBundleItems.map((item) => ({
         transaction_id: txn.transaction_id,
         item_id: item.item_id,
         item_name: item.item_name,
@@ -2918,10 +2916,25 @@ export const bundlePaymentAPI = {
       }));
       if (itemRows.length > 0) await supabase.from("transaction_items").insert(itemRows);
 
-      // Return ALL bundle items for receipt — not just in-stock ones.
-      // Parents need to see every item included in the package even when
-      // temporarily out of stock.
-      lineItems.push(...bundleItems.map((item) => ({
+      // Track out-of-stock items for pending fulfillment
+      const outOfStockBundleItems = bundleItems.filter((item) => {
+        const available = liveStock[item.item_id] ?? 0;
+        return available <= 0;
+      });
+      if (outOfStockBundleItems.length > 0) {
+        const issuanceRows = outOfStockBundleItems.map((item) => ({
+          applicant_id: applicantId,
+          transaction_id: txn.transaction_id,
+          item_id: item.item_id,
+          book_name: item.item_name,
+          quantity: item.quantity,
+          status: "unassigned",
+        }));
+        await supabase.from("student_book_issuances").insert(issuanceRows);
+      }
+
+      // Receipt shows ONLY in-stock items
+      lineItems.push(...inStockBundleItems.map((item) => ({
         item_name: item.item_name,
         quantity: item.quantity,
         total_price: item.selling_price * item.quantity,
@@ -3334,5 +3347,77 @@ export const expenseAPI = {
       description: e.description,
       shift_id: e.shift_id,
     }));
+  },
+};
+
+// ─── Pending Book Issuances (Out-of-Stock Fulfillment) ────────────────────────
+export const issuanceAPI = {
+  async getPendingByStudent(studentId: string) {
+    const { data, error } = await supabase
+      .from("student_book_issuances")
+      .select("*")
+      .eq("student_id", studentId)
+      .eq("status", "unassigned")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+
+  async getPendingByApplicant(applicantId: number) {
+    const { data, error } = await supabase
+      .from("student_book_issuances")
+      .select("*")
+      .eq("applicant_id", applicantId)
+      .eq("status", "unassigned")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+
+  async getAllPending() {
+    const { data, error } = await supabase
+      .from("student_book_issuances")
+      .select("*")
+      .eq("status", "unassigned")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
+
+  async fulfill(issuanceId: number, assignedBy: number) {
+    const { data: issuance, error: fetchErr } = await supabase
+      .from("student_book_issuances")
+      .select("*")
+      .eq("id", issuanceId)
+      .single();
+    if (fetchErr) return { success: false, error: fetchErr.message };
+    if (!issuance) return { success: false, error: "Issuance not found" };
+
+    if (issuance.item_id) {
+      const { data: inv } = await supabase
+        .from("inventory")
+        .select("stock_quantity")
+        .eq("item_id", issuance.item_id)
+        .single();
+      const currentStock = inv?.stock_quantity ?? 0;
+      if (currentStock < (issuance.quantity || 1)) {
+        return { success: false, error: `Insufficient stock (${currentStock} available, ${issuance.quantity} needed)` };
+      }
+      await supabase
+        .from("inventory")
+        .update({ stock_quantity: Math.max(0, currentStock - (issuance.quantity || 1)) })
+        .eq("item_id", issuance.item_id);
+    }
+
+    const { error: updateErr } = await supabase
+      .from("student_book_issuances")
+      .update({
+        status: "assigned",
+        assigned_at: new Date().toISOString(),
+        assigned_by: assignedBy,
+      })
+      .eq("id", issuanceId);
+    if (updateErr) return { success: false, error: updateErr.message };
+    return { success: true };
   },
 };

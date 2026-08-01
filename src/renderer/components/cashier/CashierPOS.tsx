@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useShift } from '../../context/ShiftContext';
 import { studentAPI, inventoryAPI, transactionAPI, studentFeeAPI, categoryAPI, settingsAPI, feeTypeAPI, bundleAPI, applicantAPI, bundlePaymentAPI, shiftAPI, expenseAPI } from '../../lib/api';
+import PendingItems from '../shared/PendingItems';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Student { student_id: string; name: string; student_class: string; current_fees_owed: number; admission_type?: 'Returning' | 'New'; }
@@ -2296,6 +2297,13 @@ const CashierPOS: React.FC = () => {
                     <div className="text-xs font-semibold uppercase tracking-wider opacity-80">Outstanding Fees</div>
                     <div className="text-xl font-extrabold">{fmt(selectedStudent.current_fees_owed)}</div>
                   </div>
+                </div>
+              )}
+
+              {/* Pending Items / Books Owed */}
+              {selectedStudent && (
+                <div className="mt-3">
+                  <PendingItems studentId={selectedStudent.student_id} />
                 </div>
               )}
 
