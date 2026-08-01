@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Trash2, Pencil, X, UserPlus, AlertCircle, ExternalLink, CheckCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2, Pencil, X, UserPlus, AlertCircle, ExternalLink, CheckCircle, FileText } from 'lucide-react';
 import { studentAPI, feeTypeAPI, settingsAPI, studentFeeAPI, ledgerAPI } from '../../lib/api';
 import PendingItems from '../shared/PendingItems';
-import { FileText, X } from 'lucide-react';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
