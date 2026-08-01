@@ -1998,19 +1998,12 @@ const CashierPOS: React.FC = () => {
       // live stock so out-of-stock items never get decremented or handed to the storekeeper.
       let bundleItems: { item_id: number; item_name: string; quantity: number; selling_price: number }[] | undefined = undefined;
       if (walkInRegistrationBundle?.items?.length) {
-        const itemIds = walkInRegistrationBundle.items.map((i: any) => i.item_id);
-        const stockLevels = await inventoryAPI.getStockLevels(itemIds);
-        bundleItems = walkInRegistrationBundle.items
-          .map((item: any) => {
-            const available = stockLevels[item.item_id] ?? 0;
-            return {
-              item_id: item.item_id,
-              item_name: item.item_name,
-              quantity: Math.max(0, Math.min(item.quantity, available)),
-              selling_price: item.selling_price,
-            };
-          })
-          .filter((item) => item.quantity > 0);
+        bundleItems = walkInRegistrationBundle.items.map((item: any) => ({
+          item_id: item.item_id,
+          item_name: item.item_name,
+          quantity: item.quantity,
+          selling_price: item.selling_price,
+        }));
       }
       const result = await bundlePaymentAPI.processDirectRegistrationPayment({
         applicantId: walkInApplicant.id, shiftId: activeShift.id,

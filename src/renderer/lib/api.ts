@@ -2699,15 +2699,13 @@ export const bundlePaymentAPI = {
       }
     }
 
-    // Persist only tangible inventory items in transaction_items.
-    // The administrative fee / package markup portion is NOT stored here —
-    // storing it as a null-item_id row would pollute COGS calculations because
-    // the gross profit query scopes to STORE_PURCHASE items only; any fake
-    // service line here would have zero cost and distort the inventory metrics.
-    // The full amount_paid is captured on the transactions row itself, and the
-    // TransactionHistory detail view recomputes the admin fee as a display label
-    // (amount_paid − sum(physical items)) without touching the DB.
-    const itemRows = inStockItems.map((item: any) => ({
+    // Persist ALL bundle items in transaction_items so reprinted receipts show
+    // every item included in the package (e.g. "Morning Assembly Manual" even
+    // when temporarily out of stock). Only in-stock items are decremented above;
+    // these rows are a record of what the package includes, not what was handed
+    // off. Bundle txns are typed ACCEPTANCE_FEE/BUNDLE_PURCHASE (never
+    // STORE_PURCHASE), so they don't affect COGS.
+    const allItemRows = bundle.items.map((item: any) => ({
       transaction_id: txn.transaction_id,
       item_id: item.item_id,
       item_name: item.item_name,
@@ -2715,7 +2713,7 @@ export const bundlePaymentAPI = {
       unit_price: item.selling_price,
       total_price: item.selling_price * item.quantity,
     }));
-    if (itemRows.length > 0) await supabase.from("transaction_items").insert(itemRows);
+    if (allItemRows.length > 0) await supabase.from("transaction_items").insert(allItemRows);
 
     // Update applicant_payments
     await supabase
@@ -2731,11 +2729,18 @@ export const bundlePaymentAPI = {
       await applicantAPI.markEligible(applicantId);
     }
 
-    const details = await transactionAPI.getDetails(txn.transaction_id);
+    // Return ALL bundle items for the receipt — not just the in-stock ones that
+    // were decremented. Parents need to see every item included in the package
+    // (e.g. "Morning Assembly Manual") even when it's temporarily out of stock.
+    const receiptItems = bundle.items.map((item: any) => ({
+      item_name: item.item_name,
+      quantity: item.quantity,
+    }));
+
     return {
       success: true,
       transactionId: txn.transaction_id,
-      ...details,
+      items: receiptItems,
       total: amountPaid,
       balance: amountDue - newTotalPaid,
       isFullPayment: newTotalPaid >= amountDue,
@@ -2898,8 +2903,12 @@ export const bundlePaymentAPI = {
         }
       }
 
-      // Insert transaction_items with item_name snapshot
-      const itemRows = inStockBundleItems.map((item) => ({
+      // Insert ALL bundle items into transaction_items so reprinted receipts
+      // show every item included in the package, even out-of-stock ones.
+      // Only in-stock items were decremented above; these rows record what the
+      // package includes, not what was handed off. Registration txns are typed
+      // REGISTRATION_PAYMENT (never STORE_PURCHASE), so they don't affect COGS.
+      const itemRows = bundleItems.map((item) => ({
         transaction_id: txn.transaction_id,
         item_id: item.item_id,
         item_name: item.item_name,
@@ -2909,8 +2918,10 @@ export const bundlePaymentAPI = {
       }));
       if (itemRows.length > 0) await supabase.from("transaction_items").insert(itemRows);
 
-      // Return actual items for receipt (out-of-stock items already excluded)
-      lineItems.push(...inStockBundleItems.map((item) => ({
+      // Return ALL bundle items for receipt — not just in-stock ones.
+      // Parents need to see every item included in the package even when
+      // temporarily out of stock.
+      lineItems.push(...bundleItems.map((item) => ({
         item_name: item.item_name,
         quantity: item.quantity,
         total_price: item.selling_price * item.quantity,
