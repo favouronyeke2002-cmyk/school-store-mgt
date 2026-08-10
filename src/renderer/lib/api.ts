@@ -1574,8 +1574,7 @@ export const transactionAPI = {
       *,
       students (
         name,
-        student_class,
-        student_id
+        student_class
       ),
       applicants (
         first_name,
@@ -1633,8 +1632,7 @@ export const transactionAPI = {
         *,
         students (
           name,
-          student_class,
-          student_id
+          student_class
         ),
         applicants (
           first_name,
