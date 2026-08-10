@@ -1948,7 +1948,8 @@ export const transactionAPI = {
           stock_deducted: wasInStock,
         };
       });
-      await supabase.from("student_book_issuances").insert(allIssuanceRows);
+      const { error: issuanceErr } = await supabase.from("student_book_issuances").insert(allIssuanceRows);
+      if (issuanceErr) console.error("[student_book_issuances] insert failed (store purchase):", issuanceErr.message, issuanceErr.details, { rows: allIssuanceRows });
     }
 
     // Double-entry ledger for store purchase
@@ -2769,7 +2770,8 @@ export const bundlePaymentAPI = {
       };
     });
     if (allIssuanceRows.length > 0) {
-      await supabase.from("student_book_issuances").insert(allIssuanceRows);
+      const { error: issuanceErr } = await supabase.from("student_book_issuances").insert(allIssuanceRows);
+      if (issuanceErr) console.error("[student_book_issuances] insert failed (bundle payment):", issuanceErr.message, issuanceErr.details, { rows: allIssuanceRows });
     }
 
     // Update applicant_payments
@@ -3010,7 +3012,8 @@ export const bundlePaymentAPI = {
         };
       });
       if (allIssuanceRows.length > 0) {
-        await supabase.from("student_book_issuances").insert(allIssuanceRows);
+        const { error: issuanceErr } = await supabase.from("student_book_issuances").insert(allIssuanceRows);
+        if (issuanceErr) console.error("[student_book_issuances] insert failed (registration):", issuanceErr.message, issuanceErr.details, { rows: allIssuanceRows });
       }
 
       // Receipt shows ONLY in-stock items
@@ -3471,7 +3474,7 @@ export const issuanceAPI = {
       .from("student_book_issuances")
       .select("*")
       .eq("student_id", studentId)
-      .eq("status", "unassigned")
+      .in("status", ["unassigned", "pending"])
       .order("created_at", { ascending: false });
     if (error) throw error;
     return data || [];
@@ -3482,7 +3485,7 @@ export const issuanceAPI = {
       .from("student_book_issuances")
       .select("*")
       .eq("applicant_id", applicantId)
-      .eq("status", "unassigned")
+      .in("status", ["unassigned", "pending"])
       .order("created_at", { ascending: false });
     if (error) throw error;
     return data || [];
@@ -3492,7 +3495,7 @@ export const issuanceAPI = {
     const { data, error } = await supabase
       .from("student_book_issuances")
       .select("*, students(name, student_class), applicants(first_name, last_name, proposed_class)")
-      .eq("status", "unassigned")
+      .in("status", ["unassigned", "pending"])
       .order("created_at", { ascending: false });
     if (error) throw error;
     return (data || []).map((row: any) => {

@@ -85,7 +85,7 @@ const FulfillmentManagement: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold">Store Fulfillment</h1>
           <p className="text-gray-500">
-            {items.filter((i) => i.status === 'unassigned').length} unassigned · {items.length} total items tracked
+            {items.filter((i) => i.status === 'unassigned' || i.status === 'pending').length} pending · {items.length} total items tracked
           </p>
         </div>
       </div>
@@ -172,7 +172,7 @@ const FulfillmentManagement: React.FC = () => {
                     )}
                   </td>
                   <td className="px-4 py-3 text-center">
-                    {item.status === 'unassigned' ? (
+                    {(item.status === 'unassigned' || item.status === 'pending') ? (
                       <button
                         onClick={() => handleFulfill(item.id)}
                         disabled={fulfillingId === item.id}
