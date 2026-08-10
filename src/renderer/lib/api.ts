@@ -1951,6 +1951,19 @@ export const transactionAPI = {
       await supabase.from("student_book_issuances").insert(allIssuanceRows);
     }
 
+    // Double-entry ledger for store purchase
+    if (studentId) {
+      try {
+        await ledgerAPI.recordDoubleEntry({
+          studentId,
+          transactionId: txnId,
+          feeTypeName: "Store Purchase",
+          amount: total,
+          paymentMode,
+        });
+      } catch (e) { /* ledger write failure is non-fatal */ }
+    }
+
     return { success: true, transaction_id: txnId, items: inStockCart.map((i) => ({ item_name: i.item_name, quantity: i.quantity })) };
   },
 
@@ -2867,6 +2880,18 @@ export const bundlePaymentAPI = {
     }
 
     await applicantAPI.markEligible(applicantId);
+
+    // Double-entry ledger for form purchase
+    try {
+      await ledgerAPI.recordDoubleEntry({
+        studentId: `applicant_${applicantId}`,
+        transactionId: txn.transaction_id,
+        feeTypeName: "Admission Form",
+        amount: FORM_PRICE,
+        paymentMode: paymentMode,
+      });
+    } catch (e) { /* ledger write failure is non-fatal */ }
+
     return {
       success: true,
       transactionId: txn.transaction_id,
@@ -3228,7 +3253,7 @@ const studentBundleBalanceAPI = {
       throw new Error(`Cannot pay ₦${amount.toLocaleString("en-NG")} — balance is only ₦${currentBalance.toLocaleString("en-NG")}`);
     }
     // Create a NEW installment transaction row — never overwrite the original
-    await tryInsertTxn({
+    const installmentTxn = await tryInsertTxn({
       student_id: studentId,
       shift_id: shiftId,
       type: "FEES_CASH_COLLECTION",
@@ -3263,6 +3288,18 @@ const studentBundleBalanceAPI = {
         .eq("student_id", studentId);
       if (studentUpdateError) throw new Error(`Payment recorded but failed to update student balance: ${studentUpdateError.message}`);
     }
+
+    // Double-entry ledger for bundle installment payment
+    try {
+      await ledgerAPI.recordDoubleEntry({
+        studentId,
+        transactionId: installmentTxn.transaction_id,
+        feeTypeName: "Bundle Installment Payment",
+        amount,
+        paymentMode,
+      });
+    } catch (e) { /* ledger write failure is non-fatal */ }
+
     return { success: true, newBalance };
   },
 };
@@ -3454,11 +3491,22 @@ export const issuanceAPI = {
   async getAllPending() {
     const { data, error } = await supabase
       .from("student_book_issuances")
-      .select("*")
+      .select("*, students(name, student_class), applicants(first_name, last_name, proposed_class)")
       .eq("status", "unassigned")
       .order("created_at", { ascending: false });
     if (error) throw error;
-    return data || [];
+    return (data || []).map((row: any) => {
+      let studentName = "—";
+      let studentClass = "";
+      if (row.students) {
+        studentName = row.students.name;
+        studentClass = row.students.student_class || "";
+      } else if (row.applicants) {
+        studentName = `${row.applicants.first_name || ""} ${row.applicants.last_name || ""}`.trim();
+        studentClass = row.applicants.proposed_class || "New Admission";
+      }
+      return { ...row, student_name: studentName, student_class: studentClass };
+    });
   },
 
   async fulfill(issuanceId: number, assignedBy: number) {
@@ -3502,10 +3550,21 @@ export const issuanceAPI = {
   async getAll() {
     const { data, error } = await supabase
       .from("student_book_issuances")
-      .select("*")
+      .select("*, students(name, student_class), applicants(first_name, last_name, proposed_class)")
       .order("created_at", { ascending: false });
     if (error) throw error;
-    return data || [];
+    return (data || []).map((row: any) => {
+      let studentName = "—";
+      let studentClass = "";
+      if (row.students) {
+        studentName = row.students.name;
+        studentClass = row.students.student_class || "";
+      } else if (row.applicants) {
+        studentName = `${row.applicants.first_name || ""} ${row.applicants.last_name || ""}`.trim();
+        studentClass = row.applicants.proposed_class || "New Admission";
+      }
+      return { ...row, student_name: studentName, student_class: studentClass };
+    });
   },
 };
 
@@ -3553,7 +3612,46 @@ export const ledgerAPI = {
       .eq("student_id", studentId)
       .order("created_at", { ascending: false });
     if (error) throw error;
-    return data || [];
+    if (data && data.length > 0) return data;
+
+    // Fallback: no ledger_entries rows yet — synthesize a statement from
+    // the transactions table so historical payments render immediately.
+    const { data: txns, error: txnErr } = await supabase
+      .from("transactions")
+      .select("transaction_id, amount_paid, payment_mode, timestamp, type, fee_types(name)")
+      .eq("student_id", studentId)
+      .neq("status", "VOIDED")
+      .order("timestamp", { ascending: false });
+    if (txnErr) return data || [];
+    return (txns || []).map((t: any) => {
+      const feeName = t.fee_types?.name || (t.type === "STORE_PURCHASE" ? "Store Purchase" : t.type === "BUNDLE_PURCHASE" ? "Bundle Payment" : "Fee Payment");
+      return [
+        {
+          id: `${t.transaction_id}-d`,
+          student_id: studentId,
+          transaction_id: t.transaction_id,
+          entry_type: "debit",
+          fee_type_name: feeName,
+          amount: Number(t.amount_paid),
+          payment_mode: null,
+          cashier_name: null,
+          academic_term: null,
+          created_at: t.timestamp,
+        },
+        {
+          id: `${t.transaction_id}-c`,
+          student_id: studentId,
+          transaction_id: t.transaction_id,
+          entry_type: "credit",
+          fee_type_name: feeName,
+          amount: Number(t.amount_paid),
+          payment_mode: t.payment_mode,
+          cashier_name: null,
+          academic_term: null,
+          created_at: t.timestamp,
+        },
+      ];
+    }).flat();
   },
 
   async getAllStudentSummaries() {

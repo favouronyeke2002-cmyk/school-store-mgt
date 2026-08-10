@@ -16,6 +16,8 @@ interface Issuance {
   stock_deducted: boolean;
   created_at: string;
   assigned_at: string | null;
+  student_name?: string;
+  student_class?: string;
 }
 
 const FulfillmentManagement: React.FC = () => {
@@ -70,8 +72,9 @@ const FulfillmentManagement: React.FC = () => {
     const name = (i.item_name || i.book_name || '').toLowerCase();
     const bundle = (i.bundle_name || '').toLowerCase();
     const sid = (i.student_id || '').toLowerCase();
+    const studentName = (i.student_name || '').toLowerCase();
     const q = search.toLowerCase();
-    return name.includes(q) || bundle.includes(q) || sid.includes(q);
+    return name.includes(q) || bundle.includes(q) || sid.includes(q) || studentName.includes(q);
   });
 
   const fmtDate = (d: string) => new Date(d).toLocaleDateString();
@@ -131,7 +134,7 @@ const FulfillmentManagement: React.FC = () => {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                {['Date', 'Student/Applicant', 'Item', 'Bundle', 'Qty', 'Stock Status', 'Fulfillment Status', 'Action'].map((h, i) => (
+                {['Date', 'Student', 'Item', 'Bundle', 'Qty', 'Stock Status', 'Fulfillment Status', 'Action'].map((h, i) => (
                   <th key={i} className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase ${i >= 6 ? 'text-right' : 'text-left'} ${i === 7 ? 'text-center' : ''}`}>{h}</th>
                 ))}
               </tr>
@@ -147,7 +150,10 @@ const FulfillmentManagement: React.FC = () => {
               ) : filtered.map((item) => (
                 <tr key={item.id} className="border-t hover:bg-gray-50">
                   <td className="px-4 py-3 text-sm text-gray-500">{fmtDate(item.created_at)}</td>
-                  <td className="px-4 py-3 text-sm font-mono">{item.student_id || `Applicant #${item.applicant_id}`}</td>
+                  <td className="px-4 py-3 text-sm">
+                    <div className="font-medium text-gray-800">{item.student_name || '—'}</div>
+                    <div className="text-xs text-gray-400 font-mono">{item.student_id || `Applicant #${item.applicant_id}`}{item.student_class ? ` · ${item.student_class}` : ''}</div>
+                  </td>
                   <td className="px-4 py-3 text-sm font-medium text-gray-800">{item.item_name || item.book_name}</td>
                   <td className="px-4 py-3 text-sm text-gray-500">{item.bundle_name || '—'}</td>
                   <td className="px-4 py-3 text-sm">{item.quantity}</td>
