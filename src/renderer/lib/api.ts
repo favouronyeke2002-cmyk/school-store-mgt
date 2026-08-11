@@ -168,7 +168,8 @@ export const shiftAPI = {
       .from("transactions")
       .select("amount_paid")
       .eq("shift_id", shiftId)
-      .eq("payment_mode", "Cash");
+      .eq("payment_mode", "Cash")
+      .neq("status", "VOIDED");
     const totalCashSales = (cashSales || []).reduce(
       (s: number, t: any) => s + Number(t.amount_paid),
       0,
@@ -210,7 +211,8 @@ export const shiftAPI = {
       .from("transactions")
       .select("amount_paid")
       .eq("shift_id", shiftId)
-      .eq("payment_mode", "Cash");
+      .eq("payment_mode", "Cash")
+      .neq("status", "VOIDED");
     const totalCashSales = (cashTxns || []).reduce(
       (s: number, t: any) => s + Number(t.amount_paid),
       0,
@@ -478,6 +480,7 @@ export const studentAPI = {
         "*, transaction_items(quantity, unit_price, total_price, inventory(item_name)), fee_types(name)",
       )
       .eq("student_id", studentId)
+      .neq("status", "VOIDED")
       .order("timestamp", { ascending: false });
     if (error) throw error;
     return (data || []).map((t: any) => ({
@@ -1852,6 +1855,60 @@ export const transactionAPI = {
       // Ledger entries may not exist for older transactions — void still succeeds
     }
 
+    // 6. Cascade: clean up student_book_issuances tied to this transaction
+    try {
+      const { data: issuances } = await supabase
+        .from("student_book_issuances")
+        .select("id, item_id, quantity, status, stock_deducted")
+        .eq("transaction_id", transactionId);
+
+      if (issuances && issuances.length > 0) {
+        // Restore stock for items that were already delivered/deducted
+        for (const iss of issuances as any[]) {
+          if (iss.stock_deducted && iss.item_id) {
+            const { data: inv } = await supabase
+              .from("inventory")
+              .select("stock_quantity")
+              .eq("item_id", iss.item_id)
+              .single();
+            if (inv) {
+              await supabase
+                .from("inventory")
+                .update({ stock_quantity: inv.stock_quantity + (iss.quantity || 1) })
+                .eq("item_id", iss.item_id);
+            }
+          }
+        }
+        // Delete all issuance rows tied to this voided transaction
+        await supabase
+          .from("student_book_issuances")
+          .delete()
+          .eq("transaction_id", transactionId);
+      }
+    } catch (e) {
+      // Issuance cleanup failure is non-fatal — void still succeeds
+    }
+
+    // 7. Cascade: revert applicant status for bundle/acceptance fee transactions
+    if (
+      (txn.type === "ACCEPTANCE_FEE" || txn.type === "BUNDLE_PURCHASE") &&
+      txn.applicant_id
+    ) {
+      try {
+        await supabase
+          .from("applicants")
+          .update({
+            status: "pending",
+            eligible_at: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", txn.applicant_id)
+          .in("status", ["eligible", "enrolled"]);
+      } catch (e) {
+        // Applicant may have been deleted — void still succeeds
+      }
+    }
+
     return { success: true };
   },
 
@@ -2014,21 +2071,24 @@ export const adminAPI = {
       feesOwedResult,
       countResult,
     ] = await Promise.all([
-      supabase.from("transactions").select("amount_paid"),
+      supabase.from("transactions").select("amount_paid").neq("status", "VOIDED"),
       supabase
         .from("transactions")
         .select("amount_paid, transaction_items(quantity, item_id)")
-        .eq("type", "STORE_PURCHASE"),
+        .eq("type", "STORE_PURCHASE")
+        .neq("status", "VOIDED"),
       supabase
         .from("transactions")
         .select("amount_paid")
-        .eq("type", "FEES_CASH_COLLECTION"),
+        .eq("type", "FEES_CASH_COLLECTION")
+        .neq("status", "VOIDED"),
       // Use the live ledger aggregate (amount_due − amount_paid) rather than the
       // denormalised students.current_fees_owed column which can drift over time.
       supabase.from("student_fees").select("amount_due, amount_paid"),
       supabase
         .from("transactions")
-        .select("transaction_id", { count: "exact", head: true }),
+        .select("transaction_id", { count: "exact", head: true })
+        .neq("status", "VOIDED"),
     ]);
 
     const { data: invData } = await supabase
@@ -2091,6 +2151,7 @@ export const adminAPI = {
       .from("transactions")
       .select("timestamp, type, amount_paid")
       .gte("timestamp", since.toISOString())
+      .neq("status", "VOIDED")
       .order("timestamp");
     if (error) throw error;
     const grouped: Record<string, any> = {};
@@ -2110,7 +2171,8 @@ export const adminAPI = {
   async getClassRevenue() {
     const { data, error } = await supabase
       .from("transactions")
-      .select("amount_paid, students(student_class)");
+      .select("amount_paid, students(student_class)")
+      .neq("status", "VOIDED");
     if (error) throw error;
     const grouped: Record<string, any> = {};
     for (const t of data || []) {
@@ -2132,7 +2194,8 @@ export const adminAPI = {
       .select(
         "transaction_id, transaction_items(item_id, quantity, total_price, inventory(item_name))",
       )
-      .eq("type", "STORE_PURCHASE");
+      .eq("type", "STORE_PURCHASE")
+      .neq("status", "VOIDED");
     if (error) throw error;
 
     // Flatten + exclude any null item_id rows that may exist in historical data
@@ -2587,6 +2650,14 @@ export const applicantAPI = {
     return { success: true };
   },
   async delete(id: number) {
+    // Clean up pending fulfillment records before deleting the applicant
+    const { error: issuanceError } = await supabase
+      .from("student_book_issuances")
+      .delete()
+      .eq("applicant_id", id)
+      .in("status", ["unassigned", "pending"]);
+    if (issuanceError) return { success: false, error: issuanceError.message };
+
     const { error } = await supabase.from("applicants").delete().eq("id", id);
     if (error) return { success: false, error: error.message };
     return { success: true };
