@@ -3563,7 +3563,7 @@ export const issuanceAPI = {
   async getAllPending() {
     const { data, error } = await supabase
       .from("student_book_issuances")
-      .select("*, students(name, student_class), applicants(first_name, last_name, proposed_class)")
+      .select("*, students(name, student_class), applicants(first_name, last_name, proposed_class), inventory(stock_quantity)")
       .in("status", ["unassigned", "pending"])
       .order("created_at", { ascending: false });
     if (error) throw error;
@@ -3577,7 +3577,12 @@ export const issuanceAPI = {
         studentName = `${row.applicants.first_name || ""} ${row.applicants.last_name || ""}`.trim();
         studentClass = row.applicants.proposed_class || "New Admission";
       }
-      return { ...row, student_name: studentName, student_class: studentClass };
+      return {
+        ...row,
+        student_name: studentName,
+        student_class: studentClass,
+        stock_quantity: row.inventory?.stock_quantity ?? 0,
+      };
     });
   },
 
@@ -3622,7 +3627,7 @@ export const issuanceAPI = {
   async getAll() {
     const { data, error } = await supabase
       .from("student_book_issuances")
-      .select("*, students(name, student_class), applicants(first_name, last_name, proposed_class)")
+      .select("*, students(name, student_class), applicants(first_name, last_name, proposed_class), inventory(stock_quantity)")
       .order("created_at", { ascending: false });
     if (error) throw error;
     return (data || []).map((row: any) => {
@@ -3635,7 +3640,12 @@ export const issuanceAPI = {
         studentName = `${row.applicants.first_name || ""} ${row.applicants.last_name || ""}`.trim();
         studentClass = row.applicants.proposed_class || "New Admission";
       }
-      return { ...row, student_name: studentName, student_class: studentClass };
+      return {
+        ...row,
+        student_name: studentName,
+        student_class: studentClass,
+        stock_quantity: row.inventory?.stock_quantity ?? 0,
+      };
     });
   },
 };

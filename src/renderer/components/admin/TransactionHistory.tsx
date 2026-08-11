@@ -288,11 +288,24 @@ const TransactionHistory: React.FC = () => {
     mode === "POS_Transfer" ? "POS / Transfer" : mode === "Bank_Transfer" ? "Bank Transfer" : mode;
 
   // ── Summary stats ─────────────────────────────────────────────────────────
-  const activeOnly = transactions.filter(t => t.status !== "VOIDED");
-  const total = activeOnly.reduce((s, t) => s + t.amount_paid, 0);
-  const storeTotal = activeOnly.filter(t => t.type === "STORE_PURCHASE").reduce((s, t) => s + t.amount_paid, 0);
-  const feesTotal = activeOnly.filter(t => t.type === "FEES_CASH_COLLECTION").reduce((s, t) => s + t.amount_paid, 0);
-  const expensesTotal = activeOnly.filter(t => t.type === "EXPENSE").reduce((s, t) => s + t.amount_paid, 0);
+  // Exclude both VOIDED and CANCELLED transactions from all financial metrics.
+  const validTransactions = transactions.filter(
+    t => t.status !== "VOIDED" && t.status !== "CANCELLED",
+  );
+  const storeTotal = validTransactions
+    .filter(t => t.type === "STORE_PURCHASE")
+    .reduce((s, t) => s + t.amount_paid, 0);
+  const feesTotal = validTransactions
+    .filter(t => t.type === "FEES_CASH_COLLECTION")
+    .reduce((s, t) => s + t.amount_paid, 0);
+  const otherRevenueTotal = validTransactions
+    .filter(t => t.type !== "STORE_PURCHASE" && t.type !== "FEES_CASH_COLLECTION" && t.type !== "EXPENSE")
+    .reduce((s, t) => s + t.amount_paid, 0);
+  const expensesTotal = validTransactions
+    .filter(t => t.type === "EXPENSE")
+    .reduce((s, t) => s + t.amount_paid, 0);
+  const netTotal = (storeTotal + feesTotal + otherRevenueTotal) - expensesTotal;
+  const validTotal = validTransactions.reduce((s, t) => s + t.amount_paid, 0);
 
   return (
     <div>
@@ -300,7 +313,7 @@ const TransactionHistory: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold">Transaction History</h1>
           <p className="text-gray-500">
-            {transactions.length} transactions — Total: {fmtCurrency(total)}
+            {transactions.length} transactions — Total: {fmtCurrency(validTotal)}
           </p>
         </div>
         <button
@@ -318,7 +331,7 @@ const TransactionHistory: React.FC = () => {
           { label: "Store Purchases", value: fmtCurrency(storeTotal) },
           { label: "Fees Collected", value: fmtCurrency(feesTotal) },
           { label: "Expenses", value: fmtCurrency(expensesTotal), isExpense: true },
-          { label: "Net Total", value: fmtCurrency(total - expensesTotal) },
+          { label: "Net Total", value: fmtCurrency(netTotal) },
         ].map((s, i) => (
           <div key={i} className="bg-white rounded-lg shadow-sm p-5">
             <div className={`text-sm ${s.isExpense ? "text-red-500" : "text-gray-500"}`}>{s.label}</div>
