@@ -3563,10 +3563,15 @@ export const issuanceAPI = {
   async getAllPending() {
     const { data, error } = await supabase
       .from("student_book_issuances")
-      .select("*, students(name, student_class), applicants(first_name, last_name, proposed_class), inventory(stock_quantity)")
+      .select("*, students(name, student_class), applicants(first_name, last_name, proposed_class)")
       .in("status", ["unassigned", "pending"])
       .order("created_at", { ascending: false });
     if (error) throw error;
+    const itemIds = Array.from(new Set((data || []).map((row: any) => row.item_id).filter(Boolean)));
+    const { data: inventoryRows } = itemIds.length
+      ? await supabase.from("inventory").select("item_id, stock_quantity").in("item_id", itemIds)
+      : { data: [] };
+    const stockMap = new Map((inventoryRows || []).map((row: any) => [row.item_id, Number(row.stock_quantity) || 0]));
     return (data || []).map((row: any) => {
       let studentName = "—";
       let studentClass = "";
@@ -3627,10 +3632,15 @@ export const issuanceAPI = {
   async getAll() {
     const { data, error } = await supabase
       .from("student_book_issuances")
-      .select("*, students(name, student_class), applicants(first_name, last_name, proposed_class), inventory(stock_quantity)")
+      .select("*, students(name, student_class), applicants(first_name, last_name, proposed_class)")
       .order("created_at", { ascending: false });
     if (error) throw error;
-    return (data || []).map((row: any) => {
+    const itemIds = Array.from(new Set((data || []).map((row: any) => row.item_id).filter(Boolean)));
+    const { data: inventoryRows } = itemIds.length
+      ? await supabase.from("inventory").select("item_id, stock_quantity").in("item_id", itemIds)
+      : { data: [] };
+    const stockMap = new Map((inventoryRows || []).map((row: any) => [row.item_id, Number(row.stock_quantity) || 0]));
+    return (data || []).map((row: any) => {}}]}]}人人摸 убасгьы nu
       let studentName = "—";
       let studentClass = "";
       if (row.students) {
