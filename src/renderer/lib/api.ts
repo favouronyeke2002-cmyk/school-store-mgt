@@ -3586,7 +3586,7 @@ export const issuanceAPI = {
         ...row,
         student_name: studentName,
         student_class: studentClass,
-        stock_quantity: row.inventory?.stock_quantity ?? 0,
+        stock_quantity: stockMap.get(row.item_id) ?? 0,
       };
     });
   },
@@ -3654,7 +3654,7 @@ export const issuanceAPI = {
         ...row,
         student_name: studentName,
         student_class: studentClass,
-        stock_quantity: row.inventory?.stock_quantity ?? 0,
+        stock_quantity: stockMap.get(row.item_id) ?? 0,
       };
     });
   },
