@@ -3640,7 +3640,7 @@ export const issuanceAPI = {
       ? await supabase.from("inventory").select("item_id, stock_quantity").in("item_id", itemIds)
       : { data: [] };
     const stockMap = new Map((inventoryRows || []).map((row: any) => [row.item_id, Number(row.stock_quantity) || 0]));
-    return (data || []).map((row: any) => {}}]}]}人人摸 убасгьы nu
+    return (data || []).map((row: any) => {
       let studentName = "—";
       let studentClass = "";
       if (row.students) {
