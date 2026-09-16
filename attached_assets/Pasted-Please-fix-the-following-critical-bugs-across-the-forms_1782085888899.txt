@@ -1,0 +1,29 @@
+Please fix the following critical bugs across the forms, state-handling, and inventory logic:
+
+1. Fix the Input Focus/Unfocus Bug (image_502826.png)
+ Inside the 'Edit Bundle' modal, typing a single character causes the input field to lose focus immediately. 
+Fix this React state rendering bug: Ensure that form state updates use local controlled components or 'onChange' hooks properly without causing a full parent component unmount or continuous full modal re-renders. I must be able to type continuously without clicking back into the input field.
+
+2. Connect Form Fields to Database Saving Layouts (image_508da3.png & image_502826.png)
+- Fix Fee Management Form Duplication (image_508da3.png): 
+  Clean up the form so the settings don't conflict. The 'Target Class' dropdown must ONLY be for choosing school classes (e.g., JSS1, SS2, or All Classes). The 'Applicable To' buttons must ONLY filter residency status (All Students, Day, or Boarding). 
+  When I click 'Create & Auto-Assign', the backend must successfully save this fee to the database, close the popup modal immediately, and display the new fee in the table right away without making me refresh the browser.
+- Bundle Target Status: Update the backend schema for the bundles table to explicitly store the 'Applicable Student Status' value ('day', 'boarding', or 'all'). Ensure it persists correctly upon saving and doesn't revert to 'All Students'.
+
+3. Inventory Updates, Closures, and Cashier Sync
+- Fix 'Set Stock' Closure: Modify the submission handler for the stock modification modal. Upon a successful response, programmatically invoke the close modal state function so the popup layer disappears completely.
+- Enforce Inventory Deletions: Ensure that when an item is deleted from the Admin Inventory table, a cascade action updates the global POS application state immediately, removing that item from the Cashier's terminal display on the fly.
+
+4. School Settings Class Name Editing
+- In 'School Settings', replace the static class list display with fully editable fields. Admin must be able to click on a class badge or row, modify its string text name, and save the updated name to the database seamlessly.
+Please execute a UI cleanup and layout refactor based on these specific design decisions:
+
+1. Clean Up Ledger Tabs (image_50121f.png & image_500de2.png):
+   - Completely REMOVE the 'Fee Ledger' tab button from the Student Management page (image_50121f.png). Keep that page strictly focused on the Student Roster.
+   - Keep the 'Student Ledger' tab under Fees & Billing (image_500de2.png). Fix its code so it no longer crashes the app.
+   - Design the Student Ledger table to contain these explicit columns: Student ID | Student Name | Class | Status (Day/Boarding) | Arrears Brought Forward | Current Term Bill | Total Amount Paid | Net Balance Due.
+
+2. Optimize Edit Student Financial UI (image_5015fb.png):
+   - Keep a financial summary inside the Edit Student modal for quick reference.
+   - Beneath the 'Current Balance Due' total, display an itemized breakdown checklist of all currently active assigned bills making up that total.
+   - Add a functional shortcut button inside this modal labeled 'View Full Ledger'. Clicking it must seamlessly close the modal and redirect the admin directly to that student's row inside the Fees & Billing Ledger tab.

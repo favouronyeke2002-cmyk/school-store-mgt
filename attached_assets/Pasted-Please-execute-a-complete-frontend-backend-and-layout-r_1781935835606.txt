@@ -1,0 +1,26 @@
+Please execute a complete frontend, backend, and layout refactor across the Cashier Terminal, Student Management, and Admin Settings modules to resolve state bugs and enforce strict accounting workflows:
+
+1. Cashier Terminal & Walk-In Applicant Workflow (image_c0d544.png, image_c0ce63.png)
+- Fix State Leakage: Ensure opening and submitting the 'Walk-In Applicant' modal completely clears any previous customer data from active context memory. Do not combine a new applicant's name data with an existing customer's data.
+- Unify Locked UI Payment Modals: All three action banner buttons ('Form', 'Acceptance', 'Registration') must trigger their own dedicated, screen-locking payment modals using a strict template presentation. The items and prices must be locked to admin specifications; the cashier cannot manually inject, edit, or remove items during checkout.
+- Differentiate Click Handlers & Target Functions:
+  * Clicking 'Form': Open a locked 'Admission Form Purchase' modal displaying a fixed price of ₦3,000. Upon successful payment confirmation, programmatically subtract 1 unit from the stock count of the physical admission form item inside the 'Admission Materials' inventory category.
+  * Clicking 'Acceptance': Launch a dedicated, locked Acceptance Fee collection modal.
+  * Clicking 'Registration': Launch the comprehensive Termly Fees modal, which dynamically pulls either the Day Student Bundle or the Boarding Student Bundle depending on the student's residency status.
+- Strict Fee Limits: Enforce an input restriction that completely blocks admission, acceptance, or registration fees from being manually edited or increased past the fixed amount established by the admin.
+
+### 2. Student & Bundle Setup Logic (image_bf7810.png, image_bf753f.png)
+- Update Quick Add Form: Add a mandatory 'Student Status' toggle segment ([Day] / [Boarding]) directly into the 'Quick Add Student' modal. Saving a student via Quick Add must write this residency status to their profile state immediately.
+- Shared vs. Separate Fee Logic: Ensure both Day and Boarding status designations point to the exact same Form and Acceptance fee configurations. The status field must ONLY differentiate line items when the 'Registration' bundle button is clicked.
+- Applicable Bundle Flags: Inside the 'Edit/New Bundle' modal, add an 'Applicable Student Status' dropdown field with options: [All Students, Day Only, Boarding Only]. The terminal must read this flag to dynamically load the correct bundle template at checkout.
+
+### 3. Shift & Inventory Management State Bugs (image_c064c7.png, image_c05d69.png, image_bf7fc9.png)
+- Fix Close Shift Account Loophole: When the user clicks 'Close Shift', do not rely on un-refreshed local component state. The exact moment the button is clicked, force a fresh database aggregation query of the current shift ID to calculate: Expected Cash = Opening Cash Float + Sum of all successful Cash Transactions. Render this fresh total before allowing the cashier to type their 'Actual Cash Count'.
+- Fix Inventory State Refresh: Update the 'Set Stock' submit handler to automatically trigger a React re-fetch or mutate local table state immediately upon a successful response so that stock values update on screen without requiring a manual browser reload.
+
+### 4. Admin Fees Management & Class Safeguards (image_bf623d.png, image_bf082b.png, image_bf00e4.png, image_bef908.png, image_beee3d.png)
+- Fix List Filters: Fix the top-level 'Day' and 'Boarding' filters on the Student page to issue operational queries. Fix the '1st Term', '2nd Term', and '3rd Term' controls in Fees Management to filter rows to show only items matching that specific academic term.
+- Edit Student Balance Override: Remove the 'read-only' text from the 'Balance Due' field in the Edit Student modal.
+ - Build Student Ledger Tab: Build out the non-functional 'Student Ledger' tab view. When clicked, display a structured, searchable data table displaying: Student Name | Class | Status | Total Billed This Term | Total Paid | Outstanding Balance.
+- Streamline Fee Creation Assignment: Keep 'Target Class' strictly for class filtering (e.g., JSS1A, All Classes). Enforce 'Applicable To' conditional mapping: if 'Boarding' is chosen, the system must loop through and auto-assign that fee ONLY to students with a Boarding status badge.
+- Active Term & Class Safeguards: Bind the globally active term setting to the receipt engine so that printed receipts dynamically display the active term label (e.g., '2025/2026 Session - 2nd Term'). In Class Management, remove the instant 'X' delete buttons from class badges. Replace them with standard edit text inputs, and implement a strict database rule giving a warning before class deletions if active students are still assigned to that class ID.
