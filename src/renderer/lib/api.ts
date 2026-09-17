@@ -612,6 +612,9 @@ export const inventoryAPI = {
       is_active: i.is_active !== false,
       category_name: i.inventory_categories?.name || null,
       category_color: i.inventory_categories?.color || null,
+      applicable_classes: Array.isArray(i.applicable_classes) && i.applicable_classes.length > 0
+        ? i.applicable_classes
+        : ["All"],
     }));
   },
   async getById(id: number) {
@@ -655,19 +658,35 @@ export const inventoryAPI = {
     stockQuantity?: number;
     barcode?: string;
     categoryId?: number | null;
+    applicableClasses?: string[];
   }) {
-    const { data: item, error } = await supabase
+    const classes = data.applicableClasses && data.applicableClasses.length > 0
+      ? data.applicableClasses
+      : ["All"];
+    // Try with applicable_classes first; fall back gracefully if column not yet in schema
+    const insertRow: any = {
+      item_name: data.itemName,
+      cost_price: data.costPrice,
+      selling_price: data.sellingPrice,
+      stock_quantity: data.stockQuantity || 0,
+      barcode: data.barcode || null,
+      category_id: data.categoryId || null,
+      applicable_classes: classes,
+    };
+    let { data: item, error } = await supabase
       .from("inventory")
-      .insert({
-        item_name: data.itemName,
-        cost_price: data.costPrice,
-        selling_price: data.sellingPrice,
-        stock_quantity: data.stockQuantity || 0,
-        barcode: data.barcode || null,
-        category_id: data.categoryId || null,
-      })
+      .insert(insertRow)
       .select("item_id")
       .single();
+    // Graceful fallback: if column doesn't exist, retry without it
+    if (error && error.message?.includes("applicable_classes")) {
+      const { applicable_classes: _skip, ...fallbackRow } = insertRow;
+      ({ data: item, error } = await supabase
+        .from("inventory")
+        .insert(fallbackRow)
+        .select("item_id")
+        .single());
+    }
     if (error) return { success: false, error: error.message };
     return { success: true, itemId: item.item_id };
   },
@@ -679,18 +698,35 @@ export const inventoryAPI = {
       sellingPrice: number;
       barcode?: string;
       categoryId?: number | null;
+      applicableClasses?: string[];
     },
   ) {
-    const { error } = await supabase
+    const updateData: any = {
+      item_name: data.itemName,
+      cost_price: data.costPrice,
+      selling_price: data.sellingPrice,
+      barcode: data.barcode || null,
+      category_id: data.categoryId || null,
+    };
+    if (data.applicableClasses !== undefined) {
+      updateData.applicable_classes =
+        data.applicableClasses.length > 0 ? data.applicableClasses : ["All"];
+    }
+
+    let { error } = await supabase
       .from("inventory")
-      .update({
-        item_name: data.itemName,
-        cost_price: data.costPrice,
-        selling_price: data.sellingPrice,
-        barcode: data.barcode || null,
-        category_id: data.categoryId || null,
-      })
+      .update(updateData)
       .eq("item_id", id);
+
+    // Graceful fallback: if column doesn't exist, retry without it
+    if (error && error.message?.includes("applicable_classes")) {
+      delete updateData.applicable_classes;
+      ({ error } = await supabase
+        .from("inventory")
+        .update(updateData)
+        .eq("item_id", id));
+    }
+
     if (error) throw error;
     return { success: true };
   },
@@ -2281,7 +2317,12 @@ export const transactionAPI = {
             }
           }
         }
-        // Delete all issuance rows tied to this voided transaction
+        // Mark issuance rows as voided then delete rows tied to this voided transaction
+        await supabase
+          .from("student_book_issuances")
+          .update({ status: "voided" })
+          .eq("transaction_id", transactionId);
+
         await supabase
           .from("student_book_issuances")
           .delete()
@@ -2311,7 +2352,11 @@ export const transactionAPI = {
       }
     }
 
-    // 8. Shift Synchronization: Recalculate shift expected cash and variance immediately
+    // 8. Active Shift vs. Historical Shift Reversal Logic:
+    // - Active Shift: If a transaction is voided within its currently OPEN shift, immediately deduct
+    //   the amount from that active shift's running cash total.
+    // - Closed/Historical Shifts: If voided AFTER its shift has closed, DO NOT alter past Shift History records.
+    //   Record an Admin Reversal audit log, deduct the amount from current global revenue, and credit the student's ledger balance.
     if (txn.shift_id) {
       try {
         const { data: shift } = await supabase
@@ -2321,40 +2366,46 @@ export const transactionAPI = {
           .single();
 
         if (shift) {
-          const { data: cashTxns } = await supabase
-            .from("transactions")
-            .select("amount_paid")
-            .eq("shift_id", txn.shift_id)
-            .eq("payment_mode", "Cash")
-            .neq("status", "VOIDED");
+          if (shift.status === "open") {
+            // Recalculate active shift expected cash immediately
+            const { data: cashTxns } = await supabase
+              .from("transactions")
+              .select("amount_paid")
+              .eq("shift_id", txn.shift_id)
+              .eq("payment_mode", "Cash")
+              .neq("status", "VOIDED");
 
-          const totalCashSales = (cashTxns || []).reduce(
-            (s: number, t: any) => s + Number(t.amount_paid),
-            0
-          );
+            const totalCashSales = (cashTxns || []).reduce(
+              (s: number, t: any) => s + Number(t.amount_paid),
+              0
+            );
 
-          const { data: cashExpenses } = await supabase
-            .from("expenses")
-            .select("amount")
-            .eq("shift_id", txn.shift_id)
-            .eq("payment_mode", "Cash Drawer");
+            const { data: cashExpenses } = await supabase
+              .from("expenses")
+              .select("amount")
+              .eq("shift_id", txn.shift_id)
+              .eq("payment_mode", "Cash Drawer");
 
-          const totalCashExpenses = (cashExpenses || []).reduce(
-            (s: number, e: any) => s + Number(e.amount),
-            0
-          );
+            const totalCashExpenses = (cashExpenses || []).reduce(
+              (s: number, e: any) => s + Number(e.amount),
+              0
+            );
 
-          const expectedCash = Number(shift.opening_cash || 0) + totalCashSales - totalCashExpenses;
-          const shiftUpdates: any = { expected_closing_cash: expectedCash };
-
-          if (shift.closing_cash !== null && shift.status === "closed") {
-            shiftUpdates.cash_difference = Number(shift.closing_cash) - expectedCash;
+            const expectedCash = Number(shift.opening_cash || 0) + totalCashSales - totalCashExpenses;
+            await supabase
+              .from("shifts")
+              .update({ expected_closing_cash: expectedCash })
+              .eq("id", txn.shift_id);
+          } else {
+            // Closed/Historical Shift: DO NOT alter past shift records (closing_cash, cash_difference, expected_closing_cash preserved).
+            // Record an Admin Reversal audit note on the voided transaction for tracking.
+            const reversalNote = `[Admin Reversal - Historical Shift #${txn.shift_id} (Closed)] Voided on ${new Date().toLocaleString()}. Past shift record preserved.`;
+            const currentNotes = txn.notes ? `${txn.notes} | ${reversalNote}` : reversalNote;
+            await supabase
+              .from("transactions")
+              .update({ notes: currentNotes })
+              .eq("transaction_id", transactionId);
           }
-
-          await supabase
-            .from("shifts")
-            .update(shiftUpdates)
-            .eq("id", txn.shift_id);
         }
       } catch (e) {
         console.error("Failed to synchronize shift cash after void:", e);
@@ -2589,7 +2640,11 @@ export const adminAPI = {
 
     // ── Direct POS Store Revenue ──────────────────────────────────────────────
     const directStoreSales = (storeResult.data || []).reduce(
-      (s: number, t: any) => s + Number(t.amount_paid),
+      (accumulator: number, tx: any) => {
+        if (tx.status === 'voided' || tx.is_voided === true) return accumulator;
+        if (tx.status === 'VOIDED' || tx.status === 'CANCELLED') return accumulator;
+        return accumulator + Number(tx.amount_paid);
+      },
       0,
     );
 
@@ -2601,6 +2656,7 @@ export const adminAPI = {
     let bundleCOGS = 0;
 
     for (const t of schoolBundleResult.data || []) {
+      if (t.status === 'voided' || t.is_voided === true || t.status === 'VOIDED' || t.status === 'CANCELLED') continue;
       const paid = Number(t.amount_paid);
       const items = t.transaction_items || [];
       const physicalSellingPriceTotal = items.reduce(
@@ -2626,20 +2682,26 @@ export const adminAPI = {
 
     // ── COGS (Direct Store Purchases + Physical Bundle Items) ─────────────────
     const directCOGS = (storeResult.data || []).reduce(
-      (txnSum: number, t: any) =>
-        txnSum +
-        (t.transaction_items || []).reduce(
-          (itemSum: number, ti: any) =>
-            itemSum + (Number(ti.quantity) || 0) * (costMap.get(ti.item_id) || 0),
-          0,
-        ),
+      (txnSum: number, t: any) => {
+        if (t.status === 'voided' || t.is_voided === true || t.status === 'VOIDED' || t.status === 'CANCELLED') return txnSum;
+        return txnSum +
+          (t.transaction_items || []).reduce(
+            (itemSum: number, ti: any) =>
+              itemSum + (Number(ti.quantity) || 0) * (costMap.get(ti.item_id) || 0),
+            0,
+          );
+      },
       0,
     );
     const cogs = directCOGS + bundleCOGS;
 
     // ── School Revenue (Tuition + Admin Income + Bundle Overhead/Tuition) ─────
     const feesCollected = (schoolFeeResult.data || []).reduce(
-      (s: number, t: any) => s + Number(t.amount_paid),
+      (accumulator: number, tx: any) => {
+        if (tx.status === 'voided' || tx.is_voided === true) return accumulator;
+        if (tx.status === 'VOIDED' || tx.status === 'CANCELLED') return accumulator;
+        return accumulator + Number(tx.amount_paid);
+      },
       0,
     );
     const schoolRevenue = feesCollected + bundleSchoolRevenue;
@@ -2882,6 +2944,9 @@ function mapBundleItems(bundle_items: any[]) {
     item_name: bi.inventory?.item_name,
     selling_price: Number(bi.inventory?.selling_price || 0),
     stock_quantity: bi.inventory?.stock_quantity || 0,
+    applicable_classes: Array.isArray(bi.inventory?.applicable_classes) && bi.inventory.applicable_classes.length > 0
+      ? bi.inventory.applicable_classes
+      : ["All"],
     quantity: bi.quantity,
   }));
 }
@@ -2892,7 +2957,7 @@ async function enrichMissingInventory(items: ReturnType<typeof mapBundleItems>) 
   const ids = Array.from(new Set(missing.map((i) => i.item_id!)));
   const { data } = await supabase
     .from("inventory")
-    .select("item_id, item_name, selling_price, stock_quantity")
+    .select("item_id, item_name, selling_price, stock_quantity, applicable_classes")
     .in("item_id", ids);
   const map = new Map((data || []).map((r: any) => [r.item_id, r]));
   return items.map((i) => {
@@ -2904,6 +2969,9 @@ async function enrichMissingInventory(items: ReturnType<typeof mapBundleItems>) 
       item_name: inv.item_name,
       selling_price: Number(inv.selling_price || 0),
       stock_quantity: inv.stock_quantity || 0,
+      applicable_classes: Array.isArray(inv.applicable_classes) && inv.applicable_classes.length > 0
+        ? inv.applicable_classes
+        : ["All"],
     };
   });
 }
@@ -2913,7 +2981,7 @@ export const bundleAPI = {
     const { data, error } = await supabase
       .from("bundles")
       .select(
-        "*, bundle_items(*, inventory(item_id, item_name, selling_price, stock_quantity))",
+        "*, bundle_items(*, inventory(item_id, item_name, selling_price, stock_quantity, applicable_classes))",
       )
       .order("created_at", { ascending: false });
     if (error) throw error;
@@ -2937,7 +3005,7 @@ export const bundleAPI = {
     const { data, error } = await supabase
       .from("bundles")
       .select(
-        "*, bundle_items(*, inventory(item_id, item_name, selling_price, stock_quantity))",
+        "*, bundle_items(*, inventory(item_id, item_name, selling_price, stock_quantity, applicable_classes))",
       )
       .eq("id", id)
       .single();
@@ -3343,11 +3411,19 @@ export const bundlePaymentAPI = {
       balance_due: balanceDue > 0 ? balanceDue : 0,
     });
 
+    // Filter bundle items by targetClass if student class is specified
+    const applicableBundleItems = (bundle.items || []).filter((item: any) => {
+      if (!targetClass) return true;
+      const classes: string[] = item.applicable_classes;
+      if (!classes || classes.length === 0 || classes.includes("All")) return true;
+      return classes.includes(targetClass);
+    });
+
     // Live stock check: never decrement or hand off items that are actually out of stock.
     // Cap each item's quantity to what's really on the shelf and drop items with none left.
-    const bundleItemIds = bundle.items.map((item: any) => item.item_id);
+    const bundleItemIds = applicableBundleItems.map((item: any) => item.item_id);
     const liveStock = await inventoryAPI.getStockLevels(bundleItemIds);
-    const inStockItems = bundle.items
+    const inStockItems = applicableBundleItems
       .map((item: any) => {
         const available = liveStock[item.item_id] ?? 0;
         return { ...item, quantity: Math.max(0, Math.min(item.quantity, available)) };
@@ -3370,9 +3446,9 @@ export const bundlePaymentAPI = {
       }
     }
 
-    // Persist ALL physical bundle items in transaction_items with selling prices
+    // Persist ALL applicable physical bundle items in transaction_items with selling prices
     // This logs the physical items directly to the student's store purchase history and drives the behind-the-scenes revenue split.
-    const allItemRows = (bundle.items || []).map((item: any) => ({
+    const allItemRows = applicableBundleItems.map((item: any) => ({
       transaction_id: txn.transaction_id,
       item_id: item.item_id,
       item_name: item.item_name,
@@ -3382,10 +3458,10 @@ export const bundlePaymentAPI = {
     }));
     if (allItemRows.length > 0) await supabase.from("transaction_items").insert(allItemRows);
 
-    // Track ALL bundle items in student_book_issuances for fulfillment tracking.
+    // Track ALL applicable bundle items in student_book_issuances for fulfillment tracking.
     // In-stock items are marked stock_deducted=true (already decremented above).
     // Out-of-stock items are stock_deducted=false (will be decremented at fulfillment).
-    const allIssuanceRows = bundle.items.map((item: any) => {
+    const allIssuanceRows = applicableBundleItems.map((item: any) => {
       const available = liveStock[item.item_id] ?? 0;
       const wasInStock = available > 0;
       return {
@@ -4160,9 +4236,16 @@ async function enrichIssuanceRows(rawRows: any[]): Promise<any[]> {
         .filter(Boolean)
     )
   );
+  const txnIds = Array.from(
+    new Set(
+      rawRows
+        .map((r) => r.transaction_id)
+        .filter((id) => id !== null && id !== undefined)
+    )
+  );
 
   // 2. Perform parallel batch secondary lookups
-  const [studentRes, applicantRes, invRes] = await Promise.all([
+  const [studentRes, applicantRes, invRes, txnRes] = await Promise.all([
     missingStudentIds.length
       ? supabase.from("students").select("student_id, name, student_class").in("student_id", missingStudentIds)
       : Promise.resolve({ data: [] }),
@@ -4172,13 +4255,17 @@ async function enrichIssuanceRows(rawRows: any[]): Promise<any[]> {
     itemIds.length
       ? supabase.from("inventory").select("item_id, item_name, stock_quantity").in("item_id", itemIds)
       : Promise.resolve({ data: [] }),
+    txnIds.length
+      ? supabase.from("transactions").select("transaction_id, status").in("transaction_id", txnIds)
+      : Promise.resolve({ data: [] }),
   ]);
 
   const studentMap = new Map((studentRes.data || []).map((s: any) => [s.student_id, s]));
   const applicantMap = new Map((applicantRes.data || []).map((a: any) => [a.id, a]));
   const invMap = new Map((invRes.data || []).map((i: any) => [i.item_id, i]));
+  const txnMap = new Map((txnRes.data || []).map((t: any) => [t.transaction_id, t]));
 
-  // 3. Map values onto each row
+  // 3. Map values onto each row with void safeguard detection
   return rawRows.map((row: any) => {
     let studentName = "—";
     let studentClass = "";
@@ -4203,12 +4290,18 @@ async function enrichIssuanceRows(rawRows: any[]): Promise<any[]> {
     const itemName = row.item_name || invItem?.item_name || row.book_name || "Store Item";
     const stockQty = invItem ? Number(invItem.stock_quantity) || 0 : (row.stock_quantity ?? 0);
 
+    const txn = row.transaction_id ? txnMap.get(row.transaction_id) : null;
+    const isTxnVoided = txn?.status === "VOIDED" || txn?.status === "voided";
+    const isVoided = row.status === "voided" || row.is_voided === true || isTxnVoided;
+
     return {
       ...row,
       item_name: itemName,
       student_name: studentName,
       student_class: studentClass,
       stock_quantity: stockQty,
+      is_voided: isVoided,
+      transaction_status: txn?.status || (isVoided ? "VOIDED" : "ACTIVE"),
     };
   });
 }
@@ -4223,7 +4316,8 @@ export const issuanceAPI = {
         .in("status", ["unassigned", "pending"])
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return await enrichIssuanceRows(data || []);
+      const enriched = await enrichIssuanceRows(data || []);
+      return enriched.filter((row: any) => !row.is_voided && row.status !== "voided");
     } catch (e) {
       console.error("getPendingByStudent error:", e);
       return [];
@@ -4239,7 +4333,8 @@ export const issuanceAPI = {
         .in("status", ["unassigned", "pending"])
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return await enrichIssuanceRows(data || []);
+      const enriched = await enrichIssuanceRows(data || []);
+      return enriched.filter((row: any) => !row.is_voided && row.status !== "voided");
     } catch (e) {
       console.error("getPendingByApplicant error:", e);
       return [];
@@ -4271,7 +4366,8 @@ export const issuanceAPI = {
         return [];
       }
     }
-    return await enrichIssuanceRows(rawData);
+    const enriched = await enrichIssuanceRows(rawData);
+    return enriched.filter((row: any) => !row.is_voided && row.status !== "voided");
   },
 
   async fulfill(issuanceId: number, assignedBy: number) {
@@ -4282,6 +4378,21 @@ export const issuanceAPI = {
       .single();
     if (fetchErr) return { success: false, error: fetchErr.message };
     if (!issuance) return { success: false, error: "Issuance not found" };
+
+    // Storekeeper Fulfillment Safeguard: Reject fulfillment if issuance or transaction was voided
+    if (issuance.status === "voided" || issuance.is_voided) {
+      return { success: false, error: "Cannot fulfill item: Transaction has been voided." };
+    }
+    if (issuance.transaction_id) {
+      const { data: txn } = await supabase
+        .from("transactions")
+        .select("status")
+        .eq("transaction_id", issuance.transaction_id)
+        .maybeSingle();
+      if (txn && (txn.status === "VOIDED" || txn.status === "voided")) {
+        return { success: false, error: "Cannot fulfill item: Associated transaction has been voided." };
+      }
+    }
 
     // Only decrement inventory if stock was NOT already deducted at payment time
     if (issuance.item_id && !issuance.stock_deducted) {

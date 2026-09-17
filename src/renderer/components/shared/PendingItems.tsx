@@ -12,6 +12,8 @@ interface PendingItem {
   status: string;
   stock_deducted: boolean;
   created_at: string;
+  is_voided?: boolean;
+  transaction_status?: string;
 }
 
 interface PendingItemsProps {
@@ -35,7 +37,11 @@ const PendingItems: React.FC<PendingItemsProps> = ({ studentId, applicantId, var
       const data = studentId
         ? await issuanceAPI.getPendingByStudent(studentId)
         : await issuanceAPI.getPendingByApplicant(applicantId!);
-      setItems(data);
+      // Safeguard: exclude voided transactions from fulfillment queue
+      const valid = (data || []).filter(
+        (i: any) => !i.is_voided && i.status !== 'voided' && i.transaction_status !== 'VOIDED'
+      );
+      setItems(valid);
     } catch (err) {
       console.error('Failed to load pending items:', err);
     }
@@ -44,7 +50,18 @@ const PendingItems: React.FC<PendingItemsProps> = ({ studentId, applicantId, var
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    const handleVoidEvent = () => { load(); };
+    window.addEventListener('pos:transaction-voided', handleVoidEvent);
+    return () => window.removeEventListener('pos:transaction-voided', handleVoidEvent);
+  }, [load]);
+
   const handleFulfill = async (id: number) => {
+    const target = items.find((i) => i.id === id);
+    if (target?.is_voided || target?.status === 'voided' || target?.transaction_status === 'VOIDED') {
+      setError('Cannot fulfill item: Transaction has been voided.');
+      return;
+    }
     setFulfillingId(id);
     setError('');
     try {

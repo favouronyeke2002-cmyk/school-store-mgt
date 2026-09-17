@@ -100,6 +100,11 @@ const PAYMENT_MODES = [
 
 const BUNDLE_TYPES = new Set(["ACCEPTANCE_FEE", "BUNDLE_PURCHASE"]);
 
+// ─── Button Component ────────────────────────────────────────────────────────
+const Button: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement>> = (props) => (
+  <button {...props} />
+);
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Transaction {
   transaction_id: number | string;
@@ -113,7 +118,8 @@ interface Transaction {
   student_class?: string;
   category?: string;
   description?: string;
-  status?: string; // 'ACTIVE' | 'VOIDED' — undefined treated as ACTIVE for legacy rows
+  status?: string; // 'ACTIVE' | 'VOIDED' | 'voided'
+  is_voided?: boolean;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -141,6 +147,66 @@ const TransactionHistory: React.FC = () => {
   const [voiding, setVoiding] = useState(false);
   const [voidError, setVoidError] = useState("");
 
+  // ── Stat card metrics calculation ─────────────────────────────────────────
+  const calculateMetrics = (txList: Transaction[]) => {
+    // Locate the .reduce() loops calculating 'Store Purchases', 'Fees Collected', and 'Net Total'.
+    // Explicitly add a void condition to every summary loop:
+    // if (tx.status === 'voided' || tx.is_voided === true) return accumulator;
+    const storeTotal = txList.reduce((accumulator, tx: any) => {
+      if (tx.status === 'voided' || tx.is_voided === true) return accumulator;
+      if (tx.status === 'VOIDED' || tx.status === 'CANCELLED') return accumulator;
+      if (tx.type === "STORE_PURCHASE") return accumulator + Number(tx.amount_paid || 0);
+      return accumulator;
+    }, 0);
+
+    const feesTotal = txList.reduce((accumulator, tx: any) => {
+      if (tx.status === 'voided' || tx.is_voided === true) return accumulator;
+      if (tx.status === 'VOIDED' || tx.status === 'CANCELLED') return accumulator;
+      if (tx.type === "FEES_CASH_COLLECTION") return accumulator + Number(tx.amount_paid || 0);
+      return accumulator;
+    }, 0);
+
+    const otherRevenueTotal = txList.reduce((accumulator, tx: any) => {
+      if (tx.status === 'voided' || tx.is_voided === true) return accumulator;
+      if (tx.status === 'VOIDED' || tx.status === 'CANCELLED') return accumulator;
+      if (tx.type !== "STORE_PURCHASE" && tx.type !== "FEES_CASH_COLLECTION" && tx.type !== "EXPENSE") {
+        return accumulator + Number(tx.amount_paid || 0);
+      }
+      return accumulator;
+    }, 0);
+
+    const expensesTotal = txList.reduce((accumulator, tx: any) => {
+      if (tx.status === 'voided' || tx.is_voided === true) return accumulator;
+      if (tx.status === 'VOIDED' || tx.status === 'CANCELLED') return accumulator;
+      if (tx.type === "EXPENSE") return accumulator + Number(tx.amount_paid || 0);
+      return accumulator;
+    }, 0);
+
+    const netTotal = txList.reduce((accumulator, tx: any) => {
+      if (tx.status === 'voided' || tx.is_voided === true) return accumulator;
+      if (tx.status === 'VOIDED' || tx.status === 'CANCELLED') return accumulator;
+      if (tx.type === "EXPENSE") return accumulator - Number(tx.amount_paid || 0);
+      return accumulator + Number(tx.amount_paid || 0);
+    }, 0);
+
+    const validTotal = txList.reduce((accumulator, tx: any) => {
+      if (tx.status === 'voided' || tx.is_voided === true) return accumulator;
+      if (tx.status === 'VOIDED' || tx.status === 'CANCELLED') return accumulator;
+      return accumulator + Number(tx.amount_paid || 0);
+    }, 0);
+
+    return {
+      storeTotal,
+      feesTotal,
+      otherRevenueTotal,
+      expensesTotal,
+      netTotal,
+      validTotal,
+    };
+  };
+
+  const [statMetrics, setStatMetrics] = useState(() => calculateMetrics([]));
+
   useEffect(() => { searchTransactions(); }, [typeFilter, paymentFilter]);
   useEffect(() => { settingsAPI.get().then(setSettings).catch(console.error); }, []);
 
@@ -165,10 +231,16 @@ const TransactionHistory: React.FC = () => {
             })
           : Promise.resolve([]),
       ]);
-      const allData = [...txnData, ...expenseData].sort(
-        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-      );
+      const allData: Transaction[] = [...txnData, ...expenseData]
+        .map((t: any) => ({
+          ...t,
+          is_voided: t.is_voided === true || t.status === "VOIDED" || t.status === "voided",
+        }))
+        .sort(
+          (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+        );
       setTransactions(allData);
+      setStatMetrics(calculateMetrics(allData));
     } catch (err) { console.error(err); }
     setLoading(false);
   };
@@ -228,7 +300,7 @@ const TransactionHistory: React.FC = () => {
   }, [details, selected, editType]);
 
   // ── Admin save changes ────────────────────────────────────────────────────
-  const isVoided = selected?.status === "VOIDED";
+  const isVoided = selected?.status === "VOIDED" || selected?.status === "voided" || selected?.is_voided === true;
   const hasChanges = selected != null && !isVoided && selected.type !== "EXPENSE"
     && (editType !== selected.type || editPaymentMode !== selected.payment_mode);
 
@@ -248,30 +320,46 @@ const TransactionHistory: React.FC = () => {
   };
 
   // ── Void transaction ──────────────────────────────────────────────────────
-  const handleVoid = async () => {
+  const handleVoidTransaction = async () => {
     if (!selected) return;
     setVoiding(true); setVoidError("");
     try {
-      const voidedId = selected.transaction_id as number;
-      await transactionAPI.void(voidedId);
-      const patched = { ...selected, status: "VOIDED" };
+      const voidedId = selected.transaction_id;
+      await transactionAPI.void(Number(voidedId));
+      const patched: Transaction = {
+        ...selected,
+        status: "voided",
+        is_voided: true,
+      };
       setSelected(patched);
       setShowVoidConfirm(false);
 
-      // Trigger immediate re-fetch of transactions and dynamic Net Total recalculation
-      await handleSearch();
+      // 1. Immediately update local state (transactions array)
+      const updatedTransactions = transactions.map(t =>
+        String(t.transaction_id) === String(voidedId)
+          ? { ...t, status: "voided", is_voided: true }
+          : t
+      );
+      setTransactions(updatedTransactions);
 
-      // Dispatch global event so Shift History, Store Fulfillment, etc. re-fetch immediately in real time
+      // 2. Immediately recalculate stat card metrics state without requiring browser refresh
+      setStatMetrics(calculateMetrics(updatedTransactions));
+
+      // 3. Dispatch global event so Shift History, Store Fulfillment, etc. re-fetch immediately in real time
       window.dispatchEvent(
         new CustomEvent('pos:transaction-voided', { detail: { transactionId: voidedId } })
       );
+
+      // Background re-fetch to sync any server-side cascades
+      searchTransactions().catch(console.error);
     } catch (err: any) { setVoidError(err.message || "Failed to void transaction."); }
     setVoiding(false);
   };
+  const handleVoid = handleVoidTransaction;
 
   // ── Print receipt ─────────────────────────────────────────────────────────
   const handlePrintReceipt = () => {
-    if (!selected || !details) return;
+    if (!selected || !details || isVoided) return;
     const isFees = editType === "FEES_CASH_COLLECTION";
     const isRegistration = BUNDLE_TYPES.has(editType);
     const txn = {
@@ -293,25 +381,11 @@ const TransactionHistory: React.FC = () => {
   const paymentLabel = (mode: string) =>
     mode === "POS_Transfer" ? "POS / Transfer" : mode === "Bank_Transfer" ? "Bank Transfer" : mode;
 
-  // ── Summary stats ─────────────────────────────────────────────────────────
-  // Exclude both VOIDED and CANCELLED transactions from all financial metrics.
-  const validTransactions = transactions.filter(
-    t => t.status !== "VOIDED" && t.status !== "CANCELLED",
-  );
-  const storeTotal = validTransactions
-    .filter(t => t.type === "STORE_PURCHASE")
-    .reduce((s, t) => s + t.amount_paid, 0);
-  const feesTotal = validTransactions
-    .filter(t => t.type === "FEES_CASH_COLLECTION")
-    .reduce((s, t) => s + t.amount_paid, 0);
-  const otherRevenueTotal = validTransactions
-    .filter(t => t.type !== "STORE_PURCHASE" && t.type !== "FEES_CASH_COLLECTION" && t.type !== "EXPENSE")
-    .reduce((s, t) => s + t.amount_paid, 0);
-  const expensesTotal = validTransactions
-    .filter(t => t.type === "EXPENSE")
-    .reduce((s, t) => s + t.amount_paid, 0);
-  const netTotal = (storeTotal + feesTotal + otherRevenueTotal) - expensesTotal;
-  const validTotal = validTransactions.reduce((s, t) => s + t.amount_paid, 0);
+  const transaction: Transaction = selected ? {
+    ...selected,
+    is_voided: selected.is_voided === true || selected.status === "VOIDED" || selected.status === "voided",
+    status: (selected.status === "VOIDED" || selected.status === "voided") ? "voided" : (selected.status || "ACTIVE"),
+  } : ({} as Transaction);
 
   return (
     <div>
@@ -319,7 +393,7 @@ const TransactionHistory: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold">Transaction History</h1>
           <p className="text-gray-500">
-            {transactions.length} transactions — Total: {fmtCurrency(validTotal)}
+            {transactions.length} transactions — Total: {fmtCurrency(statMetrics.validTotal)}
           </p>
         </div>
         <button
@@ -334,10 +408,10 @@ const TransactionHistory: React.FC = () => {
       <div className="grid grid-cols-5 gap-4 mb-6">
         {[
           { label: "Transactions", value: transactions.length },
-          { label: "Store Purchases", value: fmtCurrency(storeTotal) },
-          { label: "Fees Collected", value: fmtCurrency(feesTotal) },
-          { label: "Expenses", value: fmtCurrency(expensesTotal), isExpense: true },
-          { label: "Net Total", value: fmtCurrency(netTotal) },
+          { label: "Store Purchases", value: fmtCurrency(statMetrics.storeTotal) },
+          { label: "Fees Collected", value: fmtCurrency(statMetrics.feesTotal) },
+          { label: "Expenses", value: fmtCurrency(statMetrics.expensesTotal), isExpense: true },
+          { label: "Net Total", value: fmtCurrency(statMetrics.netTotal) },
         ].map((s, i) => (
           <div key={i} className="bg-white rounded-lg shadow-sm p-5">
             <div className={`text-sm ${s.isExpense ? "text-red-500" : "text-gray-500"}`}>{s.label}</div>
@@ -400,7 +474,7 @@ const TransactionHistory: React.FC = () => {
               ) : transactions.length === 0 ? (
                 <tr><td colSpan={8} className="text-center py-12 text-gray-400">No transactions found</td></tr>
               ) : transactions.map(t => {
-                const voided = t.status === "VOIDED";
+                const voided = t.status === "VOIDED" || t.status === "voided" || t.is_voided === true;
                 return (
                   <tr
                     key={t.transaction_id}
@@ -477,7 +551,7 @@ const TransactionHistory: React.FC = () => {
                 {selected.type === "EXPENSE" ? "Expense Details" : "Transaction Details"}
               </h2>
               <div className="flex items-center gap-2">
-                {selected.type !== "EXPENSE" && !isVoided && (
+                {selected.type !== "EXPENSE" && !transaction.is_voided && transaction.status !== 'voided' && (
                   <button
                     onClick={() => setShowVoidConfirm(true)}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
@@ -487,13 +561,22 @@ const TransactionHistory: React.FC = () => {
                   </button>
                 )}
                 {selected.type !== "EXPENSE" && (
-                  <button
-                    onClick={handlePrintReceipt}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-800 text-white rounded-md hover:bg-gray-700 transition-colors"
-                  >
-                    <Printer className="w-4 h-4" />
-                    Print Receipt
-                  </button>
+                  (transaction.is_voided || transaction.status === 'voided') ? (
+                    <span className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-100 text-red-600 rounded-md font-bold cursor-not-allowed select-none">
+                      <Ban className="w-4 h-4" />
+                      VOIDED
+                    </span>
+                  ) : (
+                    !transaction.is_voided && transaction.status !== 'voided' && (
+                      <Button
+                        onClick={handlePrintReceipt}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-800 text-white rounded-md hover:bg-gray-700 transition-colors"
+                      >
+                        <Printer className="w-4 h-4" />
+                        Print Receipt
+                      </Button>
+                    )
+                  )
                 )}
                 <button onClick={closeModal} className="text-2xl text-gray-400 hover:text-gray-700 leading-none">&times;</button>
               </div>

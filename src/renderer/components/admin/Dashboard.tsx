@@ -70,6 +70,12 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => { loadData(); }, [period]);
 
+  useEffect(() => {
+    const handleVoid = () => { loadData(); };
+    window.addEventListener('pos:transaction-voided', handleVoid);
+    return () => window.removeEventListener('pos:transaction-voided', handleVoid);
+  }, [period]);
+
   if (loading) return (
     <div className="flex items-center justify-center h-64">
       <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
@@ -78,6 +84,25 @@ const Dashboard: React.FC = () => {
 
   const netProfit = stats?.profit || 0;
   const storeRevenue = stats?.storeRevenue || 0;
+
+  // Explicit reduce loops for period sales with void condition safeguards
+  const storePurchasesTotal = (dailySales || []).reduce((accumulator: number, tx: any) => {
+    if (tx.status === 'voided' || tx.is_voided === true) return accumulator;
+    if (tx.status === 'VOIDED' || tx.status === 'CANCELLED') return accumulator;
+    return accumulator + Number(tx.store_sales || 0);
+  }, 0);
+
+  const feesCollectedTotal = (dailySales || []).reduce((accumulator: number, tx: any) => {
+    if (tx.status === 'voided' || tx.is_voided === true) return accumulator;
+    if (tx.status === 'VOIDED' || tx.status === 'CANCELLED') return accumulator;
+    return accumulator + Number(tx.fees_collected || 0);
+  }, 0);
+
+  const netTotal = (dailySales || []).reduce((accumulator: number, tx: any) => {
+    if (tx.status === 'voided' || tx.is_voided === true) return accumulator;
+    if (tx.status === 'VOIDED' || tx.status === 'CANCELLED') return accumulator;
+    return accumulator + Number(tx.total || 0);
+  }, 0);
 
   return (
     <div className="space-y-6">

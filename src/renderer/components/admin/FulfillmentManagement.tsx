@@ -7,6 +7,7 @@ interface Issuance {
   id: number;
   student_id: string | null;
   applicant_id: number | null;
+  transaction_id?: number | null;
   item_id: number | null;
   book_name: string;
   item_name: string | null;
@@ -19,6 +20,8 @@ interface Issuance {
   assigned_at: string | null;
   student_name?: string;
   student_class?: string;
+  is_voided?: boolean;
+  transaction_status?: string;
 }
 
 type Filter = 'all' | 'unassigned' | 'assigned';
@@ -42,6 +45,10 @@ const FulfillmentManagement: React.FC = () => {
     try {
       let data = filter === 'unassigned' ? await issuanceAPI.getAllPending() : await issuanceAPI.getAll();
       if (filter === 'assigned') data = data.filter((item: Issuance) => item.status === 'assigned');
+      // Storekeeper safeguard: In unassigned queue, automatically filter out any voided transactions
+      if (filter === 'unassigned') {
+        data = data.filter((item: Issuance) => !item.is_voided && item.status !== 'voided' && item.transaction_status !== 'VOIDED');
+      }
       setItems(data as Issuance[]);
     } catch (err: any) {
       setError(err.message || 'Failed to load fulfillment items');
@@ -59,6 +66,11 @@ const FulfillmentManagement: React.FC = () => {
   }, [load]);
 
   const handleFulfill = async (id: number) => {
+    const targetItem = items.find((i) => i.id === id);
+    if (targetItem?.is_voided || targetItem?.status === 'voided' || targetItem?.transaction_status === 'VOIDED') {
+      setFulfillError('Cannot fulfill item: Transaction has been voided.');
+      return;
+    }
     setFulfillingId(id);
     setFulfillError('');
     try {
@@ -72,7 +84,12 @@ const FulfillmentManagement: React.FC = () => {
     }
   };
 
-  const isPending = (item: Issuance) => item.status === 'unassigned' || item.status === 'pending';
+  const isPending = (item: Issuance) =>
+    (item.status === 'unassigned' || item.status === 'pending') &&
+    !item.is_voided &&
+    item.status !== 'voided' &&
+    item.transaction_status !== 'VOIDED';
+
   const isInStock = (item: Issuance) => item.stock_deducted || item.stock_quantity > 0;
   const searchable = (item: Issuance) => [item.student_name, item.student_id, item.item_name, item.book_name, item.bundle_name]
     .filter(Boolean).join(' ').toLowerCase();
@@ -183,11 +200,29 @@ const FulfillmentManagement: React.FC = () => {
                 </div>
                 {isOpen && <div className="border-t border-gray-100 divide-y divide-gray-100">
                   {groupItems.map((item) => {
+                    const isItemVoided = item.is_voided || item.status === 'voided' || item.transaction_status === 'VOIDED';
                     const outOfStock = !isInStock(item);
-                    return <div key={item.id} className="px-5 py-3 pl-12 flex flex-col md:flex-row md:items-center gap-3">
-                      <div className="flex-1 min-w-0"><div className="font-medium text-sm text-gray-800">{item.item_name || item.book_name}</div><div className="text-xs text-gray-500">{item.quantity} item{item.quantity === 1 ? '' : 's'} · {fmtDate(item.created_at)}{item.bundle_name ? ` · ${item.bundle_name}` : ''}</div></div>
-                      <span className={`px-2 py-0.5 rounded text-xs ${outOfStock ? 'bg-gray-100 text-gray-600' : item.stock_deducted ? 'bg-gray-100 text-gray-600' : 'bg-green-50 text-green-700'}`}>{outOfStock ? 'Awaiting stock' : item.stock_deducted ? 'Stock ready' : `${item.stock_quantity} in stock`}</span>
-                      {item.status === 'assigned' ? <span className="text-xs text-green-700 font-medium">Fulfilled</span> : <span title={outOfStock ? 'Item Out of Stock' : undefined}><button onClick={() => handleFulfill(item.id)} disabled={outOfStock || fulfillingId === item.id} className="inline-flex items-center gap-1 px-3 py-1.5 bg-success-600 text-white text-xs font-semibold rounded-lg hover:bg-success-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"><CheckCircle className="w-3.5 h-3.5" />{fulfillingId === item.id ? 'Assigning…' : 'Assign / Mark Delivered'}</button></span>}
+                    return <div key={item.id} className={`px-5 py-3 pl-12 flex flex-col md:flex-row md:items-center gap-3 ${isItemVoided ? 'bg-red-50/50' : ''}`}>
+                      <div className="flex-1 min-w-0">
+                        <div className={`font-medium text-sm ${isItemVoided ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{item.item_name || item.book_name}</div>
+                        <div className="text-xs text-gray-500">{item.quantity} item{item.quantity === 1 ? '' : 's'} · {fmtDate(item.created_at)}{item.bundle_name ? ` · ${item.bundle_name}` : ''}</div>
+                      </div>
+                      {isItemVoided ? (
+                        <span className="px-2 py-0.5 rounded text-xs bg-red-100 text-red-700 font-bold border border-red-200">VOIDED - DO NOT ISSUE</span>
+                      ) : (
+                        <span className={`px-2 py-0.5 rounded text-xs ${outOfStock ? 'bg-gray-100 text-gray-600' : item.stock_deducted ? 'bg-gray-100 text-gray-600' : 'bg-green-50 text-green-700'}`}>{outOfStock ? 'Awaiting stock' : item.stock_deducted ? 'Stock ready' : `${item.stock_quantity} in stock`}</span>
+                      )}
+                      {isItemVoided ? (
+                        <span className="text-xs text-red-600 font-semibold italic">Transaction Voided</span>
+                      ) : item.status === 'assigned' ? (
+                        <span className="text-xs text-green-700 font-medium">Fulfilled</span>
+                      ) : (
+                        <span title={outOfStock ? 'Item Out of Stock' : undefined}>
+                          <button onClick={() => handleFulfill(item.id)} disabled={outOfStock || isItemVoided || fulfillingId === item.id} className="inline-flex items-center gap-1 px-3 py-1.5 bg-success-600 text-white text-xs font-semibold rounded-lg hover:bg-success-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed">
+                            <CheckCircle className="w-3.5 h-3.5" />{fulfillingId === item.id ? 'Assigning…' : 'Assign / Mark Delivered'}
+                          </button>
+                        </span>
+                      )}
                     </div>;
                   })}
                 </div>}

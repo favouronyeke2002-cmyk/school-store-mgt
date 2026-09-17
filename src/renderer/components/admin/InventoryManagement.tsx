@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Pencil, X, Tag, AlertCircle, Trash2, Archive } from 'lucide-react';
-import { inventoryAPI, categoryAPI } from '../../lib/api';
+import { inventoryAPI, categoryAPI, studentAPI } from '../../lib/api';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-interface Item { item_id: number; item_name: string; cost_price: number; selling_price: number; stock_quantity: number; barcode: string | null; category_id: number | null; category_name: string | null; category_color: string | null; is_active: boolean; }
+interface Item { item_id: number; item_name: string; cost_price: number; selling_price: number; stock_quantity: number; barcode: string | null; category_id: number | null; category_name: string | null; category_color: string | null; is_active: boolean; applicable_classes?: string[]; }
 interface Category { id: number; name: string; color: string; }
-type FormData = { itemName: string; costPrice: string; sellingPrice: string; stockQuantity: string; barcode: string; categoryId: string; };
-const emptyForm: FormData = { itemName: '', costPrice: '', sellingPrice: '', stockQuantity: '', barcode: '', categoryId: '' };
+type FormData = { itemName: string; costPrice: string; sellingPrice: string; stockQuantity: string; barcode: string; categoryId: string; applicableClasses: string[]; };
+const emptyForm: FormData = { itemName: '', costPrice: '', sellingPrice: '', stockQuantity: '', barcode: '', categoryId: '', applicableClasses: [] };
 
 const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400';
 const labelCls = 'text-sm font-medium text-gray-700 mb-1 block';
@@ -16,6 +16,7 @@ const generateBarcode = () => String(Math.floor(Math.random() * 900000000000) + 
 const InventoryManagement: React.FC = () => {
   const [inventory, setInventory] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [availableClasses, setAvailableClasses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [lowStock, setLowStock] = useState(false);
@@ -43,6 +44,14 @@ const InventoryManagement: React.FC = () => {
   const [deleteProcessing, setDeleteProcessing] = useState(false);
   const [archiveToast, setArchiveToast] = useState('');
 
+  useEffect(() => {
+    studentAPI.getClasses().then((cls) => {
+      if (cls && cls.length > 0) {
+        setAvailableClasses(cls);
+      }
+    }).catch(console.error);
+  }, []);
+
   const reload = () => {
     setLoading(true);
     Promise.all([
@@ -65,6 +74,7 @@ const InventoryManagement: React.FC = () => {
       itemName: addForm.itemName.trim(), costPrice: parseFloat(addForm.costPrice), sellingPrice: parseFloat(addForm.sellingPrice),
       stockQuantity: parseInt(addForm.stockQuantity) || 0, barcode: addForm.barcode.trim() || undefined,
       categoryId: addForm.categoryId ? Number(addForm.categoryId) : null,
+      applicableClasses: addForm.applicableClasses.length > 0 ? addForm.applicableClasses : ["All"],
     });
     if (result.success) { setShowAdd(false); setAddForm(emptyForm); reload(); }
     else setAddError(result.error || 'Failed to create item');
@@ -76,6 +86,7 @@ const InventoryManagement: React.FC = () => {
     await inventoryAPI.update(selected.item_id, {
       itemName: editForm.itemName.trim(), costPrice: parseFloat(editForm.costPrice), sellingPrice: parseFloat(editForm.sellingPrice),
       barcode: editForm.barcode.trim() || undefined, categoryId: editForm.categoryId ? Number(editForm.categoryId) : null,
+      applicableClasses: editForm.applicableClasses.length > 0 ? editForm.applicableClasses : ["All"],
     });
     setShowEdit(false);
     reload();
@@ -109,7 +120,16 @@ const InventoryManagement: React.FC = () => {
 
   const openEdit = (item: Item) => {
     setSelected(item);
-    setEditForm({ itemName: item.item_name, costPrice: String(item.cost_price), sellingPrice: String(item.selling_price), stockQuantity: String(item.stock_quantity), barcode: item.barcode || '', categoryId: item.category_id ? String(item.category_id) : '' });
+    const classes = (item.applicable_classes || []).filter(c => c !== "All");
+    setEditForm({
+      itemName: item.item_name,
+      costPrice: String(item.cost_price),
+      sellingPrice: String(item.selling_price),
+      stockQuantity: String(item.stock_quantity),
+      barcode: item.barcode || '',
+      categoryId: item.category_id ? String(item.category_id) : '',
+      applicableClasses: classes,
+    });
     setShowEdit(true);
   };
 
@@ -286,6 +306,41 @@ const InventoryManagement: React.FC = () => {
                 </select>
               </div>
               <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-medium text-gray-700">Applicable Classes (Optional)</label>
+                  <span className="text-xs text-gray-400">
+                    {addForm.applicableClasses.length === 0 ? "Available to All Classes" : `${addForm.applicableClasses.length} selected`}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {availableClasses.map((cls) => {
+                    const isSelected = addForm.applicableClasses.includes(cls);
+                    return (
+                      <button
+                        type="button"
+                        key={cls}
+                        onClick={() => {
+                          setAddForm((p) => ({
+                            ...p,
+                            applicableClasses: isSelected
+                              ? p.applicableClasses.filter((c) => c !== cls)
+                              : [...p.applicableClasses, cls],
+                          }));
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                          isSelected
+                            ? "bg-primary-600 text-white border-primary-600 shadow-sm"
+                            : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
+                        }`}
+                      >
+                        {cls}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">Leave unselected to make available to all students.</p>
+              </div>
+              <div>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-sm font-medium text-gray-700">Barcode (optional)</span>
                   <button type="button" onClick={() => setAddForm((p) => ({ ...p, barcode: generateBarcode() }))} className="text-xs text-primary-600 hover:text-primary-700 font-medium">🎲 Auto-Generate</button>
@@ -336,6 +391,41 @@ const InventoryManagement: React.FC = () => {
                   <option value="">No Category</option>
                   {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-medium text-gray-700">Applicable Classes (Optional)</label>
+                  <span className="text-xs text-gray-400">
+                    {editForm.applicableClasses.length === 0 ? "Available to All Classes" : `${editForm.applicableClasses.length} selected`}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {availableClasses.map((cls) => {
+                    const isSelected = editForm.applicableClasses.includes(cls);
+                    return (
+                      <button
+                        type="button"
+                        key={cls}
+                        onClick={() => {
+                          setEditForm((p) => ({
+                            ...p,
+                            applicableClasses: isSelected
+                              ? p.applicableClasses.filter((c) => c !== cls)
+                              : [...p.applicableClasses, cls],
+                          }));
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                          isSelected
+                            ? "bg-primary-600 text-white border-primary-600 shadow-sm"
+                            : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
+                        }`}
+                      >
+                        {cls}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">Leave unselected to make available to all students.</p>
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1">

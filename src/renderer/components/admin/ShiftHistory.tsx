@@ -138,16 +138,19 @@ const ShiftHistory: React.FC = () => {
             <div className="bg-primary-50 rounded-lg p-4 mb-6">
               <h3 className="font-bold mb-3">Financial Summary</h3>
               {(() => {
-                // Compute non-voided cash sales from loaded shift transactions to ensure live accuracy
+                const isOpen = selected.status === 'open';
+                // Active/Open Shift: compute live dynamic expected cash reflecting non-voided transactions
+                // Closed/Historical Shift: preserve past Shift History records as closed
                 const nonVoidedCashSales = transactions
                   .filter((t: any) => t.payment_mode === 'Cash' && t.status !== 'VOIDED')
                   .reduce((sum: number, t: any) => sum + Number(t.amount_paid || 0), 0);
-                const hasTransactionsLoaded = transactions.length > 0;
-                const dynamicExpectedCash = hasTransactionsLoaded
+                const dynamicExpectedCash = isOpen
                   ? Number(selected.opening_cash) + nonVoidedCashSales
                   : selected.expected_closing_cash;
-                const dynamicDiff = selected.closing_cash !== null && dynamicExpectedCash !== null
-                  ? Number(selected.closing_cash) - dynamicExpectedCash
+                const dynamicDiff = isOpen
+                  ? (selected.closing_cash !== null && dynamicExpectedCash !== null
+                      ? Number(selected.closing_cash) - dynamicExpectedCash
+                      : selected.cash_difference)
                   : selected.cash_difference;
 
                 return (
@@ -156,8 +159,11 @@ const ShiftHistory: React.FC = () => {
                     <div>
                       <div className="text-xs text-gray-500">Expected</div>
                       <div className="text-lg font-bold">{formatCurrency(dynamicExpectedCash)}</div>
-                      {transactions.some((t: any) => t.status === 'VOIDED') && (
+                      {isOpen && transactions.some((t: any) => t.status === 'VOIDED') && (
                         <div className="text-[10px] text-danger-600 font-medium">excl. voided</div>
+                      )}
+                      {!isOpen && transactions.some((t: any) => t.status === 'VOIDED') && (
+                        <div className="text-[10px] text-gray-500 font-medium">historical record</div>
                       )}
                     </div>
                     <div><div className="text-xs text-gray-500">Actual</div><div className="text-lg font-bold">{formatCurrency(selected.closing_cash)}</div></div>

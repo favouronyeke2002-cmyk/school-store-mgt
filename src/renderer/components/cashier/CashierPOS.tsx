@@ -1239,7 +1239,15 @@ const WalkInRegistrationFeeModal: React.FC<{
   // they never make it into the print/receipt payload handed to the storekeeper.
   // Until the live stock check resolves, treat items as unavailable (0) rather than
   // assuming the configured bundle quantity is in stock.
-  const stockCappedItems = (matchedBundle?.items || []).map((item) => {
+  // POS Bundle Filtering: verify that proposedClass exists inside the item's applicable_classes array (or if tagged ["All"])
+  const classFilteredItems = (matchedBundle?.items || []).filter((item: any) => {
+    if (!proposedClass) return true;
+    const classes: string[] = item.applicable_classes;
+    if (!classes || classes.length === 0 || classes.includes("All")) return true;
+    return classes.includes(proposedClass);
+  });
+
+  const stockCappedItems = classFilteredItems.map((item) => {
     const available = stockLoaded ? (stockLevels[item.item_id] ?? 0) : 0;
     return {
       ...item,
@@ -2177,16 +2185,24 @@ const CashierPOS: React.FC = () => {
     try {
       const categoryGroup = classCategoryMap[walkInApplicant.proposed_class || ''] || 'UNKNOWN';
       const studentStatus = walkInApplicant.student_status || 'Day';
-      // Pass actual bundle items if available (textbooks, uniforms, etc.), capped to
-      // live stock so out-of-stock items never get decremented or handed to the storekeeper.
+      // Pass actual bundle items if available (textbooks, uniforms, etc.), filtered by class
+      // and capped to live stock so out-of-stock items never get decremented or handed to the storekeeper.
       let bundleItems: { item_id: number; item_name: string; quantity: number; selling_price: number }[] | undefined = undefined;
       if (walkInRegistrationBundle?.items?.length) {
-        bundleItems = walkInRegistrationBundle.items.map((item: any) => ({
-          item_id: item.item_id,
-          item_name: item.item_name,
-          quantity: item.quantity,
-          selling_price: item.selling_price,
-        }));
+        const pClass = walkInApplicant.proposed_class;
+        bundleItems = walkInRegistrationBundle.items
+          .filter((item: any) => {
+            if (!pClass) return true;
+            const classes: string[] = item.applicable_classes;
+            if (!classes || classes.length === 0 || classes.includes("All")) return true;
+            return classes.includes(pClass);
+          })
+          .map((item: any) => ({
+            item_id: item.item_id,
+            item_name: item.item_name,
+            quantity: item.quantity,
+            selling_price: item.selling_price,
+          }));
       }
       const result = await bundlePaymentAPI.processDirectRegistrationPayment({
         applicantId: walkInApplicant.id, shiftId: activeShift.id,
