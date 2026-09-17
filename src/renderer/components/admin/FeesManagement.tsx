@@ -74,6 +74,9 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
   // Delete confirm
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<FeeType | null>(null);
+  const [deleteMode, setDeleteMode] = useState<'future_only' | 'wipe_unpaid'>('future_only');
+  const [deleteSaving, setDeleteSaving] = useState(false);
+  const [showArchivedFees, setShowArchivedFees] = useState(false);
 
   // Ledger pagination
   const [ledgerPage, setLedgerPage] = useState(1);
@@ -269,11 +272,30 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    const result = await feeTypeAPI.cascadeDelete(deleteTarget.id);
-    if (!result.success) { alert('Delete failed: ' + result.error); return; }
-    setShowDeleteConfirm(false);
-    setDeleteTarget(null);
-    load();
+    setDeleteSaving(true);
+    try {
+      if (deleteMode === 'future_only') {
+        const result = await feeTypeAPI.archiveFeeType(deleteTarget.id);
+        if (!result.success) {
+          alert('Failed to archive fee: ' + (result.error || 'Unknown error'));
+          setDeleteSaving(false);
+          return;
+        }
+      } else {
+        const result = await feeTypeAPI.wipeUnpaidAndCascade(deleteTarget.id);
+        if (!result.success) {
+          alert('Failed to wipe fee: ' + (result.error || 'Unknown error'));
+          setDeleteSaving(false);
+          return;
+        }
+      }
+      setShowDeleteConfirm(false);
+      setDeleteTarget(null);
+      load();
+    } catch (e) {
+      alert('Action failed: ' + (e as Error).message);
+    }
+    setDeleteSaving(false);
   };
 
   const openTimeline = (s: { student_id: string; student_name: string; student_class: string }) => {
@@ -437,7 +459,19 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
       ) : tab === 'types' ? (
         /* ── Fee Types ──────────────────────────────────────────────── */
         <div className="space-y-3">
+          <div className="flex items-center justify-between pb-1">
+            <span className="text-xs text-gray-500 font-medium">
+              Showing active billing fees
+            </span>
+            <button
+              onClick={() => setShowArchivedFees(!showArchivedFees)}
+              className="text-xs text-primary-600 hover:text-primary-700 font-medium underline cursor-pointer"
+            >
+              {showArchivedFees ? 'Hide Archived Fees' : 'Show Archived Fees'}
+            </button>
+          </div>
           {feeTypes.filter((f) => {
+            if (!showArchivedFees && (f.fee_category === 'archived' || f.class_filter === '__ARCHIVED__')) return false;
             if (sessionFilter && f.academic_session !== sessionFilter) return false;
             if (termFilter && f.term !== termFilter) return false;
             return true;
@@ -449,6 +483,7 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
               <button onClick={() => setShowCreate(true)} className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700">Create First Fee Type</button>
             </div>
           ) : feeTypes.filter((f) => {
+            if (!showArchivedFees && (f.fee_category === 'archived' || f.class_filter === '__ARCHIVED__')) return false;
             if (sessionFilter && f.academic_session !== sessionFilter) return false;
             if (termFilter && f.term !== termFilter) return false;
             return true;
@@ -456,15 +491,17 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
             const assignments = ledger.filter((sf) => sf.fee_name === ft.name && sf.academic_session === ft.academic_session);
             const collected = assignments.reduce((s, sf) => s + sf.amount_paid, 0);
             const outstanding = assignments.reduce((s, sf) => s + sf.balance, 0);
+            const isArchived = ft.fee_category === 'archived' || ft.class_filter === '__ARCHIVED__';
             return (
-              <div key={ft.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+              <div key={ft.id} className={`bg-white rounded-xl border ${isArchived ? 'border-dashed border-gray-300 opacity-80' : 'border-gray-200'} shadow-sm p-5`}>
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <h3 className="font-bold text-gray-900">{ft.name}</h3>
                       <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{ft.academic_session}</span>
-                      {ft.class_filter && <span className="text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded-full">{ft.class_filter}</span>}
+                      {ft.class_filter && ft.class_filter !== '__ARCHIVED__' && <span className="text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded-full">{ft.class_filter}</span>}
                       {ft.fee_category === 'registration' && <span className="text-xs bg-warning-100 text-warning-700 px-2 py-0.5 rounded-full">Registration</span>}
+                      {isArchived && <span className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full font-semibold">Archived (Future Excluded)</span>}
                     </div>
                     {ft.description && <p className="text-sm text-gray-500 mb-2">{ft.description}</p>}
                     <div className="flex items-center gap-4 text-sm">
@@ -478,10 +515,12 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
                     <button onClick={() => openEdit(ft)} className="flex items-center gap-1 px-3 py-1.5 bg-gray-50 text-gray-700 rounded-lg text-sm hover:bg-gray-100 font-medium">
                       <Pencil className="w-3.5 h-3.5" /> Edit
                     </button>
-                    <button onClick={() => openAssign(ft)} className="flex items-center gap-1 px-3 py-1.5 bg-primary-50 text-primary-700 rounded-lg text-sm hover:bg-primary-100 font-medium">
-                      <Users className="w-3.5 h-3.5" /> Assign
-                    </button>
-                    <button onClick={() => { setDeleteTarget(ft); setShowDeleteConfirm(true); }} className="flex items-center gap-1 px-3 py-1.5 bg-danger-50 text-danger-600 rounded-lg text-sm hover:bg-danger-100 font-medium">
+                    {!isArchived && (
+                      <button onClick={() => openAssign(ft)} className="flex items-center gap-1 px-3 py-1.5 bg-primary-50 text-primary-700 rounded-lg text-sm hover:bg-primary-100 font-medium">
+                        <Users className="w-3.5 h-3.5" /> Assign
+                      </button>
+                    )}
+                    <button onClick={() => { setDeleteTarget(ft); setDeleteMode('future_only'); setShowDeleteConfirm(true); }} className="flex items-center gap-1 px-3 py-1.5 bg-danger-50 text-danger-600 rounded-lg text-sm hover:bg-danger-100 font-medium">
                       <Trash2 className="w-3.5 h-3.5" /> Delete
                     </button>
                   </div>
@@ -1261,19 +1300,99 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
         </div>
       )}
 
-      {/* Delete Confirm Modal */}
+      {/* Delete / Safeguard Modal */}
       {showDeleteConfirm && deleteTarget && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-6 text-center">
-            <div className="w-14 h-14 bg-danger-100 rounded-full flex items-center justify-center mx-auto mb-4"><Trash2 className="w-7 h-7 text-danger-600" /></div>
-            <h2 className="text-lg font-bold mb-2">Delete Fee Type?</h2>
-            <p className="text-sm text-gray-500 mb-2">Delete <strong>{deleteTarget.name}</strong>?</p>
-            <div className="bg-warning-50 border border-warning-200 rounded-lg px-3 py-2 text-xs text-warning-800 text-left mb-5">
-              <strong>Cascade effect:</strong> All student fee assignments for this fee type will be removed, and each affected student's outstanding balance will be automatically reduced.
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
+            <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-3">
+              <Trash2 className="w-6 h-6 text-amber-600" />
             </div>
+            <h2 className="text-lg font-bold text-center mb-1">Delete Fee Type Safeguard</h2>
+            <p className="text-sm text-gray-500 text-center mb-4">
+              Select deletion action for <strong className="text-gray-900">{deleteTarget.name}</strong> ({fmt(deleteTarget.amount)}):
+            </p>
+
+            <div className="space-y-3 mb-5">
+              {/* Option 1: Remove from future students only */}
+              <label
+                className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+                  deleteMode === 'future_only'
+                    ? 'border-indigo-600 bg-indigo-50/60 ring-2 ring-indigo-200'
+                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="deleteMode"
+                  value="future_only"
+                  checked={deleteMode === 'future_only'}
+                  onChange={() => setDeleteMode('future_only')}
+                  className="mt-1 text-indigo-600 focus:ring-indigo-500"
+                />
+                <div>
+                  <div className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+                    <span>Remove from future students only</span>
+                    <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-semibold uppercase">Recommended</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                    Archives this fee so newly created students and auto-assignment routines will never bill it.
+                    Existing student debts, ledger balances, and payment records remain <strong>100% intact</strong>.
+                  </p>
+                </div>
+              </label>
+
+              {/* Option 2: Wipe all unpaid debits */}
+              <label
+                className={`flex items-start gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+                  deleteMode === 'wipe_unpaid'
+                    ? 'border-danger-600 bg-danger-50/60 ring-2 ring-danger-200'
+                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="deleteMode"
+                  value="wipe_unpaid"
+                  checked={deleteMode === 'wipe_unpaid'}
+                  onChange={() => setDeleteMode('wipe_unpaid')}
+                  className="mt-1 text-danger-600 focus:ring-danger-500"
+                />
+                <div>
+                  <div className="text-sm font-bold text-gray-900">
+                    Wipe all unpaid debits across all student ledgers
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                    Hard-deletes all unpaid charges for this fee across every student ledger, reduces each affected student's debt balance automatically, and deletes this fee type completely.
+                  </p>
+                </div>
+              </label>
+            </div>
+
             <div className="flex gap-3">
-              <button onClick={() => { setShowDeleteConfirm(false); setDeleteTarget(null); }} className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">Cancel</button>
-              <button onClick={handleDelete} className="flex-1 py-2.5 bg-danger-600 text-white rounded-xl text-sm font-semibold hover:bg-danger-700">Delete & Cascade</button>
+              <button
+                onClick={() => { setShowDeleteConfirm(false); setDeleteTarget(null); }}
+                disabled={deleteSaving}
+                className="flex-1 py-2.5 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200 text-gray-700 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleteSaving}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 ${
+                  deleteMode === 'future_only'
+                    ? 'bg-indigo-600 hover:bg-indigo-700'
+                    : 'bg-danger-600 hover:bg-danger-700'
+                }`}
+              >
+                {deleteSaving ? (
+                  <span>Processing…</span>
+                ) : deleteMode === 'future_only' ? (
+                  <span>Remove for Future Only</span>
+                ) : (
+                  <span>Wipe Debits & Delete</span>
+                )}
+              </button>
             </div>
           </div>
         </div>

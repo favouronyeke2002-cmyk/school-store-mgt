@@ -377,15 +377,28 @@ export const studentAPI = {
     const withStatus = { ...base, student_status: data.studentStatus || "Day" };
     const withApplicant = { ...withStatus, applicant_id: data.applicantId };
     // Try most-specific first, fall back on column-missing errors
+    let insertSuccess = false;
     if (data.applicantId) {
       const { error: e0 } = await supabase.from("students").insert(withApplicant);
-      if (!e0) return { success: true, studentId: id };
+      if (!e0) insertSuccess = true;
     }
-    const { error: e1 } = await supabase.from("students").insert(withStatus);
-    if (e1) {
-      const { error: e2 } = await supabase.from("students").insert(base);
-      if (e2) return { success: false, error: e2.message };
+    if (!insertSuccess) {
+      const { error: e1 } = await supabase.from("students").insert(withStatus);
+      if (!e1) insertSuccess = true;
+      else {
+        const { error: e2 } = await supabase.from("students").insert(base);
+        if (e2) return { success: false, error: e2.message };
+        insertSuccess = true;
+      }
     }
+
+    // Automatically assign matching Fee Types to new student's ledger (no manual clicks needed)
+    try {
+      await studentFeeAPI.autoAssignFeesForStudent(id);
+    } catch (e) {
+      console.warn("Auto-assign fees on student creation non-fatal error:", e);
+    }
+
     return { success: true, studentId: id };
   },
   async update(
@@ -397,6 +410,13 @@ export const studentAPI = {
       studentStatus?: "Day" | "Boarding";
     },
   ) {
+    // Fetch previous student record to detect class or status changes (mid-term swaps)
+    const { data: prevStudent } = await supabase
+      .from("students")
+      .select("student_class, student_status")
+      .eq("student_id", id)
+      .maybeSingle();
+
     const base = {
       name: data.name,
       student_class: data.studentClass,
@@ -415,6 +435,26 @@ export const studentAPI = {
         .eq("student_id", id);
       if (e2) throw e2;
     }
+
+    // Automatically handle Mid-Term Swap if class or housing status changed
+    if (prevStudent) {
+      const classChanged = prevStudent.student_class !== data.studentClass;
+      const statusChanged = data.studentStatus !== undefined && prevStudent.student_status !== data.studentStatus;
+      if (classChanged || statusChanged) {
+        try {
+          await studentFeeAPI.handleMidTermSwap({
+            studentId: id,
+            prevClass: prevStudent.student_class,
+            newClass: data.studentClass,
+            prevStatus: prevStudent.student_status,
+            newStatus: data.studentStatus,
+          });
+        } catch (swapErr) {
+          console.warn("Mid-term fee swap failed (non-fatal):", swapErr);
+        }
+      }
+    }
+
     return { success: true };
   },
   async updateFees(id: string, fees: number) {
@@ -471,6 +511,16 @@ export const studentAPI = {
       .from("students")
       .upsert(rows, { onConflict: "student_id" });
     if (error) return { success: false, error: error.message };
+
+    // Automatically assign matching Fee Types to each imported student
+    for (const row of rows) {
+      try {
+        await studentFeeAPI.autoAssignFeesForStudent(row.student_id);
+      } catch (e) {
+        console.warn(`Auto-assign fees failed for imported student ${row.student_id}:`, e);
+      }
+    }
+
     return { success: true, count: rows.length };
   },
   async getHistory(studentId: string) {
@@ -881,46 +931,57 @@ export const feeTypeAPI = {
     if (error) throw error;
     return { success: true };
   },
+  async archiveFeeType(id: number): Promise<{ success: boolean; error?: string }> {
+    const { error } = await supabase
+      .from("fee_types")
+      .update({
+        fee_category: "archived",
+        applicable_to: "None",
+        class_filter: "__ARCHIVED__",
+      })
+      .eq("id", id);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  },
+  async wipeUnpaidAndCascade(
+    id: number,
+  ): Promise<{ success: boolean; error?: string; studentsAffected: number; wipedAmount: number }> {
+    const { data: sfRows, error: sfErr } = await supabase
+      .from("student_fees")
+      .select("id, student_id, amount_due, amount_paid")
+      .eq("fee_type_id", id);
+    if (sfErr) return { success: false, error: sfErr.message, studentsAffected: 0, wipedAmount: 0 };
+
+    let wipedAmount = 0;
+    const studentsToUpdate = new Set<string>();
+
+    for (const sf of sfRows || []) {
+      const unpaidDebit = Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid));
+      if (unpaidDebit > 0) {
+        wipedAmount += unpaidDebit;
+        studentsToUpdate.add(sf.student_id);
+      }
+    }
+
+    // Hard-delete all student_fees for this fee type
+    await supabase.from("student_fees").delete().eq("fee_type_id", id);
+
+    // Recalibrate each affected student's current_fees_owed
+    for (const studentId of studentsToUpdate) {
+      await studentFeeAPI.syncStudentOwedBalance(studentId);
+    }
+
+    // Delete from fee_types master
+    const { error: delErr } = await supabase.from("fee_types").delete().eq("id", id);
+    if (delErr) return { success: false, error: delErr.message, studentsAffected: studentsToUpdate.size, wipedAmount };
+
+    return { success: true, studentsAffected: studentsToUpdate.size, wipedAmount };
+  },
   async cascadeDelete(
     id: number,
   ): Promise<{ success: boolean; error?: string; studentsAffected: number }> {
-    const { data: sfRows, error: sfErr } = await supabase
-      .from("student_fees")
-      .select("student_id, amount_due, amount_paid")
-      .eq("fee_type_id", id);
-    if (sfErr)
-      return { success: false, error: sfErr.message, studentsAffected: 0 };
-    const unpaid = (sfRows || []).filter(
-      (sf: any) => Number(sf.amount_due) > Number(sf.amount_paid),
-    );
-    for (const sf of unpaid) {
-      const delta = Number(sf.amount_due) - Number(sf.amount_paid);
-      const { data: stu } = await supabase
-        .from("students")
-        .select("current_fees_owed")
-        .eq("student_id", sf.student_id)
-        .single();
-      if (stu)
-        await supabase
-          .from("students")
-          .update({
-            current_fees_owed: Math.max(
-              0,
-              Number(stu.current_fees_owed) - delta,
-            ),
-            updated_at: new Date().toISOString(),
-          })
-          .eq("student_id", sf.student_id);
-    }
-    await supabase.from("student_fees").delete().eq("fee_type_id", id);
-    const { error } = await supabase.from("fee_types").delete().eq("id", id);
-    if (error)
-      return {
-        success: false,
-        error: error.message,
-        studentsAffected: unpaid.length,
-      };
-    return { success: true, studentsAffected: unpaid.length };
+    const res = await this.wipeUnpaidAndCascade(id);
+    return { success: res.success, error: res.error, studentsAffected: res.studentsAffected };
   },
   // Assign a fee type to students; for 'standard' fees, exclude 'New' admission students
   async assignToStudents(
@@ -931,6 +992,15 @@ export const feeTypeAPI = {
     feeCategory: "standard" | "registration" = "standard",
     applicableTo?: string,
   ) {
+    const { data: ft } = await supabase
+      .from("fee_types")
+      .select("*")
+      .eq("id", feeTypeId)
+      .maybeSingle();
+    if (!ft || ft.fee_category === "archived") {
+      return { success: false, error: "Fee type is inactive or archived", count: 0 };
+    }
+
     let query = supabase
       .from("students")
       .select("student_id, current_fees_owed");
@@ -1174,7 +1244,14 @@ export const studentFeeAPI = {
     staleRemoved: number;
     feesInjected: number;
   }> {
+    // ── 0. Deep clean orphaned / lingering fees first ─────────────────────────
+    await this.deepCleanFeeAssignments();
+
     // ── 1. Load master data ───────────────────────────────────────────────────
+    const settings = await settingsAPI.get();
+    const currentSession = settings.academic_session || "2026/2027";
+    const currentTerm = settings.current_term || "First Term";
+
     const [{ data: feeTypes }, { data: students }, { data: allSFs }] =
       await Promise.all([
         supabase.from("fee_types").select("*"),
@@ -1186,7 +1263,7 @@ export const studentFeeAPI = {
           .select("id, student_id, fee_type_id, amount_due, amount_paid"),
       ]);
 
-    const validIds = new Set((feeTypes || []).map((ft: any) => ft.id));
+    const validIds = new Set((feeTypes || []).filter((ft: any) => ft.fee_category !== 'archived').map((ft: any) => ft.id));
 
     // ── 2. Remove rows whose fee_type was deleted entirely ────────────────────
     const orphans = (allSFs || []).filter(
@@ -1199,15 +1276,15 @@ export const studentFeeAPI = {
 
     // ── 2.5. Purge stale assignments ──────────────────────────────────────────
     // Build the canonical set of (student_id, fee_type_id) pairs that SHOULD
-    // exist given each fee's current criteria.  Any UNPAID row outside this set
+    // exist given each fee's current criteria. Any UNPAID row outside this set
     // is a leftover from a previous assignment scope — delete it.
-    const ftMap = new Map((feeTypes || []).map((ft: any) => [ft.id, ft]));
     const studentMap = new Map(
       (students || []).map((s: any) => [s.student_id, s]),
     );
 
     const validPairs = new Set<string>();
     for (const ft of feeTypes || []) {
+      if (ft.fee_category === "archived" || ft.class_filter === "__ARCHIVED__") continue;
       const appTo: string = ft.applicable_to || "All Students";
       for (const s of students || []) {
         if (ft.class_filter) {
@@ -1245,9 +1322,14 @@ export const studentFeeAPI = {
         .map((sf: any) => `${sf.student_id}:${sf.fee_type_id}`),
     );
 
-    // ── 4. Inject missing ledger rows ─────────────────────────────────────────
+    // ── 4. Inject missing ledger rows for ACTIVE term and session only ────────
     let feesInjected = 0;
     for (const ft of feeTypes || []) {
+      // Never inject archived or past-session/term fees
+      if (ft.fee_category === "archived" || ft.class_filter === "__ARCHIVED__") continue;
+      if (ft.academic_session && ft.academic_session !== currentSession) continue;
+      if (ft.term && ft.term !== currentTerm) continue;
+
       const appTo: string = ft.applicable_to || "All Students";
 
       const qualifying = (students || []).filter((s: any) => {
@@ -1309,8 +1391,8 @@ export const studentFeeAPI = {
 
     return {
       updated,
-      orphansRemoved: orphans.length,
-      staleRemoved: staleRows.length,
+      orphansRemoved: orphanIds.length,
+      staleRemoved: staleIds.length,
       feesInjected,
     };
   },
@@ -1454,85 +1536,405 @@ export const studentFeeAPI = {
     return { success: true };
   },
 
-  // ── Fee sync when a student's Day/Boarding status changes ──────────────────
-  // Removes fees that no longer apply to the new status and assigns any that do.
-  // Finishes with a full recalculation of current_fees_owed so totals are exact.
-  async syncFeesForStatusChange(
-    studentId: string,
-    newStatus: "Day" | "Boarding",
-    studentClass: string,
-  ): Promise<{ removed: number; added: number }> {
-    const oppositeStatus = newStatus === "Day" ? "Boarding" : "Day";
-
-    // 1. Load this student's current fee rows with tier info
-    const { data: currentFees } = await supabase
-      .from("student_fees")
-      .select("id, fee_type_id, amount_due, amount_paid, fee_types(applicable_to)")
-      .eq("student_id", studentId);
-
-    // 2. Remove fees locked to the OLD status tier
-    let removed = 0;
-    for (const sf of (currentFees || []) as any[]) {
-      const applicableTo = sf.fee_types?.applicable_to;
-      if (applicableTo === oppositeStatus) {
-        await supabase.from("student_fees").delete().eq("id", sf.id);
-        removed++;
-      }
-    }
-
-    // 3. Find all fee types valid for the NEW status + this class
-    const { data: feeTypes } = await supabase
-      .from("fee_types")
-      .select("id, amount, fee_category, class_filter, applicable_to");
-
-    const applicable = ((feeTypes || []) as any[]).filter((ft) => {
-      const tier = ft.applicable_to || "All Students";
-      if (tier !== newStatus && tier !== "All Students") return false;
-      if (!ft.class_filter) return true;
-      const classList = ft.class_filter.split(",").map((c: string) => c.trim());
-      return classList.includes(studentClass);
-    });
-
-    // 4. Get updated fee_type_ids for this student (after removals above)
-    const { data: remaining } = await supabase
-      .from("student_fees")
-      .select("fee_type_id")
-      .eq("student_id", studentId);
-    const existingIds = new Set(
-      ((remaining || []) as any[]).map((sf) => sf.fee_type_id),
-    );
-
-    // 5. Assign fees the student is missing
-    let added = 0;
-    for (const ft of applicable) {
-      if (!existingIds.has(ft.id)) {
-        const result = await feeTypeAPI.assignToStudents(
-          ft.id,
-          Number(ft.amount),
-          undefined, // classFilter already applied above
-          studentId,
-          (ft.fee_category || "standard") as "standard" | "registration",
-          ft.applicable_to || "All Students",
-        );
-        if ((result as any).success && (result as any).count > 0) added++;
-      }
-    }
-
-    // 6. Recalculate current_fees_owed from scratch so the number is always exact
+  // ── Sync current_fees_owed with live sum of student_fees ─────────────────
+  async syncStudentOwedBalance(studentId: string): Promise<number> {
     const { data: allFees } = await supabase
       .from("student_fees")
       .select("amount_due, amount_paid")
       .eq("student_id", studentId);
-    const trueBalance = ((allFees || []) as any[]).reduce(
-      (sum, sf) => sum + Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid)),
+    const trueBalance = (allFees || []).reduce(
+      (sum: number, sf: any) =>
+        sum + Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid)),
       0,
     );
     await supabase
       .from("students")
       .update({ current_fees_owed: trueBalance, updated_at: new Date().toISOString() })
       .eq("student_id", studentId);
+    return trueBalance;
+  },
 
-    return { removed, added };
+  // ── Database Deep-Clean: Orphaned, Lingering, and Inactive Session Fees ──
+  async deepCleanFeeAssignments(): Promise<{
+    deletedCount: number;
+    updatedStudents: number;
+  }> {
+    const settings = await settingsAPI.get();
+    const currentSession = settings.academic_session || "2026/2027";
+
+    const [{ data: feeTypes }, { data: students }, { data: studentFees }] = await Promise.all([
+      supabase.from("fee_types").select("*"),
+      supabase.from("students").select("student_id, name, current_fees_owed"),
+      supabase.from("student_fees").select("*, fee_types(*)"),
+    ]);
+
+    const validFtIds = new Set((feeTypes || []).map((f: any) => f.id));
+    const idsToDelete: number[] = [];
+
+    for (const sf of studentFees || []) {
+      const isPaid = Number(sf.amount_paid) > 0;
+      const ft = (sf as any).fee_types;
+
+      // 1. Orphan fee_type_id
+      if (!validFtIds.has(sf.fee_type_id) || !ft) {
+        if (!isPaid) idsToDelete.push(sf.id);
+        continue;
+      }
+
+      const ftName = (ft.name || "").toLowerCase();
+      const isArrears = ftName.includes("carried over") || ftName.includes("arrears") || ftName.includes("b/f");
+
+      // 2. Lingering 'Money for Window' (unpaid)
+      if (ftName.includes("money for window") && !isPaid) {
+        idsToDelete.push(sf.id);
+        continue;
+      }
+
+      // 3. Stale inactive session fee (unpaid, not arrears)
+      if (ft.academic_session && ft.academic_session !== currentSession && !isArrears && !isPaid) {
+        idsToDelete.push(sf.id);
+        continue;
+      }
+    }
+
+    if (idsToDelete.length > 0) {
+      await supabase.from("student_fees").delete().in("id", idsToDelete);
+    }
+
+    // Recalibrate balances
+    const { data: freshSFs } = await supabase.from("student_fees").select("student_id, amount_due, amount_paid");
+    const balanceMap = new Map<string, number>();
+    for (const sf of freshSFs || []) {
+      const bal = Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid));
+      balanceMap.set(sf.student_id, (balanceMap.get(sf.student_id) || 0) + bal);
+    }
+
+    let updatedStudents = 0;
+    for (const stu of students || []) {
+      const correct = balanceMap.get(stu.student_id) || 0;
+      if (Number(stu.current_fees_owed) !== correct) {
+        await supabase
+          .from("students")
+          .update({ current_fees_owed: correct, updated_at: new Date().toISOString() })
+          .eq("student_id", stu.student_id);
+        updatedStudents++;
+      }
+    }
+
+    return { deletedCount: idsToDelete.length, updatedStudents };
+  },
+
+  // ── Auto-assign matching Fee Types for a student ─────────────────────────
+  // Evaluates matching fee types for student's class, housing status, session, and active term.
+  // Never attaches duplicate charges if student already has that Fee Type logged for the active term/session.
+  async autoAssignFeesForStudent(studentId: string): Promise<{ added: number; feeNames: string[] }> {
+    const { data: student, error: stErr } = await supabase
+      .from("students")
+      .select("student_id, student_class, student_status, admission_type")
+      .eq("student_id", studentId)
+      .maybeSingle();
+    if (stErr || !student) return { added: 0, feeNames: [] };
+
+    const settings = await settingsAPI.get();
+    const currentTerm = settings.current_term || "First Term";
+    const currentSession = settings.academic_session || "2026/2027";
+
+    const { data: feeTypes, error: ftErr } = await supabase
+      .from("fee_types")
+      .select("*");
+    if (ftErr || !feeTypes) return { added: 0, feeNames: [] };
+
+    // Fetch existing fees with fee_type metadata
+    const { data: existingSFs } = await supabase
+      .from("student_fees")
+      .select("id, fee_type_id, fee_types(id, name, term, academic_session)")
+      .eq("student_id", studentId);
+
+    const existingFeeTypeIds = new Set<number>();
+    const existingTermFeeNames = new Set<string>();
+
+    for (const sf of existingSFs || []) {
+      existingFeeTypeIds.add(sf.fee_type_id);
+      const ft = (sf as any).fee_types;
+      if (ft) {
+        const ftTerm = ft.term || currentTerm;
+        const ftSession = ft.academic_session || currentSession;
+        if (ftTerm === currentTerm && ftSession === currentSession) {
+          existingTermFeeNames.add((ft.name || "").trim().toLowerCase());
+        }
+      }
+    }
+
+    const status = student.student_status || "Day";
+    const studentClass = student.student_class;
+    const admissionType = student.admission_type || "Returning";
+
+    const matchingFeeTypes = feeTypes.filter((ft: any) => {
+      // Archived filter
+      if (ft.fee_category === "archived" || ft.class_filter === "__ARCHIVED__") return false;
+
+      // Academic Session filter: strict match
+      if (ft.academic_session && ft.academic_session !== currentSession) return false;
+      // Term filter: must match current active term (or apply to all terms if null)
+      if (ft.term && ft.term !== currentTerm) return false;
+
+      // Class filter: strict match if specified
+      if (ft.class_filter) {
+        const classList = ft.class_filter.split(",").map((c: string) => c.trim());
+        if (!classList.includes(studentClass)) return false;
+      }
+
+      // Housing status filter: strict tier separation
+      const appTo = ft.applicable_to || "All Students";
+      const ftNameLower = (ft.name || "").toLowerCase();
+      if (status === "Day" && (appTo === "Boarding" || ftNameLower.includes("boarding"))) return false;
+      if (status === "Boarding" && (appTo === "Day" || ftNameLower.includes("day"))) return false;
+      if (appTo === "Day" && status !== "Day") return false;
+      if (appTo === "Boarding" && status !== "Boarding") return false;
+
+      // Registration fee category check
+      if (ft.fee_category === "registration" && admissionType !== "New") return false;
+
+      // Prevent duplicate charges:
+      // 1. Never attach if student already has this exact fee_type_id logged (WHERE fee_type_id NOT IN ...)
+      if (existingFeeTypeIds.has(ft.id)) return false;
+      // 2. Never attach if student already has a fee with this name logged for active term/session
+      const cleanName = (ft.name || "").trim().toLowerCase();
+      if (existingTermFeeNames.has(cleanName)) return false;
+
+      // 3. Prevent duplicate tuition / School Fees for the active term
+      const isSchoolFee = cleanName.includes("school fee") || cleanName.includes("tuition");
+      const hasSchoolFeeAlready = Array.from(existingTermFeeNames).some(
+        (n) => n.includes("school fee") || n.includes("tuition"),
+      );
+      if (isSchoolFee && hasSchoolFeeAlready) return false;
+
+      return true;
+    });
+
+    // Deduplicate within matching fees list: ensure only ONE school fee is attached
+    let schoolFeeAttached = false;
+    const deduplicatedFees = matchingFeeTypes.filter((ft: any) => {
+      const cName = (ft.name || "").trim().toLowerCase();
+      const isTuition = cName.includes("school fee") || cName.includes("tuition");
+      if (isTuition) {
+        if (schoolFeeAttached) return false;
+        schoolFeeAttached = true;
+      }
+      return true;
+    });
+
+    let added = 0;
+    const addedNames: string[] = [];
+    for (const ft of deduplicatedFees) {
+      const { error: insErr } = await supabase.from("student_fees").insert({
+        student_id: studentId,
+        fee_type_id: ft.id,
+        amount_due: Number(ft.amount),
+        amount_paid: 0,
+      });
+      if (!insErr) {
+        added++;
+        addedNames.push(ft.name);
+        existingFeeTypeIds.add(ft.id);
+        existingTermFeeNames.add((ft.name || "").trim().toLowerCase());
+      }
+    }
+
+    if (added > 0) {
+      await studentFeeAPI.syncStudentOwedBalance(studentId);
+    }
+
+    return { added, feeNames: addedNames };
+  },
+
+  // ── Mid-Term Swaps: Class & Status update fee sync ───────────────────────
+  // Rules:
+  // 1. Unassign/remove old class fee charge for current term.
+  // 2. Attach new class fee charge automatically for current term.
+  // 3. Keep past academic term debts locked as Arrears B/F (NEVER touch debts from prior terms/sessions).
+  // 4. DO NOT edit or void completed payment transactions (transactions table remains immutable).
+  // 5. If partial/full payment was made on old class fee, transfer paid credit to new class fee.
+  async handleMidTermSwap(params: {
+    studentId: string;
+    prevClass?: string;
+    newClass: string;
+    prevStatus?: string;
+    newStatus?: string;
+  }): Promise<{
+    unassignedFees: string[];
+    attachedFees: string[];
+    transferredCredit: number;
+    newBalance: number;
+  }> {
+    const { studentId, prevClass, newClass, prevStatus, newStatus } = params;
+
+    const settings = await settingsAPI.get();
+    const currentTerm = settings.current_term || "First Term";
+    const currentSession = settings.academic_session || "2025/2026";
+
+    // 1. Load student's current fee rows with fee_type metadata
+    const { data: currentFees, error: cfErr } = await supabase
+      .from("student_fees")
+      .select("id, fee_type_id, amount_due, amount_paid, fee_types(*)")
+      .eq("student_id", studentId);
+
+    if (cfErr) throw cfErr;
+
+    const unassignedFees: string[] = [];
+    const attachedFees: string[] = [];
+    let transferredCredit = 0;
+
+    // 2. Classify existing fees:
+    // Identify fees that belong to OLD class or OLD status for the CURRENT term/session
+    // Any fee from a PAST term or session, or labeled "Arrears", is LOCKED as Arrears B/F.
+    const feesToSwap: any[] = [];
+
+    for (const sf of currentFees || []) {
+      const ft = (sf as any).fee_types;
+      if (!ft) continue;
+
+      const ftTerm = ft.term || currentTerm;
+      const ftSession = ft.academic_session || currentSession;
+      const ftName = (ft.name || "").toLowerCase();
+
+      // PAST term debts / Arrears B/F are LOCKED — skip them
+      const isPastTerm = ftTerm !== currentTerm || ftSession !== currentSession;
+      const isArrears = ftName.includes("arrears") || ftName.includes("carried over") || ftName.includes("b/f");
+      if (isPastTerm || isArrears) {
+        // Locked as Arrears B/F — do not touch!
+        continue;
+      }
+
+      // Check if this fee was specific to the old class
+      let isOldClassFee = false;
+      if (prevClass && prevClass !== newClass && ft.class_filter) {
+        const classList = ft.class_filter.split(",").map((c: string) => c.trim());
+        if (classList.includes(prevClass) && !classList.includes(newClass)) {
+          isOldClassFee = true;
+        }
+      }
+
+      // Check if this fee was specific to the old housing status
+      let isOldStatusFee = false;
+      if (prevStatus && newStatus && prevStatus !== newStatus) {
+        const appTo = ft.applicable_to || "All Students";
+        if (appTo === prevStatus && appTo !== "All Students") {
+          isOldStatusFee = true;
+        }
+      }
+
+      if (isOldClassFee || isOldStatusFee) {
+        feesToSwap.push(sf);
+      }
+    }
+
+    // 3. Find matching fees for the NEW class and status
+    const { data: allFeeTypes } = await supabase
+      .from("fee_types")
+      .select("*");
+
+    const status = newStatus || prevStatus || "Day";
+
+    // 4. For each fee to swap:
+    // - If amount_paid == 0: unassign/delete the old fee row
+    // - If amount_paid > 0: find replacement fee, transfer credit, delete old fee row
+    // Transactions table is NEVER touched.
+    for (const oldSF of feesToSwap) {
+      const oldFT = (oldSF as any).fee_types;
+      const oldPaid = Number(oldSF.amount_paid || 0);
+      const oldFeeName = oldFT?.name || "Old Fee";
+
+      if (oldPaid <= 0) {
+        // Unpaid: cleanly remove
+        await supabase.from("student_fees").delete().eq("id", oldSF.id);
+        unassignedFees.push(oldFeeName);
+      } else {
+        // Paid or partially paid:
+        // Find matching replacement fee type for newClass / newStatus
+        const matchingNewFT = (allFeeTypes || []).find((ft: any) => {
+          if (ft.academic_session && ft.academic_session !== currentSession) return false;
+          if (ft.term && ft.term !== currentTerm) return false;
+
+          // Must apply to newClass
+          if (ft.class_filter) {
+            const list = ft.class_filter.split(",").map((c: string) => c.trim());
+            if (!list.includes(newClass)) return false;
+          }
+          // Must match status
+          const appTo = ft.applicable_to || "All Students";
+          if (appTo === "Day" && status !== "Day") return false;
+          if (appTo === "Boarding" && status !== "Boarding") return false;
+
+          return true;
+        });
+
+        if (matchingNewFT) {
+          // Check if student already has matchingNewFT
+          const { data: existingNewSF } = await supabase
+            .from("student_fees")
+            .select("*")
+            .eq("student_id", studentId)
+            .eq("fee_type_id", matchingNewFT.id)
+            .maybeSingle();
+
+          const creditToApply = oldPaid;
+          transferredCredit += creditToApply;
+
+          if (existingNewSF) {
+            // Add transferred credit to existing row
+            await supabase
+              .from("student_fees")
+              .update({
+                amount_paid: Number(existingNewSF.amount_paid || 0) + creditToApply,
+              })
+              .eq("id", existingNewSF.id);
+          } else {
+            // Attach new fee type with credit transferred
+            await supabase.from("student_fees").insert({
+              student_id: studentId,
+              fee_type_id: matchingNewFT.id,
+              amount_due: Number(matchingNewFT.amount),
+              amount_paid: creditToApply,
+            });
+            attachedFees.push(matchingNewFT.name);
+          }
+        }
+
+        // Delete the old fee record now that credit is safely transferred
+        await supabase.from("student_fees").delete().eq("id", oldSF.id);
+        unassignedFees.push(`${oldFeeName} (₦${creditToApply.toLocaleString()} credit transferred)`);
+      }
+    }
+
+    // 5. Attach any remaining matching fees for the new class/status (duplicate safe)
+    const autoAssignResult = await studentFeeAPI.autoAssignFeesForStudent(studentId);
+    attachedFees.push(...autoAssignResult.feeNames);
+
+    // 6. Recalculate true balance and update student
+    const newBalance = await studentFeeAPI.syncStudentOwedBalance(studentId);
+
+    return {
+      unassignedFees,
+      attachedFees: [...new Set(attachedFees)],
+      transferredCredit,
+      newBalance,
+    };
+  },
+
+  // ── Backward-compatible wrapper for status changes ────────────────────────
+  async syncFeesForStatusChange(
+    studentId: string,
+    newStatus: "Day" | "Boarding",
+    studentClass: string,
+  ): Promise<{ removed: number; added: number }> {
+    const swap = await studentFeeAPI.handleMidTermSwap({
+      studentId,
+      newClass: studentClass,
+      newStatus,
+      prevStatus: newStatus === "Day" ? "Boarding" : "Day",
+    });
+    return { removed: swap.unassignedFees.length, added: swap.attachedFees.length };
   },
 };
 
@@ -2146,7 +2548,7 @@ export const adminAPI = {
     // Parallel queries for all revenue streams, expenses, and supporting data.
     const [
       storeResult,        // STORE_PURCHASE txns + nested items (revenue + COGS)
-      schoolFeeResult,    // FEES_CASH_COLLECTION (tuition / standard fees)
+      schoolFeeResult,    // FEES_CASH_COLLECTION (tuition / standard fees / admin income)
       schoolBundleResult, // ACCEPTANCE_FEE + BUNDLE_PURCHASE (registrations, forms)
       expenseResult,      // Recorded expenses
       feesOwedResult,     // student_fees ledger for uncollected fees
@@ -2154,7 +2556,7 @@ export const adminAPI = {
     ] = await Promise.all([
       supabase
         .from("transactions")
-        .select("amount_paid, transaction_items(quantity, item_id)")
+        .select("amount_paid, transaction_items(quantity, item_id, total_price, unit_price)")
         .eq("type", "STORE_PURCHASE")
         .neq("status", "VOIDED"),
       supabase
@@ -2164,7 +2566,7 @@ export const adminAPI = {
         .neq("status", "VOIDED"),
       supabase
         .from("transactions")
-        .select("amount_paid")
+        .select("amount_paid, transaction_items(quantity, item_id, total_price, unit_price)")
         .in("type", ["ACCEPTANCE_FEE", "BUNDLE_PURCHASE"])
         .neq("status", "VOIDED"),
       supabase.from("expenses").select("amount"),
@@ -2181,37 +2583,66 @@ export const adminAPI = {
       .from("inventory")
       .select("item_id, cost_price");
 
-    // ── Store Revenue (direct POS checkout only) ──────────────────────────────
-    const storeRevenue = (storeResult.data || []).reduce(
+    const costMap = new Map(
+      (invData || []).map((i: any) => [i.item_id, Number(i.cost_price)]),
+    );
+
+    // ── Direct POS Store Revenue ──────────────────────────────────────────────
+    const directStoreSales = (storeResult.data || []).reduce(
       (s: number, t: any) => s + Number(t.amount_paid),
       0,
     );
 
-    // ── COGS (store purchases only — bundles absorbed into bundle price) ──────
-    const costMap = new Map(
-      (invData || []).map((i: any) => [i.item_id, Number(i.cost_price)]),
-    );
-    const cogs = (storeResult.data || []).reduce(
+    // ── Acceptance & Bundle Revenue Split Behind the Scenes ──────────────────
+    // Store Revenue = Selling prices of physical items included (Holy Bible, Manual, Uniforms, etc.)
+    // School Revenue = Remaining balance (Admin/Overhead)
+    let bundleStoreRevenue = 0;
+    let bundleSchoolRevenue = 0;
+    let bundleCOGS = 0;
+
+    for (const t of schoolBundleResult.data || []) {
+      const paid = Number(t.amount_paid);
+      const items = t.transaction_items || [];
+      const physicalSellingPriceTotal = items.reduce(
+        (sum: number, ti: any) =>
+          sum + Number(ti.total_price || (Number(ti.unit_price) * Number(ti.quantity)) || 0),
+        0,
+      );
+
+      const storePortion = Math.min(paid, physicalSellingPriceTotal);
+      const schoolPortion = Math.max(0, paid - storePortion);
+
+      bundleStoreRevenue += storePortion;
+      bundleSchoolRevenue += schoolPortion;
+
+      // COGS for physical bundle items
+      for (const ti of items) {
+        bundleCOGS += Number(ti.quantity || 0) * (costMap.get(ti.item_id) || 0);
+      }
+    }
+
+    // ── Store Revenue (Direct POS + Physical Bundle Items) ────────────────────
+    const storeRevenue = directStoreSales + bundleStoreRevenue;
+
+    // ── COGS (Direct Store Purchases + Physical Bundle Items) ─────────────────
+    const directCOGS = (storeResult.data || []).reduce(
       (txnSum: number, t: any) =>
         txnSum +
         (t.transaction_items || []).reduce(
           (itemSum: number, ti: any) =>
-            itemSum + ti.quantity * (costMap.get(ti.item_id) || 0),
+            itemSum + (Number(ti.quantity) || 0) * (costMap.get(ti.item_id) || 0),
           0,
         ),
       0,
     );
+    const cogs = directCOGS + bundleCOGS;
 
-    // ── School Revenue (tuition + acceptance fees + registration bundles) ─────
+    // ── School Revenue (Tuition + Admin Income + Bundle Overhead/Tuition) ─────
     const feesCollected = (schoolFeeResult.data || []).reduce(
       (s: number, t: any) => s + Number(t.amount_paid),
       0,
     );
-    const bundleRevenue = (schoolBundleResult.data || []).reduce(
-      (s: number, t: any) => s + Number(t.amount_paid),
-      0,
-    );
-    const schoolRevenue = feesCollected + bundleRevenue;
+    const schoolRevenue = feesCollected + bundleSchoolRevenue;
 
     // ── Total Expenses ────────────────────────────────────────────────────────
     const totalExpenses = (expenseResult.data || []).reduce(
@@ -2240,7 +2671,7 @@ export const adminAPI = {
       storeRevenue,
       // ── supporting / legacy fields ──
       feesCollected,
-      bundleRevenue,
+      bundleRevenue: bundleSchoolRevenue,
       cogs,
       profit,
       profitMargin,
@@ -2253,7 +2684,7 @@ export const adminAPI = {
     since.setDate(since.getDate() - days);
     const { data, error } = await supabase
       .from("transactions")
-      .select("timestamp, type, amount_paid")
+      .select("timestamp, type, amount_paid, transaction_items(quantity, total_price, unit_price)")
       .gte("timestamp", since.toISOString())
       .neq("status", "VOIDED")
       .order("timestamp");
@@ -2264,9 +2695,25 @@ export const adminAPI = {
       if (!grouped[date])
         grouped[date] = { store_sales: 0, fees_collected: 0, total: 0 };
       const amt = Number(t.amount_paid);
-      if (t.type === "STORE_PURCHASE") grouped[date].store_sales += amt;
-      else grouped[date].fees_collected += amt;
       grouped[date].total += amt;
+
+      if (t.type === "STORE_PURCHASE") {
+        grouped[date].store_sales += amt;
+      } else if (t.type === "FEES_CASH_COLLECTION") {
+        grouped[date].fees_collected += amt;
+      } else if (t.type === "ACCEPTANCE_FEE" || t.type === "BUNDLE_PURCHASE") {
+        const physicalTotal = (t.transaction_items || []).reduce(
+          (sum: number, ti: any) =>
+            sum + Number(ti.total_price || (Number(ti.unit_price) * Number(ti.quantity)) || 0),
+          0,
+        );
+        const storePortion = Math.min(amt, physicalTotal);
+        const schoolPortion = Math.max(0, amt - storePortion);
+        grouped[date].store_sales += storePortion;
+        grouped[date].fees_collected += schoolPortion;
+      } else {
+        grouped[date].fees_collected += amt;
+      }
     }
     return Object.entries(grouped)
       .map(([date, vals]) => ({ date, ...vals }))
@@ -2738,13 +3185,29 @@ export const applicantAPI = {
       })
       .eq("id", id);
     if (error) return { success: false, error: error.message };
+
     // Bridge: stamp student_id onto this applicant's transactions so that
-    // checkStudentBundlePayment can find outstanding balances for the enrolled student.
+    // checkStudentBundlePayment and store purchase history find all records for the student.
     await supabase
       .from("transactions")
       .update({ student_id: studentId })
       .eq("applicant_id", id)
       .is("student_id", null);
+
+    // Bridge: stamp student_id onto this applicant's book issuances
+    await supabase
+      .from("student_book_issuances")
+      .update({ student_id: studentId })
+      .eq("applicant_id", id)
+      .is("student_id", null);
+
+    // Auto-assign matching fees for the newly enrolled student
+    try {
+      await studentFeeAPI.autoAssignFeesForStudent(studentId);
+    } catch (e) {
+      console.warn("Auto-assign fees on applicant enrollment non-fatal error:", e);
+    }
+
     return { success: true };
   },
   async delete(id: number) {
@@ -2907,16 +3370,17 @@ export const bundlePaymentAPI = {
       }
     }
 
-    // Persist ONLY in-stock items in transaction_items and on the receipt.
-    const inStockRows = inStockItems.map((item: any) => ({
+    // Persist ALL physical bundle items in transaction_items with selling prices
+    // This logs the physical items directly to the student's store purchase history and drives the behind-the-scenes revenue split.
+    const allItemRows = (bundle.items || []).map((item: any) => ({
       transaction_id: txn.transaction_id,
       item_id: item.item_id,
       item_name: item.item_name,
       quantity: item.quantity,
-      unit_price: item.selling_price,
-      total_price: item.selling_price * item.quantity,
+      unit_price: Number(item.selling_price) || 0,
+      total_price: (Number(item.selling_price) || 0) * (Number(item.quantity) || 1),
     }));
-    if (inStockRows.length > 0) await supabase.from("transaction_items").insert(inStockRows);
+    if (allItemRows.length > 0) await supabase.from("transaction_items").insert(allItemRows);
 
     // Track ALL bundle items in student_book_issuances for fulfillment tracking.
     // In-stock items are marked stock_deducted=true (already decremented above).
@@ -2983,7 +3447,9 @@ export const bundlePaymentAPI = {
     };
   },
 
-  // Process a flat ₦3,000 admission form payment for an applicant (decrements "Admission Form" inventory)
+  // Process a flat ₦3,000 admission form payment for an applicant.
+  // Routes to Store Revenue if sold as physical inventory (e.g. Hard Copy Admission Form),
+  // otherwise credits to School Administrative Income by default.
   async processFormPayment(params: {
     applicantId: number;
     shiftId: number;
@@ -3003,26 +3469,34 @@ export const bundlePaymentAPI = {
       : null;
     const targetClass = applicantRow?.proposed_class || null;
 
+    // Check if an "Admission Form" exists in physical inventory with active stock
+    const { data: formItems } = await supabase
+      .from("inventory")
+      .select("item_id, stock_quantity, item_name, selling_price")
+      .ilike("item_name", "%admission form%")
+      .limit(1);
+    const formItem = formItems?.[0] as any;
+    const isPhysicalInventory = !!formItem && Number(formItem.stock_quantity) > 0;
+
+    // Route revenue: Store Revenue if physical inventory, otherwise School Administrative Income by default
+    const txnType = isPhysicalInventory ? "STORE_PURCHASE" : "FEES_CASH_COLLECTION";
+    const notes = isPhysicalInventory
+      ? "Admission Form Purchase (Physical Store Inventory)"
+      : "Admission Form Fee (School Administrative Income)";
+
     const txn = await tryInsertTxn({
       applicant_id: applicantId,
       shift_id: shiftId,
-      type: "BUNDLE_PURCHASE",
+      type: txnType,
       amount_paid: FORM_PRICE,
       payment_mode: paymentMode,
-      notes: "Admission Form Purchase",
+      notes,
       customer_name: customerName,
       target_class: targetClass,
     });
 
-    // Find an "Admission Form" inventory item and decrement by 1
-    const { data: formItems } = await supabase
-      .from("inventory")
-      .select("item_id, stock_quantity, item_name")
-      .ilike("item_name", "%admission form%")
-      .limit(1);
-    const formItem = formItems?.[0] as any;
     const items: any[] = [];
-    if (formItem) {
+    if (isPhysicalInventory) {
       await supabase
         .from("inventory")
         .update({ stock_quantity: Math.max(0, formItem.stock_quantity - 1) })
@@ -3042,7 +3516,7 @@ export const bundlePaymentAPI = {
       });
     } else {
       items.push({
-        item_name: "Admission Application Form",
+        item_name: "Admission Application Form (Administrative)",
         quantity: 1,
         total_price: FORM_PRICE,
       });
@@ -3055,7 +3529,7 @@ export const bundlePaymentAPI = {
       await ledgerAPI.recordDoubleEntry({
         studentId: `applicant_${applicantId}`,
         transactionId: txn.transaction_id,
-        feeTypeName: "Admission Form",
+        feeTypeName: isPhysicalInventory ? "Admission Form (Store Inventory)" : "Admission Form (Administrative Income)",
         amount: FORM_PRICE,
         paymentMode: paymentMode,
       });
@@ -3066,6 +3540,7 @@ export const bundlePaymentAPI = {
       transactionId: txn.transaction_id,
       total: FORM_PRICE,
       items,
+      isPhysicalInventory,
     };
   },
 
@@ -3121,21 +3596,44 @@ export const bundlePaymentAPI = {
       total_price: number;
     }[] = [];
 
-    // If bundle items were passed (actual textbooks/uniforms), persist and use them.
-    // Re-check live stock server-side (authoritative) — cap quantities and drop items
-    // that are actually out of stock so they're never decremented or handed off.
-    if (bundleItems && bundleItems.length > 0) {
+    // If bundle items were passed (or can be looked up from active registration bundle),
+    // persist all physical items in transaction_items with selling prices so they appear
+    // in the student's store purchase history and drive the behind-the-scenes revenue split.
+    let finalBundleItems = bundleItems;
+    if (!finalBundleItems || finalBundleItems.length === 0) {
+      try {
+        const { data: matchedBundles } = await supabase
+          .from("bundles")
+          .select("id, bundle_items(quantity, inventory(item_id, item_name, selling_price))")
+          .eq("bundle_type", "registration")
+          .eq("is_active", true);
+
+        if (matchedBundles && matchedBundles.length > 0) {
+          const b = matchedBundles[0];
+          finalBundleItems = ((b as any).bundle_items || []).map((bi: any) => ({
+            item_id: bi.inventory?.item_id || bi.item_id,
+            item_name: bi.inventory?.item_name || "Bundle Item",
+            quantity: bi.quantity,
+            selling_price: Number(bi.inventory?.selling_price) || 0,
+          }));
+        }
+      } catch (e) {
+        console.warn("Could not lookup registration bundle items:", e);
+      }
+    }
+
+    if (finalBundleItems && finalBundleItems.length > 0) {
       const liveStock = await inventoryAPI.getStockLevels(
-        bundleItems.map((item) => item.item_id),
+        finalBundleItems.map((item) => item.item_id),
       );
-      const inStockBundleItems = bundleItems
+      const inStockBundleItems = finalBundleItems
         .map((item) => {
           const available = liveStock[item.item_id] ?? 0;
           return { ...item, quantity: Math.max(0, Math.min(item.quantity, available)) };
         })
         .filter((item) => item.quantity > 0);
 
-      // Decrement bundle items from inventory
+      // Decrement bundle items from inventory (in-stock only)
       for (const item of inStockBundleItems) {
         const { data: inv } = await supabase
           .from("inventory")
@@ -3151,19 +3649,20 @@ export const bundlePaymentAPI = {
         }
       }
 
-      // Insert ONLY in-stock items into transaction_items and receipt.
-      const itemRows = inStockBundleItems.map((item) => ({
+      // Persist ALL physical bundle items into transaction_items with selling prices
+      // This logs the physical items to the student's store purchase history and drives the revenue split
+      const itemRows = finalBundleItems.map((item) => ({
         transaction_id: txn.transaction_id,
         item_id: item.item_id,
         item_name: item.item_name,
         quantity: item.quantity,
-        unit_price: item.selling_price,
-        total_price: item.selling_price * item.quantity,
+        unit_price: Number(item.selling_price) || 0,
+        total_price: (Number(item.selling_price) || 0) * (Number(item.quantity) || 1),
       }));
       if (itemRows.length > 0) await supabase.from("transaction_items").insert(itemRows);
 
       // Track ALL bundle items in student_book_issuances for fulfillment tracking.
-      const allIssuanceRows = bundleItems.map((item) => {
+      const allIssuanceRows = finalBundleItems.map((item) => {
         const available = liveStock[item.item_id] ?? 0;
         const wasInStock = available > 0;
         return {
@@ -3183,7 +3682,7 @@ export const bundlePaymentAPI = {
         if (issuanceErr) console.error("[student_book_issuances] insert failed (registration):", issuanceErr.message, issuanceErr.details, { rows: allIssuanceRows });
       }
 
-      // Receipt shows ONLY in-stock items
+      // Receipt shows in-stock items
       lineItems.push(...inStockBundleItems.map((item) => ({
         item_name: item.item_name,
         quantity: item.quantity,

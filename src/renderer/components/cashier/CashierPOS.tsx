@@ -1958,30 +1958,8 @@ const CashierPOS: React.FC = () => {
         // Track this ID so cashier can edit it this shift
         setQuickAddedStudentIds((prev) => new Set([...prev, result.studentId]));
 
-        // Assign all applicable standard fees before closing the modal so the
-        // student immediately has ledger rows and appears in the Student Ledger view.
-        // We get ALL fee types and filter in JS so comma-separated class_filter lists
-        // (e.g. 'JSS1A,JSS1B') match correctly — the DB .eq() exact-match misses them.
-        try {
-          const allFeeTypes = await feeTypeAPI.getAll();
-          const applicableFees = (allFeeTypes as any[]).filter((ft) => {
-            if (ft.fee_category !== 'standard') return false;
-            const appTo = ft.applicable_to || 'All Students';
-            if (appTo === 'Day' && data.studentStatus !== 'Day') return false;
-            if (appTo === 'Boarding' && data.studentStatus !== 'Boarding') return false;
-            if (!ft.class_filter) return true; // applies to all classes
-            return ft.class_filter.split(',').map((c: string) => c.trim()).includes(data.studentClass);
-          });
-          for (const ft of applicableFees) {
-            await feeTypeAPI.assignToStudents(
-              ft.id, Number(ft.amount), undefined, result.studentId, 'standard',
-              ft.applicable_to !== 'All Students' ? ft.applicable_to : undefined,
-            );
-          }
-        } catch (feeErr) {
-          console.warn('Quick Add: fee assignment failed (non-fatal):', feeErr);
-        }
-
+        // studentAPI.create already auto-assigns matching fees for the active term & session
+        // with strict deduplication (WHERE fee_type_id NOT IN ... and single-tuition rule).
         const refreshed = await studentAPI.getById(result.studentId);
         if (refreshed) selectStudent(refreshed);
         setShowQuickAdd(false);

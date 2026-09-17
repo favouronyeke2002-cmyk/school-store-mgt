@@ -131,24 +131,14 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
     if (!firstName || !lastName || !formData.studentClass) { setFormError('First name, last name, and class are required.'); return; }
     setFormSaving(true);
     setFormError('');
-    const feesOwed = computeFeesOwed();
     const result = await studentAPI.create({
       studentId: formData.studentId.trim() || undefined,
       name: `${firstName} ${lastName}`,
       studentClass: formData.studentClass,
-      feesOwed,
       admissionType: formData.admissionType,
       studentStatus: formData.studentStatus,
     });
     if (result.success) {
-      for (const feeId of formData.selectedFeeIds) {
-        const ft = feeTypes.find((f) => f.id === feeId);
-        if (ft) await feeTypeAPI.assignToStudents(
-          feeId, Number(ft.amount), undefined, result.studentId,
-          ft.fee_category as 'standard' | 'registration',
-          (ft as any).applicable_to || undefined,  // pass housing tier so the DB guard catches mismatches
-        );
-      }
       setShowModal(false);
       setFormData({ studentId: '', firstName: '', lastName: '', studentClass: '', selectedFeeIds: [], admissionType: 'Returning', studentStatus: 'Day' });
       load();
@@ -156,7 +146,6 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
     } else setFormError(result.error || 'Failed to create student');
     setFormSaving(false);
   };
-
 
   const openDeleteConfirm = (s: Student) => { setSelectedStudent(s); setShowDeleteConfirm(true); };
   const handleDelete = async () => {
@@ -184,30 +173,41 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
     setEditError('');
     setEditSyncResult(null);
     try {
+      const prevClass = selectedStudent.student_class;
       const prevStatus = selectedStudent.student_status;
-      await studentAPI.update(selectedStudent.student_id, { name: editData.name.trim(), studentClass: editData.studentClass, studentStatus: editData.studentStatus });
+      const isClassChanged = prevClass !== editData.studentClass;
+      const isStatusChanged = prevStatus !== editData.studentStatus;
 
-      // If housing status changed, automatically sync the fee ledger
-      if (prevStatus && prevStatus !== editData.studentStatus) {
+      await studentAPI.update(selectedStudent.student_id, {
+        name: editData.name.trim(),
+        studentClass: editData.studentClass,
+        studentStatus: editData.studentStatus,
+      });
+
+      // If class or housing status changed, execute and display mid-term swap result
+      if (isClassChanged || isStatusChanged) {
         try {
-          const syncResult = await (studentFeeAPI as any).syncFeesForStatusChange(
-            selectedStudent.student_id,
-            editData.studentStatus,
-            editData.studentClass,
-          );
-          setEditSyncResult(syncResult);
-          // Give the user a moment to see the sync result before closing
+          const swapResult = await studentFeeAPI.handleMidTermSwap({
+            studentId: selectedStudent.student_id,
+            prevClass,
+            newClass: editData.studentClass,
+            prevStatus,
+            newStatus: editData.studentStatus,
+          });
+          setEditSyncResult(swapResult);
           setTimeout(() => {
             setShowEditStudent(false);
             setSelectedStudent(null);
             setEditSyncResult(null);
             load();
+            loadTotalOutstanding();
           }, 2500);
         } catch (syncErr) {
-          console.warn('Fee sync failed (non-fatal):', syncErr);
+          console.warn('Mid-term swap non-fatal error:', syncErr);
           setShowEditStudent(false);
           setSelectedStudent(null);
           load();
+          loadTotalOutstanding();
         }
       } else {
         setShowEditStudent(false);
@@ -371,33 +371,39 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Initial Fees to Apply</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium">Matching Fees (Auto-Assigned)</label>
+                  <span className="text-[11px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full">
+                    Auto-Assigns to Ledger
+                  </span>
+                </div>
                 {feeTypes.length === 0 ? (
                   <div className="border border-gray-200 rounded-lg px-4 py-3 bg-gray-50">
                     <p className="text-xs text-gray-400 text-center">No fee types created yet. Set up fees in the <span className="font-medium text-gray-500">Fees &amp; Billing</span> tab first.</p>
                   </div>
                 ) : filteredFeeTypes.length === 0 ? (
                   <div className="border border-gray-200 rounded-lg px-4 py-3 bg-gray-50">
-                    <p className="text-xs text-gray-400 text-center">No fees available for the selected class.</p>
+                    <p className="text-xs text-gray-400 text-center">No matching fees found for the selected class and status.</p>
                   </div>
                 ) : (
-                  <div className="space-y-2 max-h-40 overflow-auto border border-gray-200 rounded-lg p-2">
+                  <div className="space-y-1.5 max-h-40 overflow-auto border border-gray-200 rounded-lg p-2 bg-slate-50">
                     {filteredFeeTypes.map((ft) => (
-                      <label key={ft.id} className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer border transition-all ${formData.selectedFeeIds.includes(ft.id) ? 'border-primary-400 bg-primary-50' : 'border-gray-100 hover:bg-gray-50'}`}>
-                        <div className="flex items-center gap-2">
-                          <input type="checkbox" checked={formData.selectedFeeIds.includes(ft.id)} onChange={() => toggleFeeSelection(ft.id)} className="rounded" />
-                          <div>
-                            <div className="text-sm font-medium text-gray-800">{ft.name}</div>
-                            {ft.class_filter && <div className="text-xs text-gray-400">{ft.class_filter}</div>}
+                      <div key={ft.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-white border border-gray-100 shadow-xs">
+                        <div>
+                          <div className="text-sm font-semibold text-gray-800">{ft.name}</div>
+                          <div className="text-xs text-gray-400">
+                            {ft.class_filter || 'All Classes'} · {ft.applicable_to || 'All Students'}{ft.term ? ` · ${ft.term}` : ''}
                           </div>
                         </div>
                         <span className="text-sm font-bold text-gray-700">{fmt(Number(ft.amount))}</span>
-                      </label>
+                      </div>
                     ))}
                   </div>
                 )}
-                {formData.selectedFeeIds.length > 0 && (
-                  <div className="mt-2 text-sm font-semibold text-primary-700">Total fees to apply: {fmt(computeFeesOwed())}</div>
+                {filteredFeeTypes.length > 0 && (
+                  <div className="mt-2 text-xs font-semibold text-emerald-700">
+                    Total initial ledger charges: {fmt(filteredFeeTypes.reduce((s, f) => s + Number(f.amount), 0))}
+                  </div>
                 )}
               </div>
               <div className="flex gap-3 pt-2">
@@ -420,10 +426,23 @@ const StudentManagement: React.FC<{ onNavigate?: (view: string, studentId?: stri
             <div className="bg-gray-50 rounded-xl px-4 py-3 mb-4 text-sm text-gray-500 font-mono">{selectedStudent.student_id}</div>
             {editError && <div className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-2 mb-4">{editError}</div>}
             {editSyncResult && (
-              <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 mb-4 text-sm text-green-800">
-                <div className="font-semibold mb-0.5">✓ Housing fees synced</div>
-                <div className="text-green-700 text-xs">
-                  Removed {editSyncResult.removed} conflicting fee{editSyncResult.removed !== 1 ? 's' : ''}, assigned {editSyncResult.added} new fee{editSyncResult.added !== 1 ? 's' : ''}. Balance recalculated.
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 mb-4 text-sm text-emerald-900">
+                <div className="font-bold flex items-center gap-1.5 mb-1 text-emerald-800">
+                  <span>✓</span> Mid-Term Fee Swap Applied
+                </div>
+                <div className="text-xs space-y-0.5 text-emerald-700">
+                  {editSyncResult.unassignedFees?.length > 0 && (
+                    <div>Unassigned: {editSyncResult.unassignedFees.join(', ')}</div>
+                  )}
+                  {editSyncResult.attachedFees?.length > 0 && (
+                    <div>Attached: {editSyncResult.attachedFees.join(', ')}</div>
+                  )}
+                  {editSyncResult.transferredCredit > 0 && (
+                    <div className="font-semibold text-emerald-800">
+                      Paid Credit Transferred: ₦{editSyncResult.transferredCredit.toLocaleString()}
+                    </div>
+                  )}
+                  <div>Past debts preserved as Arrears B/F. New Balance: ₦{(editSyncResult.newBalance || 0).toLocaleString()}</div>
                 </div>
               </div>
             )}

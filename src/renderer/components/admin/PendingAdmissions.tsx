@@ -214,10 +214,12 @@ const PendingAdmissions: React.FC = () => {
                     <td className="px-4 py-3 text-gray-500">{a.phone || '—'}</td>
                     <td className="px-4 py-3"><span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">{a.proposed_class || 'Not set'}</span></td>
                     <td className="px-4 py-3">
-                      {(a.student_status || 'Day') === 'Boarding' ? (
+                      {a.student_status === 'Boarding' ? (
                         <span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-semibold">Boarding</span>
-                      ) : (
+                      ) : a.student_status === 'Day' ? (
                         <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold">Day</span>
+                      ) : (
+                        <span className="px-2 py-1 bg-warning-100 text-warning-700 rounded text-xs font-semibold">Not Set</span>
                       )}
                     </td>
                     <td className="px-4 py-3">

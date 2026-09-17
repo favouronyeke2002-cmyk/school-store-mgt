@@ -65,12 +65,14 @@ const StudentTimeline: React.FC<Props> = ({ studentId, studentName, studentClass
 
   for (const sf of studentFees) {
     if (termFilter && sf.term !== termFilter) continue;
+    const isPastTerm = (sf.term && sf.term !== currentTerm) || (sf.academic_session && sf.academic_session !== currentSession);
+    const isArrears = isPastTerm || (sf.fee_name || '').toLowerCase().includes('arrears') || (sf.fee_name || '').toLowerCase().includes('carried over');
     events.push({
       id: `fee_${sf.id}`,
       kind: 'fee_charge',
       date: sf.created_at,
       amount: Number(sf.amount_due),
-      fee_name: sf.fee_name,
+      fee_name: isArrears && !(sf.fee_name || '').toLowerCase().includes('arrears') ? `${sf.fee_name} (Arrears B/F)` : sf.fee_name,
       term: sf.term,
       session: sf.academic_session,
       amount_paid_on_fee: Number(sf.amount_paid),
@@ -90,7 +92,47 @@ const StudentTimeline: React.FC<Props> = ({ studentId, studentName, studentClass
         ref: txn.transaction_id,
         payment_mode: txn.payment_mode,
       });
+    } else if (txn.type === 'ACCEPTANCE_FEE' || txn.type === 'BUNDLE_PURCHASE') {
+      // Split bundle transaction:
+      // Store Revenue = selling price of physical items included
+      // School Revenue = remaining overhead / admin balance
+      const items = txn.items || [];
+      const physicalStoreTotal = items.reduce(
+        (sum: number, i: any) => sum + Number(i.total_price || (Number(i.unit_price) * Number(i.quantity)) || 0),
+        0
+      );
+      const paid = Number(txn.amount_paid);
+      const storePortion = Math.min(paid, physicalStoreTotal);
+      const schoolPortion = Math.max(0, paid - storePortion);
+
+      // Store purchase event for physical bundle items
+      if (catFilter !== 'fees' && (!termFilter || txn.academic_term === termFilter) && (items.length > 0 || storePortion > 0)) {
+        events.push({
+          id: `txn_${txn.transaction_id}_store`,
+          kind: 'store_purchase',
+          date: txn.timestamp,
+          amount: storePortion > 0 ? storePortion : physicalStoreTotal,
+          payment_mode: txn.payment_mode,
+          ref: txn.transaction_id,
+          items,
+          txnType: txn.type === 'ACCEPTANCE_FEE' ? 'Acceptance Items' : 'Bundle Package Items',
+        });
+      }
+
+      // School overhead / admin income event
+      if (catFilter !== 'store' && (!termFilter || txn.academic_term === termFilter) && schoolPortion > 0) {
+        events.push({
+          id: `txn_${txn.transaction_id}_school`,
+          kind: 'fee_payment',
+          date: txn.timestamp,
+          amount: schoolPortion,
+          fee_type_name: `${txn.fee_type_name || (txn.type === 'ACCEPTANCE_FEE' ? 'Acceptance Fee' : 'Registration Package')} (School Overhead)`,
+          ref: txn.transaction_id,
+          payment_mode: txn.payment_mode,
+        });
+      }
     } else {
+      // Direct store purchase
       if (catFilter === 'fees') continue;
       if (termFilter) continue;
       events.push({
