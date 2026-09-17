@@ -227,7 +227,9 @@ export const shiftAPI = {
       (s: number, e: any) => s + Number(e.amount),
       0,
     );
-    return Number(shift?.opening_cash || 0) + totalCashSales - totalCashExpenses;
+    return (
+      Number(shift?.opening_cash || 0) + totalCashSales - totalCashExpenses
+    );
   },
 };
 
@@ -284,7 +286,10 @@ export const studentAPI = {
       const balanceMap = new Map<string, number>();
       for (const sf of feeRows || []) {
         const bal = Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid));
-        balanceMap.set(sf.student_id, (balanceMap.get(sf.student_id) || 0) + bal);
+        balanceMap.set(
+          sf.student_id,
+          (balanceMap.get(sf.student_id) || 0) + bal,
+        );
       }
       return {
         students: studentList.map((s: any) => ({
@@ -379,7 +384,9 @@ export const studentAPI = {
     // Try most-specific first, fall back on column-missing errors
     let insertSuccess = false;
     if (data.applicantId) {
-      const { error: e0 } = await supabase.from("students").insert(withApplicant);
+      const { error: e0 } = await supabase
+        .from("students")
+        .insert(withApplicant);
       if (!e0) insertSuccess = true;
     }
     if (!insertSuccess) {
@@ -439,7 +446,9 @@ export const studentAPI = {
     // Automatically handle Mid-Term Swap if class or housing status changed
     if (prevStudent) {
       const classChanged = prevStudent.student_class !== data.studentClass;
-      const statusChanged = data.studentStatus !== undefined && prevStudent.student_status !== data.studentStatus;
+      const statusChanged =
+        data.studentStatus !== undefined &&
+        prevStudent.student_status !== data.studentStatus;
       if (classChanged || statusChanged) {
         try {
           await studentFeeAPI.handleMidTermSwap({
@@ -517,7 +526,10 @@ export const studentAPI = {
       try {
         await studentFeeAPI.autoAssignFeesForStudent(row.student_id);
       } catch (e) {
-        console.warn(`Auto-assign fees failed for imported student ${row.student_id}:`, e);
+        console.warn(
+          `Auto-assign fees failed for imported student ${row.student_id}:`,
+          e,
+        );
       }
     }
 
@@ -612,9 +624,10 @@ export const inventoryAPI = {
       is_active: i.is_active !== false,
       category_name: i.inventory_categories?.name || null,
       category_color: i.inventory_categories?.color || null,
-      applicable_classes: Array.isArray(i.applicable_classes) && i.applicable_classes.length > 0
-        ? i.applicable_classes
-        : ["All"],
+      applicable_classes:
+        Array.isArray(i.applicable_classes) && i.applicable_classes.length > 0
+          ? i.applicable_classes
+          : ["All"],
     }));
   },
   async getById(id: number) {
@@ -660,9 +673,10 @@ export const inventoryAPI = {
     categoryId?: number | null;
     applicableClasses?: string[];
   }) {
-    const classes = data.applicableClasses && data.applicableClasses.length > 0
-      ? data.applicableClasses
-      : ["All"];
+    const classes =
+      data.applicableClasses && data.applicableClasses.length > 0
+        ? data.applicableClasses
+        : ["All"];
     // Try with applicable_classes first; fall back gracefully if column not yet in schema
     const insertRow: any = {
       item_name: data.itemName,
@@ -926,7 +940,10 @@ export const feeTypeAPI = {
       const staleIds: number[] = [];
       for (const sf of unpaid) {
         const s = sf.students as any;
-        if (!s) { staleIds.push(sf.id); continue; } // student deleted — orphan
+        if (!s) {
+          staleIds.push(sf.id);
+          continue;
+        } // student deleted — orphan
 
         // Class scope changed: student must be in the new class list
         if (newClassFilter) {
@@ -941,15 +958,18 @@ export const feeTypeAPI = {
 
         // Housing-tier scope changed
         if (newApplicableTo === "Day" && s.student_status !== "Day") {
-          staleIds.push(sf.id); continue;
+          staleIds.push(sf.id);
+          continue;
         }
         if (newApplicableTo === "Boarding" && s.student_status !== "Boarding") {
-          staleIds.push(sf.id); continue;
+          staleIds.push(sf.id);
+          continue;
         }
 
         // Category changed to standard → New-admission students no longer qualify
         if (newFeeCategory === "standard" && s.admission_type === "New") {
-          staleIds.push(sf.id); continue;
+          staleIds.push(sf.id);
+          continue;
         }
       }
 
@@ -967,7 +987,9 @@ export const feeTypeAPI = {
     if (error) throw error;
     return { success: true };
   },
-  async archiveFeeType(id: number): Promise<{ success: boolean; error?: string }> {
+  async archiveFeeType(
+    id: number,
+  ): Promise<{ success: boolean; error?: string }> {
     const { error } = await supabase
       .from("fee_types")
       .update({
@@ -979,20 +1001,32 @@ export const feeTypeAPI = {
     if (error) return { success: false, error: error.message };
     return { success: true };
   },
-  async wipeUnpaidAndCascade(
-    id: number,
-  ): Promise<{ success: boolean; error?: string; studentsAffected: number; wipedAmount: number }> {
+  async wipeUnpaidAndCascade(id: number): Promise<{
+    success: boolean;
+    error?: string;
+    studentsAffected: number;
+    wipedAmount: number;
+  }> {
     const { data: sfRows, error: sfErr } = await supabase
       .from("student_fees")
       .select("id, student_id, amount_due, amount_paid")
       .eq("fee_type_id", id);
-    if (sfErr) return { success: false, error: sfErr.message, studentsAffected: 0, wipedAmount: 0 };
+    if (sfErr)
+      return {
+        success: false,
+        error: sfErr.message,
+        studentsAffected: 0,
+        wipedAmount: 0,
+      };
 
     let wipedAmount = 0;
     const studentsToUpdate = new Set<string>();
 
     for (const sf of sfRows || []) {
-      const unpaidDebit = Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid));
+      const unpaidDebit = Math.max(
+        0,
+        Number(sf.amount_due) - Number(sf.amount_paid),
+      );
       if (unpaidDebit > 0) {
         wipedAmount += unpaidDebit;
         studentsToUpdate.add(sf.student_id);
@@ -1008,16 +1042,33 @@ export const feeTypeAPI = {
     }
 
     // Delete from fee_types master
-    const { error: delErr } = await supabase.from("fee_types").delete().eq("id", id);
-    if (delErr) return { success: false, error: delErr.message, studentsAffected: studentsToUpdate.size, wipedAmount };
+    const { error: delErr } = await supabase
+      .from("fee_types")
+      .delete()
+      .eq("id", id);
+    if (delErr)
+      return {
+        success: false,
+        error: delErr.message,
+        studentsAffected: studentsToUpdate.size,
+        wipedAmount,
+      };
 
-    return { success: true, studentsAffected: studentsToUpdate.size, wipedAmount };
+    return {
+      success: true,
+      studentsAffected: studentsToUpdate.size,
+      wipedAmount,
+    };
   },
   async cascadeDelete(
     id: number,
   ): Promise<{ success: boolean; error?: string; studentsAffected: number }> {
     const res = await this.wipeUnpaidAndCascade(id);
-    return { success: res.success, error: res.error, studentsAffected: res.studentsAffected };
+    return {
+      success: res.success,
+      error: res.error,
+      studentsAffected: res.studentsAffected,
+    };
   },
   // Assign a fee type to students; for 'standard' fees, exclude 'New' admission students
   async assignToStudents(
@@ -1034,7 +1085,11 @@ export const feeTypeAPI = {
       .eq("id", feeTypeId)
       .maybeSingle();
     if (!ft || ft.fee_category === "archived") {
-      return { success: false, error: "Fee type is inactive or archived", count: 0 };
+      return {
+        success: false,
+        error: "Fee type is inactive or archived",
+        count: 0,
+      };
     }
 
     let query = supabase
@@ -1153,7 +1208,12 @@ export const studentFeeAPI = {
 
     // Insert the student_fees row for this specific student
     const { error: sfErr } = await supabase.from("student_fees").upsert(
-      { student_id: studentId, fee_type_id: feeTypeId, amount_due: amount, amount_paid: 0 },
+      {
+        student_id: studentId,
+        fee_type_id: feeTypeId,
+        amount_due: amount,
+        amount_paid: 0,
+      },
       { onConflict: "student_id,fee_type_id", ignoreDuplicates: true },
     );
     if (sfErr) return { success: false, error: sfErr.message };
@@ -1168,7 +1228,8 @@ export const studentFeeAPI = {
       await supabase
         .from("students")
         .update({
-          current_fees_owed: Number((stu as any).current_fees_owed || 0) + amount,
+          current_fees_owed:
+            Number((stu as any).current_fees_owed || 0) + amount,
           updated_at: new Date().toISOString(),
         })
         .eq("student_id", studentId);
@@ -1299,7 +1360,11 @@ export const studentFeeAPI = {
           .select("id, student_id, fee_type_id, amount_due, amount_paid"),
       ]);
 
-    const validIds = new Set((feeTypes || []).filter((ft: any) => ft.fee_category !== 'archived').map((ft: any) => ft.id));
+    const validIds = new Set(
+      (feeTypes || [])
+        .filter((ft: any) => ft.fee_category !== "archived")
+        .map((ft: any) => ft.id),
+    );
 
     // ── 2. Remove rows whose fee_type was deleted entirely ────────────────────
     const orphans = (allSFs || []).filter(
@@ -1320,7 +1385,8 @@ export const studentFeeAPI = {
 
     const validPairs = new Set<string>();
     for (const ft of feeTypes || []) {
-      if (ft.fee_category === "archived" || ft.class_filter === "__ARCHIVED__") continue;
+      if (ft.fee_category === "archived" || ft.class_filter === "__ARCHIVED__")
+        continue;
       const appTo: string = ft.applicable_to || "All Students";
       for (const s of students || []) {
         if (ft.class_filter) {
@@ -1362,8 +1428,10 @@ export const studentFeeAPI = {
     let feesInjected = 0;
     for (const ft of feeTypes || []) {
       // Never inject archived or past-session/term fees
-      if (ft.fee_category === "archived" || ft.class_filter === "__ARCHIVED__") continue;
-      if (ft.academic_session && ft.academic_session !== currentSession) continue;
+      if (ft.fee_category === "archived" || ft.class_filter === "__ARCHIVED__")
+        continue;
+      if (ft.academic_session && ft.academic_session !== currentSession)
+        continue;
       if (ft.term && ft.term !== currentTerm) continue;
 
       const appTo: string = ft.applicable_to || "All Students";
@@ -1585,7 +1653,10 @@ export const studentFeeAPI = {
     );
     await supabase
       .from("students")
-      .update({ current_fees_owed: trueBalance, updated_at: new Date().toISOString() })
+      .update({
+        current_fees_owed: trueBalance,
+        updated_at: new Date().toISOString(),
+      })
       .eq("student_id", studentId);
     return trueBalance;
   },
@@ -1598,11 +1669,12 @@ export const studentFeeAPI = {
     const settings = await settingsAPI.get();
     const currentSession = settings.academic_session || "2026/2027";
 
-    const [{ data: feeTypes }, { data: students }, { data: studentFees }] = await Promise.all([
-      supabase.from("fee_types").select("*"),
-      supabase.from("students").select("student_id, name, current_fees_owed"),
-      supabase.from("student_fees").select("*, fee_types(*)"),
-    ]);
+    const [{ data: feeTypes }, { data: students }, { data: studentFees }] =
+      await Promise.all([
+        supabase.from("fee_types").select("*"),
+        supabase.from("students").select("student_id, name, current_fees_owed"),
+        supabase.from("student_fees").select("*, fee_types(*)"),
+      ]);
 
     const validFtIds = new Set((feeTypes || []).map((f: any) => f.id));
     const idsToDelete: number[] = [];
@@ -1618,7 +1690,10 @@ export const studentFeeAPI = {
       }
 
       const ftName = (ft.name || "").toLowerCase();
-      const isArrears = ftName.includes("carried over") || ftName.includes("arrears") || ftName.includes("b/f");
+      const isArrears =
+        ftName.includes("carried over") ||
+        ftName.includes("arrears") ||
+        ftName.includes("b/f");
 
       // 2. Lingering 'Money for Window' (unpaid)
       if (ftName.includes("money for window") && !isPaid) {
@@ -1627,7 +1702,12 @@ export const studentFeeAPI = {
       }
 
       // 3. Stale inactive session fee (unpaid, not arrears)
-      if (ft.academic_session && ft.academic_session !== currentSession && !isArrears && !isPaid) {
+      if (
+        ft.academic_session &&
+        ft.academic_session !== currentSession &&
+        !isArrears &&
+        !isPaid
+      ) {
         idsToDelete.push(sf.id);
         continue;
       }
@@ -1638,7 +1718,9 @@ export const studentFeeAPI = {
     }
 
     // Recalibrate balances
-    const { data: freshSFs } = await supabase.from("student_fees").select("student_id, amount_due, amount_paid");
+    const { data: freshSFs } = await supabase
+      .from("student_fees")
+      .select("student_id, amount_due, amount_paid");
     const balanceMap = new Map<string, number>();
     for (const sf of freshSFs || []) {
       const bal = Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid));
@@ -1651,7 +1733,10 @@ export const studentFeeAPI = {
       if (Number(stu.current_fees_owed) !== correct) {
         await supabase
           .from("students")
-          .update({ current_fees_owed: correct, updated_at: new Date().toISOString() })
+          .update({
+            current_fees_owed: correct,
+            updated_at: new Date().toISOString(),
+          })
           .eq("student_id", stu.student_id);
         updatedStudents++;
       }
@@ -1663,7 +1748,9 @@ export const studentFeeAPI = {
   // ── Auto-assign matching Fee Types for a student ─────────────────────────
   // Evaluates matching fee types for student's class, housing status, session, and active term.
   // Never attaches duplicate charges if student already has that Fee Type logged for the active term/session.
-  async autoAssignFeesForStudent(studentId: string): Promise<{ added: number; feeNames: string[] }> {
+  async autoAssignFeesForStudent(
+    studentId: string,
+  ): Promise<{ added: number; feeNames: string[] }> {
     const { data: student, error: stErr } = await supabase
       .from("students")
       .select("student_id, student_class, student_status, admission_type")
@@ -1707,29 +1794,42 @@ export const studentFeeAPI = {
 
     const matchingFeeTypes = feeTypes.filter((ft: any) => {
       // Archived filter
-      if (ft.fee_category === "archived" || ft.class_filter === "__ARCHIVED__") return false;
+      if (ft.fee_category === "archived" || ft.class_filter === "__ARCHIVED__")
+        return false;
 
       // Academic Session filter: strict match
-      if (ft.academic_session && ft.academic_session !== currentSession) return false;
+      if (ft.academic_session && ft.academic_session !== currentSession)
+        return false;
       // Term filter: must match current active term (or apply to all terms if null)
       if (ft.term && ft.term !== currentTerm) return false;
 
       // Class filter: strict match if specified
       if (ft.class_filter) {
-        const classList = ft.class_filter.split(",").map((c: string) => c.trim());
+        const classList = ft.class_filter
+          .split(",")
+          .map((c: string) => c.trim());
         if (!classList.includes(studentClass)) return false;
       }
 
       // Housing status filter: strict tier separation
       const appTo = ft.applicable_to || "All Students";
       const ftNameLower = (ft.name || "").toLowerCase();
-      if (status === "Day" && (appTo === "Boarding" || ftNameLower.includes("boarding"))) return false;
-      if (status === "Boarding" && (appTo === "Day" || ftNameLower.includes("day"))) return false;
+      if (
+        status === "Day" &&
+        (appTo === "Boarding" || ftNameLower.includes("boarding"))
+      )
+        return false;
+      if (
+        status === "Boarding" &&
+        (appTo === "Day" || ftNameLower.includes("day"))
+      )
+        return false;
       if (appTo === "Day" && status !== "Day") return false;
       if (appTo === "Boarding" && status !== "Boarding") return false;
 
       // Registration fee category check
-      if (ft.fee_category === "registration" && admissionType !== "New") return false;
+      if (ft.fee_category === "registration" && admissionType !== "New")
+        return false;
 
       // Prevent duplicate charges:
       // 1. Never attach if student already has this exact fee_type_id logged (WHERE fee_type_id NOT IN ...)
@@ -1739,7 +1839,8 @@ export const studentFeeAPI = {
       if (existingTermFeeNames.has(cleanName)) return false;
 
       // 3. Prevent duplicate tuition / School Fees for the active term
-      const isSchoolFee = cleanName.includes("school fee") || cleanName.includes("tuition");
+      const isSchoolFee =
+        cleanName.includes("school fee") || cleanName.includes("tuition");
       const hasSchoolFeeAlready = Array.from(existingTermFeeNames).some(
         (n) => n.includes("school fee") || n.includes("tuition"),
       );
@@ -1752,7 +1853,8 @@ export const studentFeeAPI = {
     let schoolFeeAttached = false;
     const deduplicatedFees = matchingFeeTypes.filter((ft: any) => {
       const cName = (ft.name || "").trim().toLowerCase();
-      const isTuition = cName.includes("school fee") || cName.includes("tuition");
+      const isTuition =
+        cName.includes("school fee") || cName.includes("tuition");
       if (isTuition) {
         if (schoolFeeAttached) return false;
         schoolFeeAttached = true;
@@ -1836,7 +1938,10 @@ export const studentFeeAPI = {
 
       // PAST term debts / Arrears B/F are LOCKED — skip them
       const isPastTerm = ftTerm !== currentTerm || ftSession !== currentSession;
-      const isArrears = ftName.includes("arrears") || ftName.includes("carried over") || ftName.includes("b/f");
+      const isArrears =
+        ftName.includes("arrears") ||
+        ftName.includes("carried over") ||
+        ftName.includes("b/f");
       if (isPastTerm || isArrears) {
         // Locked as Arrears B/F — do not touch!
         continue;
@@ -1845,7 +1950,9 @@ export const studentFeeAPI = {
       // Check if this fee was specific to the old class
       let isOldClassFee = false;
       if (prevClass && prevClass !== newClass && ft.class_filter) {
-        const classList = ft.class_filter.split(",").map((c: string) => c.trim());
+        const classList = ft.class_filter
+          .split(",")
+          .map((c: string) => c.trim());
         if (classList.includes(prevClass) && !classList.includes(newClass)) {
           isOldClassFee = true;
         }
@@ -1866,9 +1973,7 @@ export const studentFeeAPI = {
     }
 
     // 3. Find matching fees for the NEW class and status
-    const { data: allFeeTypes } = await supabase
-      .from("fee_types")
-      .select("*");
+    const { data: allFeeTypes } = await supabase.from("fee_types").select("*");
 
     const status = newStatus || prevStatus || "Day";
 
@@ -1889,12 +1994,15 @@ export const studentFeeAPI = {
         // Paid or partially paid:
         // Find matching replacement fee type for newClass / newStatus
         const matchingNewFT = (allFeeTypes || []).find((ft: any) => {
-          if (ft.academic_session && ft.academic_session !== currentSession) return false;
+          if (ft.academic_session && ft.academic_session !== currentSession)
+            return false;
           if (ft.term && ft.term !== currentTerm) return false;
 
           // Must apply to newClass
           if (ft.class_filter) {
-            const list = ft.class_filter.split(",").map((c: string) => c.trim());
+            const list = ft.class_filter
+              .split(",")
+              .map((c: string) => c.trim());
             if (!list.includes(newClass)) return false;
           }
           // Must match status
@@ -1922,7 +2030,8 @@ export const studentFeeAPI = {
             await supabase
               .from("student_fees")
               .update({
-                amount_paid: Number(existingNewSF.amount_paid || 0) + creditToApply,
+                amount_paid:
+                  Number(existingNewSF.amount_paid || 0) + creditToApply,
               })
               .eq("id", existingNewSF.id);
           } else {
@@ -1939,12 +2048,15 @@ export const studentFeeAPI = {
 
         // Delete the old fee record now that credit is safely transferred
         await supabase.from("student_fees").delete().eq("id", oldSF.id);
-        unassignedFees.push(`${oldFeeName} (₦${creditToApply.toLocaleString()} credit transferred)`);
+        unassignedFees.push(
+          `${oldFeeName} (₦${creditToApply.toLocaleString()} credit transferred)`,
+        );
       }
     }
 
     // 5. Attach any remaining matching fees for the new class/status (duplicate safe)
-    const autoAssignResult = await studentFeeAPI.autoAssignFeesForStudent(studentId);
+    const autoAssignResult =
+      await studentFeeAPI.autoAssignFeesForStudent(studentId);
     attachedFees.push(...autoAssignResult.feeNames);
 
     // 6. Recalculate true balance and update student
@@ -1970,7 +2082,10 @@ export const studentFeeAPI = {
       newStatus,
       prevStatus: newStatus === "Day" ? "Boarding" : "Day",
     });
-    return { removed: swap.unassignedFees.length, added: swap.attachedFees.length };
+    return {
+      removed: swap.unassignedFees.length,
+      added: swap.attachedFees.length,
+    };
   },
 };
 
@@ -1980,7 +2095,8 @@ export const studentFeeAPI = {
 async function tryInsertTxn(
   payload: Record<string, any>,
 ): Promise<{ transaction_id: number }> {
-  const { customer_name, target_class, balance_due, academic_term, ...base } = payload;
+  const { customer_name, target_class, balance_due, academic_term, ...base } =
+    payload;
   const withSnap = {
     ...base,
     customer_name: customer_name ?? null,
@@ -2055,7 +2171,7 @@ export const transactionAPI = {
         student_name: finalName,
         student_class: finalClass,
         balance_due: t.balance_due || 0,
-        status: (t.status as string) || 'ACTIVE',
+        status: (t.status as string) || "ACTIVE",
         customer_name: finalName,
         target_class: finalClass,
       };
@@ -2134,7 +2250,7 @@ export const transactionAPI = {
         timestamp: t.timestamp,
         student_name: finalName,
         student_class: finalClass,
-        status: (t.status as string) || 'ACTIVE',
+        status: (t.status as string) || "ACTIVE",
       };
     });
 
@@ -2159,12 +2275,14 @@ export const transactionAPI = {
 
     const { data: txn, error: txnError } = await supabase
       .from("transactions")
-      .select(`
+      .select(
+        `
         *,
         fee_types(name),
         students(name, student_class),
         applicants(first_name, last_name, proposed_class)
-      `)
+      `,
+      )
       .eq("transaction_id", transactionId)
       .maybeSingle();
     if (txnError) throw txnError;
@@ -2176,7 +2294,8 @@ export const transactionAPI = {
       customerName = txn.students.name;
     }
     if (!customerName && txn?.applicants) {
-      customerName = `${txn.applicants.first_name || ''} ${txn.applicants.last_name || ''}`.trim();
+      customerName =
+        `${txn.applicants.first_name || ""} ${txn.applicants.last_name || ""}`.trim();
     }
     if (!targetClass && txn?.students) {
       targetClass = txn.students.student_class;
@@ -2190,16 +2309,21 @@ export const transactionAPI = {
         ...i,
         item_name: i.item_name || i.inventory?.item_name,
       })),
-      transaction: txn ? {
-        ...txn,
-        fee_type_name: txn.fee_types?.name || null,
-        customer_name: customerName,
-        target_class: targetClass,
-      } : null,
+      transaction: txn
+        ? {
+            ...txn,
+            fee_type_name: txn.fee_types?.name || null,
+            customer_name: customerName,
+            target_class: targetClass,
+          }
+        : null,
     };
   },
 
-  async update(transactionId: number, updates: { type?: string; payment_mode?: string }) {
+  async update(
+    transactionId: number,
+    updates: { type?: string; payment_mode?: string },
+  ) {
     const { error } = await supabase
       .from("transactions")
       .update(updates)
@@ -2216,20 +2340,41 @@ export const transactionAPI = {
       .eq("transaction_id", transactionId)
       .single();
     if (fetchErr || !txn) throw new Error("Transaction not found");
-    if (txn.status === "VOIDED") throw new Error("Transaction is already voided");
+    if (
+      String(txn.status || "").toUpperCase() === "VOIDED" ||
+      txn.is_voided === true
+    ) {
+      throw new Error("Transaction is already voided");
+    }
 
     // 2. Mark as VOIDED — audit row stays forever, never deleted
-    const { error: voidErr } = await supabase
+    const voidedAt = new Date().toISOString();
+    let { error: voidErr } = await supabase
       .from("transactions")
-      .update({ status: "VOIDED" })
+      .update({ status: "VOIDED", voided_at: voidedAt })
       .eq("transaction_id", transactionId);
+    if (
+      voidErr &&
+      String(voidErr.message || "")
+        .toLowerCase()
+        .includes("voided_at")
+    ) {
+      ({ error: voidErr } = await supabase
+        .from("transactions")
+        .update({ status: "VOIDED" })
+        .eq("transaction_id", transactionId));
+    }
     if (voidErr) throw voidErr;
 
     const amount = Number(txn.amount_paid);
 
     // 3. Reverse the student fee ledger for FEES_CASH_COLLECTION
     //    Wrapped in try/catch — if the student was deleted, we still mark VOIDED.
-    if (txn.type === "FEES_CASH_COLLECTION" && txn.student_id && txn.fee_type_id) {
+    if (
+      txn.type === "FEES_CASH_COLLECTION" &&
+      txn.student_id &&
+      txn.fee_type_id
+    ) {
       try {
         const { data: sf } = await supabase
           .from("student_fees")
@@ -2240,7 +2385,9 @@ export const transactionAPI = {
         if (sf) {
           await supabase
             .from("student_fees")
-            .update({ amount_paid: Math.max(0, Number(sf.amount_paid) - amount) })
+            .update({
+              amount_paid: Math.max(0, Number(sf.amount_paid) - amount),
+            })
             .eq("id", (sf as any).id);
         }
         const { data: stu } = await supabase
@@ -2278,7 +2425,9 @@ export const transactionAPI = {
         if (ap) {
           await supabase
             .from("applicant_payments")
-            .update({ amount_paid: Math.max(0, Number(ap.amount_paid) - amount) })
+            .update({
+              amount_paid: Math.max(0, Number(ap.amount_paid) - amount),
+            })
             .eq("id", (ap as any).id);
         }
       } catch (e) {
@@ -2312,24 +2461,51 @@ export const transactionAPI = {
             if (inv) {
               await supabase
                 .from("inventory")
-                .update({ stock_quantity: inv.stock_quantity + (iss.quantity || 1) })
+                .update({
+                  stock_quantity: inv.stock_quantity + (iss.quantity || 1),
+                })
                 .eq("item_id", iss.item_id);
             }
           }
         }
-        // Mark issuance rows as voided then delete rows tied to this voided transaction
+        // Keep issuance rows for audit and prevent any later fulfillment.
         await supabase
           .from("student_book_issuances")
           .update({ status: "voided" })
           .eq("transaction_id", transactionId);
-
-        await supabase
-          .from("student_book_issuances")
-          .delete()
-          .eq("transaction_id", transactionId);
       }
     } catch (e) {
       // Issuance cleanup failure is non-fatal — void still succeeds
+    }
+
+    // Direct store purchases do not create issuance rows, so restore their
+    // itemized stock here. Bundle stock is restored above from issuances.
+    if (txn.type === "STORE_PURCHASE") {
+      try {
+        const { data: itemRows } = await supabase
+          .from("transaction_items")
+          .select("item_id, quantity")
+          .eq("transaction_id", transactionId);
+        for (const item of itemRows || []) {
+          if (!item.item_id) continue;
+          const { data: inv } = await supabase
+            .from("inventory")
+            .select("stock_quantity")
+            .eq("item_id", item.item_id)
+            .single();
+          if (inv) {
+            await supabase
+              .from("inventory")
+              .update({
+                stock_quantity:
+                  Number(inv.stock_quantity || 0) + Number(item.quantity || 0),
+              })
+              .eq("item_id", item.item_id);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to restore store stock after void:", e);
+      }
     }
 
     // 7. Cascade: revert applicant status for bundle/acceptance fee transactions
@@ -2377,7 +2553,7 @@ export const transactionAPI = {
 
             const totalCashSales = (cashTxns || []).reduce(
               (s: number, t: any) => s + Number(t.amount_paid),
-              0
+              0,
             );
 
             const { data: cashExpenses } = await supabase
@@ -2388,10 +2564,13 @@ export const transactionAPI = {
 
             const totalCashExpenses = (cashExpenses || []).reduce(
               (s: number, e: any) => s + Number(e.amount),
-              0
+              0,
             );
 
-            const expectedCash = Number(shift.opening_cash || 0) + totalCashSales - totalCashExpenses;
+            const expectedCash =
+              Number(shift.opening_cash || 0) +
+              totalCashSales -
+              totalCashExpenses;
             await supabase
               .from("shifts")
               .update({ expected_closing_cash: expectedCash })
@@ -2400,7 +2579,9 @@ export const transactionAPI = {
             // Closed/Historical Shift: DO NOT alter past shift records (closing_cash, cash_difference, expected_closing_cash preserved).
             // Record an Admin Reversal audit note on the voided transaction for tracking.
             const reversalNote = `[Admin Reversal - Historical Shift #${txn.shift_id} (Closed)] Voided on ${new Date().toLocaleString()}. Past shift record preserved.`;
-            const currentNotes = txn.notes ? `${txn.notes} | ${reversalNote}` : reversalNote;
+            const currentNotes = txn.notes
+              ? `${txn.notes} | ${reversalNote}`
+              : reversalNote;
             await supabase
               .from("transactions")
               .update({ notes: currentNotes })
@@ -2418,7 +2599,12 @@ export const transactionAPI = {
   async createPurchase(
     studentId: string,
     shiftId: number,
-    cart: { item_id: number; item_name: string; selling_price: number; quantity: number }[],
+    cart: {
+      item_id: number;
+      item_name: string;
+      selling_price: number;
+      quantity: number;
+    }[],
     paymentMode: string,
     customerName?: string,
     targetClass?: string,
@@ -2427,7 +2613,9 @@ export const transactionAPI = {
 
     // Re-check live stock — only in-stock items go on the receipt and into
     // transaction_items. Out-of-stock items are tracked in student_book_issuances.
-    const liveStock = await inventoryAPI.getStockLevels(cart.map((i) => i.item_id));
+    const liveStock = await inventoryAPI.getStockLevels(
+      cart.map((i) => i.item_id),
+    );
     const inStockCart = cart.filter((i) => (liveStock[i.item_id] ?? 0) > 0);
     const outOfStockCart = cart.filter((i) => (liveStock[i.item_id] ?? 0) <= 0);
 
@@ -2456,7 +2644,8 @@ export const transactionAPI = {
 
     txnId = await insertTxn(false);
     if (txnId === null) txnId = await insertTxn(true);
-    if (txnId === null) return { success: false, error: "Failed to create transaction" };
+    if (txnId === null)
+      return { success: false, error: "Failed to create transaction" };
 
     // Insert ONLY in-stock items into transaction_items
     const itemRows = inStockCart.map((i) => ({
@@ -2468,7 +2657,9 @@ export const transactionAPI = {
       total_price: i.selling_price * i.quantity,
     }));
     if (itemRows.length > 0) {
-      const { error: itemsError } = await supabase.from("transaction_items").insert(itemRows);
+      const { error: itemsError } = await supabase
+        .from("transaction_items")
+        .insert(itemRows);
       if (itemsError) return { success: false, error: itemsError.message };
     }
 
@@ -2482,7 +2673,9 @@ export const transactionAPI = {
       if (inv) {
         await supabase
           .from("inventory")
-          .update({ stock_quantity: Math.max(0, inv.stock_quantity - item.quantity) })
+          .update({
+            stock_quantity: Math.max(0, inv.stock_quantity - item.quantity),
+          })
           .eq("item_id", item.item_id);
       }
     }
@@ -2506,8 +2699,16 @@ export const transactionAPI = {
           stock_deducted: wasInStock,
         };
       });
-      const { error: issuanceErr } = await supabase.from("student_book_issuances").insert(allIssuanceRows);
-      if (issuanceErr) console.error("[student_book_issuances] insert failed (store purchase):", issuanceErr.message, issuanceErr.details, { rows: allIssuanceRows });
+      const { error: issuanceErr } = await supabase
+        .from("student_book_issuances")
+        .insert(allIssuanceRows);
+      if (issuanceErr)
+        console.error(
+          "[student_book_issuances] insert failed (store purchase):",
+          issuanceErr.message,
+          issuanceErr.details,
+          { rows: allIssuanceRows },
+        );
     }
 
     // Double-entry ledger for store purchase
@@ -2520,10 +2721,19 @@ export const transactionAPI = {
           amount: total,
           paymentMode,
         });
-      } catch (e) { /* ledger write failure is non-fatal */ }
+      } catch (e) {
+        /* ledger write failure is non-fatal */
+      }
     }
 
-    return { success: true, transaction_id: txnId, items: inStockCart.map((i) => ({ item_name: i.item_name, quantity: i.quantity })) };
+    return {
+      success: true,
+      transaction_id: txnId,
+      items: inStockCart.map((i) => ({
+        item_name: i.item_name,
+        quantity: i.quantity,
+      })),
+    };
   },
 
   async getForStudent(studentId: string) {
@@ -2546,7 +2756,10 @@ export const transactionAPI = {
     for (const item of allItems || []) {
       const tId = item.transaction_id;
       if (!byTxn.has(tId)) byTxn.set(tId, []);
-      byTxn.get(tId)!.push({ ...item, item_name: item.item_name || item.inventory?.item_name });
+      byTxn.get(tId)!.push({
+        ...item,
+        item_name: item.item_name || item.inventory?.item_name,
+      });
     }
 
     return txns.map((t: any) => {
@@ -2579,7 +2792,10 @@ export const transactionAPI = {
     for (const item of allItems || []) {
       const tId = item.transaction_id;
       if (!byTxn.has(tId)) byTxn.set(tId, []);
-      byTxn.get(tId)!.push({ ...item, item_name: item.item_name || item.inventory?.item_name });
+      byTxn.get(tId)!.push({
+        ...item,
+        item_name: item.item_name || item.inventory?.item_name,
+      });
     }
 
     return txns.map((t: any) => {
@@ -2598,16 +2814,18 @@ export const adminAPI = {
   async getStats() {
     // Parallel queries for all revenue streams, expenses, and supporting data.
     const [
-      storeResult,        // STORE_PURCHASE txns + nested items (revenue + COGS)
-      schoolFeeResult,    // FEES_CASH_COLLECTION (tuition / standard fees / admin income)
+      storeResult, // STORE_PURCHASE txns + nested items (revenue + COGS)
+      schoolFeeResult, // FEES_CASH_COLLECTION (tuition / standard fees / admin income)
       schoolBundleResult, // ACCEPTANCE_FEE + BUNDLE_PURCHASE (registrations, forms)
-      expenseResult,      // Recorded expenses
-      feesOwedResult,     // student_fees ledger for uncollected fees
-      countResult,        // total non-voided transaction count
+      expenseResult, // Recorded expenses
+      feesOwedResult, // student_fees ledger for uncollected fees
+      countResult, // total non-voided transaction count
     ] = await Promise.all([
       supabase
         .from("transactions")
-        .select("amount_paid, transaction_items(quantity, item_id, total_price, unit_price)")
+        .select(
+          "amount_paid, transaction_items(quantity, item_id, total_price, unit_price)",
+        )
         .eq("type", "STORE_PURCHASE")
         .neq("status", "VOIDED"),
       supabase
@@ -2617,7 +2835,9 @@ export const adminAPI = {
         .neq("status", "VOIDED"),
       supabase
         .from("transactions")
-        .select("amount_paid, transaction_items(quantity, item_id, total_price, unit_price)")
+        .select(
+          "amount_paid, transaction_items(quantity, item_id, total_price, unit_price)",
+        )
         .in("type", ["ACCEPTANCE_FEE", "BUNDLE_PURCHASE"])
         .neq("status", "VOIDED"),
       supabase.from("expenses").select("amount"),
@@ -2641,8 +2861,9 @@ export const adminAPI = {
     // ── Direct POS Store Revenue ──────────────────────────────────────────────
     const directStoreSales = (storeResult.data || []).reduce(
       (accumulator: number, tx: any) => {
-        if (tx.status === 'voided' || tx.is_voided === true) return accumulator;
-        if (tx.status === 'VOIDED' || tx.status === 'CANCELLED') return accumulator;
+        if (tx.status === "voided" || tx.is_voided === true) return accumulator;
+        if (tx.status === "VOIDED" || tx.status === "CANCELLED")
+          return accumulator;
         return accumulator + Number(tx.amount_paid);
       },
       0,
@@ -2656,12 +2877,21 @@ export const adminAPI = {
     let bundleCOGS = 0;
 
     for (const t of schoolBundleResult.data || []) {
-      if (t.status === 'voided' || t.is_voided === true || t.status === 'VOIDED' || t.status === 'CANCELLED') continue;
+      if (
+        t.status === "voided" ||
+        t.is_voided === true ||
+        t.status === "VOIDED" ||
+        t.status === "CANCELLED"
+      )
+        continue;
       const paid = Number(t.amount_paid);
       const items = t.transaction_items || [];
       const physicalSellingPriceTotal = items.reduce(
         (sum: number, ti: any) =>
-          sum + Number(ti.total_price || (Number(ti.unit_price) * Number(ti.quantity)) || 0),
+          sum +
+          Number(
+            ti.total_price || Number(ti.unit_price) * Number(ti.quantity) || 0,
+          ),
         0,
       );
 
@@ -2683,13 +2913,22 @@ export const adminAPI = {
     // ── COGS (Direct Store Purchases + Physical Bundle Items) ─────────────────
     const directCOGS = (storeResult.data || []).reduce(
       (txnSum: number, t: any) => {
-        if (t.status === 'voided' || t.is_voided === true || t.status === 'VOIDED' || t.status === 'CANCELLED') return txnSum;
-        return txnSum +
+        if (
+          t.status === "voided" ||
+          t.is_voided === true ||
+          t.status === "VOIDED" ||
+          t.status === "CANCELLED"
+        )
+          return txnSum;
+        return (
+          txnSum +
           (t.transaction_items || []).reduce(
             (itemSum: number, ti: any) =>
-              itemSum + (Number(ti.quantity) || 0) * (costMap.get(ti.item_id) || 0),
+              itemSum +
+              (Number(ti.quantity) || 0) * (costMap.get(ti.item_id) || 0),
             0,
-          );
+          )
+        );
       },
       0,
     );
@@ -2698,8 +2937,9 @@ export const adminAPI = {
     // ── School Revenue (Tuition + Admin Income + Bundle Overhead/Tuition) ─────
     const feesCollected = (schoolFeeResult.data || []).reduce(
       (accumulator: number, tx: any) => {
-        if (tx.status === 'voided' || tx.is_voided === true) return accumulator;
-        if (tx.status === 'VOIDED' || tx.status === 'CANCELLED') return accumulator;
+        if (tx.status === "voided" || tx.is_voided === true) return accumulator;
+        if (tx.status === "VOIDED" || tx.status === "CANCELLED")
+          return accumulator;
         return accumulator + Number(tx.amount_paid);
       },
       0,
@@ -2746,7 +2986,9 @@ export const adminAPI = {
     since.setDate(since.getDate() - days);
     const { data, error } = await supabase
       .from("transactions")
-      .select("timestamp, type, amount_paid, transaction_items(quantity, total_price, unit_price)")
+      .select(
+        "timestamp, type, amount_paid, transaction_items(quantity, total_price, unit_price)",
+      )
       .gte("timestamp", since.toISOString())
       .neq("status", "VOIDED")
       .order("timestamp");
@@ -2766,7 +3008,12 @@ export const adminAPI = {
       } else if (t.type === "ACCEPTANCE_FEE" || t.type === "BUNDLE_PURCHASE") {
         const physicalTotal = (t.transaction_items || []).reduce(
           (sum: number, ti: any) =>
-            sum + Number(ti.total_price || (Number(ti.unit_price) * Number(ti.quantity)) || 0),
+            sum +
+            Number(
+              ti.total_price ||
+                Number(ti.unit_price) * Number(ti.quantity) ||
+                0,
+            ),
           0,
         );
         const storePortion = Math.min(amt, physicalTotal);
@@ -2944,9 +3191,11 @@ function mapBundleItems(bundle_items: any[]) {
     item_name: bi.inventory?.item_name,
     selling_price: Number(bi.inventory?.selling_price || 0),
     stock_quantity: bi.inventory?.stock_quantity || 0,
-    applicable_classes: Array.isArray(bi.inventory?.applicable_classes) && bi.inventory.applicable_classes.length > 0
-      ? bi.inventory.applicable_classes
-      : ["All"],
+    applicable_classes:
+      Array.isArray(bi.inventory?.applicable_classes) &&
+      bi.inventory.applicable_classes.length > 0
+        ? bi.inventory.applicable_classes
+        : ["All"],
     quantity: bi.quantity,
   }));
 }
@@ -2960,21 +3209,28 @@ function normalizeClassTag(value: unknown): string {
 }
 
 function itemFitsClass(item: any, studentClass?: string | null): boolean {
-  const tags = Array.isArray(item?.applicable_classes) ? item.applicable_classes : [];
+  const tags = Array.isArray(item?.applicable_classes)
+    ? item.applicable_classes
+    : [];
   if (tags.length === 0) return true;
   const normalizedTags = tags.map(normalizeClassTag);
-  if (normalizedTags.some((tag: string) => tag === "ALL" || tag === "GENERAL")) return true;
+  if (normalizedTags.some((tag: string) => tag === "ALL" || tag === "GENERAL"))
+    return true;
   const normalizedClass = normalizeClassTag(studentClass);
   return !normalizedClass || normalizedTags.includes(normalizedClass);
 }
 
-async function enrichMissingInventory(items: ReturnType<typeof mapBundleItems>) {
+async function enrichMissingInventory(
+  items: ReturnType<typeof mapBundleItems>,
+) {
   const missing = items.filter((i) => !i.item_name && i.item_id);
   if (missing.length === 0) return items;
   const ids = Array.from(new Set(missing.map((i) => i.item_id!)));
   const { data } = await supabase
     .from("inventory")
-    .select("item_id, item_name, selling_price, stock_quantity, applicable_classes")
+    .select(
+      "item_id, item_name, selling_price, stock_quantity, applicable_classes",
+    )
     .in("item_id", ids);
   const map = new Map((data || []).map((r: any) => [r.item_id, r]));
   return items.map((i) => {
@@ -2986,9 +3242,11 @@ async function enrichMissingInventory(items: ReturnType<typeof mapBundleItems>) 
       item_name: inv.item_name,
       selling_price: Number(inv.selling_price || 0),
       stock_quantity: inv.stock_quantity || 0,
-      applicable_classes: Array.isArray(inv.applicable_classes) && inv.applicable_classes.length > 0
-        ? inv.applicable_classes
-        : ["All"],
+      applicable_classes:
+        Array.isArray(inv.applicable_classes) &&
+        inv.applicable_classes.length > 0
+          ? inv.applicable_classes
+          : ["All"],
     };
   });
 }
@@ -3006,7 +3264,9 @@ export const bundleAPI = {
     const bundles = await Promise.all(
       (data || []).map(async (b: any) => {
         const cached = cache[b.id];
-        const items = await enrichMissingInventory(mapBundleItems(b.bundle_items));
+        const items = await enrichMissingInventory(
+          mapBundleItems(b.bundle_items),
+        );
         return {
           ...b,
           applicable_to: b.applicable_to || "All Students",
@@ -3028,7 +3288,9 @@ export const bundleAPI = {
       .single();
     if (error) throw error;
     const cached = getBundleCategoryCache()[id];
-    const items = await enrichMissingInventory(mapBundleItems(data.bundle_items));
+    const items = await enrichMissingInventory(
+      mapBundleItems(data.bundle_items),
+    );
     return {
       ...data,
       applicable_to: data.applicable_to || "All Students",
@@ -3231,7 +3493,10 @@ export const applicantAPI = {
     if (res.error) return { success: false, error: res.error.message };
     return { success: true, id: (res.data as any).id };
   },
-  async update(id: number, data: { full_name?: string; proposed_class?: string }) {
+  async update(
+    id: number,
+    data: { full_name?: string; proposed_class?: string },
+  ) {
     const updateData: any = { updated_at: new Date().toISOString() };
     if (data.full_name) {
       const parts = data.full_name.trim().split(/\s+/);
@@ -3290,7 +3555,10 @@ export const applicantAPI = {
     try {
       await studentFeeAPI.autoAssignFeesForStudent(studentId);
     } catch (e) {
-      console.warn("Auto-assign fees on applicant enrollment non-fatal error:", e);
+      console.warn(
+        "Auto-assign fees on applicant enrollment non-fatal error:",
+        e,
+      );
     }
 
     return { success: true };
@@ -3339,6 +3607,7 @@ export const bundlePaymentAPI = {
   // Process a bundle payment (acceptance or registration) for an applicant
   async processBundlePayment(params: {
     applicantId: number;
+    studentId?: string;
     bundleId: number;
     shiftId: number;
     amountPaid: number;
@@ -3346,9 +3615,16 @@ export const bundlePaymentAPI = {
     minPartialFloor: number;
     customerName?: string;
     targetClass?: string;
+    items?: {
+      item_id: number;
+      item_name: string;
+      quantity: number;
+      selling_price: number;
+    }[];
   }) {
     const {
       applicantId,
+      studentId,
       bundleId,
       shiftId,
       amountPaid,
@@ -3356,6 +3632,7 @@ export const bundlePaymentAPI = {
       minPartialFloor,
       customerName,
       targetClass,
+      items,
     } = params;
 
     // Get bundle details
@@ -3371,35 +3648,36 @@ export const bundlePaymentAPI = {
       );
     }
 
-    // Check or create applicant_payments record
-    let { data: existingPayment } = await supabase
-      .from("applicant_payments")
-      .select("*")
-      .eq("applicant_id", applicantId)
-      .eq("bundle_id", bundleId)
-      .maybeSingle();
-
     let amountDue = totalDue;
     let alreadyPaid = 0;
-    let paymentRecordId: number;
+    let paymentRecordId: number | null = null;
 
-    if (existingPayment) {
-      paymentRecordId = existingPayment.id;
-      amountDue = Number(existingPayment.amount_due);
-      alreadyPaid = Number(existingPayment.amount_paid);
-    } else {
-      const { data: newPayment, error: createError } = await supabase
+    if (applicantId) {
+      const { data: existingPayment } = await supabase
         .from("applicant_payments")
-        .insert({
-          applicant_id: applicantId,
-          bundle_id: bundleId,
-          amount_due: totalDue,
-          amount_paid: 0,
-        })
-        .select("id")
-        .single();
-      if (createError) throw createError;
-      paymentRecordId = newPayment.id;
+        .select("*")
+        .eq("applicant_id", applicantId)
+        .eq("bundle_id", bundleId)
+        .maybeSingle();
+
+      if (existingPayment) {
+        paymentRecordId = existingPayment.id;
+        amountDue = Number(existingPayment.amount_due);
+        alreadyPaid = Number(existingPayment.amount_paid);
+      } else {
+        const { data: newPayment, error: createError } = await supabase
+          .from("applicant_payments")
+          .insert({
+            applicant_id: applicantId,
+            bundle_id: bundleId,
+            amount_due: totalDue,
+            amount_paid: 0,
+          })
+          .select("id")
+          .single();
+        if (createError) throw createError;
+        paymentRecordId = newPayment.id;
+      }
     }
 
     const newTotalPaid = alreadyPaid + amountPaid;
@@ -3417,6 +3695,7 @@ export const bundlePaymentAPI = {
     const balanceDue = amountDue - newTotalPaid;
     const txn = await tryInsertTxn({
       applicant_id: applicantId,
+      student_id: studentId || null,
       shift_id: shiftId,
       type: txnType,
       amount_paid: amountPaid,
@@ -3429,18 +3708,24 @@ export const bundlePaymentAPI = {
     });
 
     // Filter bundle items by targetClass if student class is specified
-    const applicableBundleItems = (bundle.items || []).filter((item: any) =>
+    const requestedItems = items === undefined ? bundle.items || [] : items;
+    const applicableBundleItems = requestedItems.filter((item: any) =>
       itemFitsClass(item, targetClass),
     );
 
     // Live stock check: never decrement or hand off items that are actually out of stock.
     // Cap each item's quantity to what's really on the shelf and drop items with none left.
-    const bundleItemIds = applicableBundleItems.map((item: any) => item.item_id);
+    const bundleItemIds = applicableBundleItems.map(
+      (item: any) => item.item_id,
+    );
     const liveStock = await inventoryAPI.getStockLevels(bundleItemIds);
     const inStockItems = applicableBundleItems
       .map((item: any) => {
         const available = liveStock[item.item_id] ?? 0;
-        return { ...item, quantity: Math.max(0, Math.min(item.quantity, available)) };
+        return {
+          ...item,
+          quantity: Math.max(0, Math.min(item.quantity, available)),
+        };
       })
       .filter((item: any) => item.quantity > 0);
 
@@ -3468,9 +3753,11 @@ export const bundlePaymentAPI = {
       item_name: item.item_name,
       quantity: item.quantity,
       unit_price: Number(item.selling_price) || 0,
-      total_price: (Number(item.selling_price) || 0) * (Number(item.quantity) || 1),
+      total_price:
+        (Number(item.selling_price) || 0) * (Number(item.quantity) || 1),
     }));
-    if (allItemRows.length > 0) await supabase.from("transaction_items").insert(allItemRows);
+    if (allItemRows.length > 0)
+      await supabase.from("transaction_items").insert(allItemRows);
 
     // Track ALL applicable bundle items in student_book_issuances for fulfillment tracking.
     // In-stock items are marked stock_deducted=true (already decremented above).
@@ -3479,7 +3766,8 @@ export const bundlePaymentAPI = {
       const available = liveStock[item.item_id] ?? 0;
       const wasInStock = available > 0;
       return {
-        applicant_id: applicantId,
+        applicant_id: applicantId || null,
+        student_id: studentId || null,
         transaction_id: txn.transaction_id,
         item_id: item.item_id,
         book_name: item.item_name,
@@ -3491,21 +3779,31 @@ export const bundlePaymentAPI = {
       };
     });
     if (allIssuanceRows.length > 0) {
-      const { error: issuanceErr } = await supabase.from("student_book_issuances").insert(allIssuanceRows);
-      if (issuanceErr) console.error("[student_book_issuances] insert failed (bundle payment):", issuanceErr.message, issuanceErr.details, { rows: allIssuanceRows });
+      const { error: issuanceErr } = await supabase
+        .from("student_book_issuances")
+        .insert(allIssuanceRows);
+      if (issuanceErr)
+        console.error(
+          "[student_book_issuances] insert failed (bundle payment):",
+          issuanceErr.message,
+          issuanceErr.details,
+          { rows: allIssuanceRows },
+        );
     }
 
     // Update applicant_payments
-    await supabase
-      .from("applicant_payments")
-      .update({
-        amount_paid: newTotalPaid,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", paymentRecordId);
+    if (applicantId && paymentRecordId) {
+      await supabase
+        .from("applicant_payments")
+        .update({
+          amount_paid: newTotalPaid,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", paymentRecordId);
+    }
 
     // If payment meets threshold, mark applicant as eligible
-    if (newTotalPaid >= minPartialFloor) {
+    if (applicantId && newTotalPaid >= minPartialFloor) {
       await applicantAPI.markEligible(applicantId);
     }
 
@@ -3524,7 +3822,9 @@ export const bundlePaymentAPI = {
           amount: amountPaid,
           paymentMode: paymentMode,
         });
-      } catch (e) { /* ledger write failure is non-fatal */ }
+      } catch (e) {
+        /* ledger write failure is non-fatal */
+      }
     }
 
     return {
@@ -3566,10 +3866,13 @@ export const bundlePaymentAPI = {
       .ilike("item_name", "%admission form%")
       .limit(1);
     const formItem = formItems?.[0] as any;
-    const isPhysicalInventory = !!formItem && Number(formItem.stock_quantity) > 0;
+    const isPhysicalInventory =
+      !!formItem && Number(formItem.stock_quantity) > 0;
 
     // Route revenue: Store Revenue if physical inventory, otherwise School Administrative Income by default
-    const txnType = isPhysicalInventory ? "STORE_PURCHASE" : "FEES_CASH_COLLECTION";
+    const txnType = isPhysicalInventory
+      ? "STORE_PURCHASE"
+      : "FEES_CASH_COLLECTION";
     const notes = isPhysicalInventory
       ? "Admission Form Purchase (Physical Store Inventory)"
       : "Admission Form Fee (School Administrative Income)";
@@ -3619,11 +3922,15 @@ export const bundlePaymentAPI = {
       await ledgerAPI.recordDoubleEntry({
         studentId: `applicant_${applicantId}`,
         transactionId: txn.transaction_id,
-        feeTypeName: isPhysicalInventory ? "Admission Form (Store Inventory)" : "Admission Form (Administrative Income)",
+        feeTypeName: isPhysicalInventory
+          ? "Admission Form (Store Inventory)"
+          : "Admission Form (Administrative Income)",
         amount: FORM_PRICE,
         paymentMode: paymentMode,
       });
-    } catch (e) { /* ledger write failure is non-fatal */ }
+    } catch (e) {
+      /* ledger write failure is non-fatal */
+    }
 
     return {
       success: true,
@@ -3648,7 +3955,14 @@ export const bundlePaymentAPI = {
     customerName?: string;
     targetClass?: string;
     balanceDue?: number;
-    bundleItems?: { item_id: number; item_name: string; quantity: number; selling_price: number; applicable_classes?: string[] }[];
+    bundleId?: number;
+    bundleItems?: {
+      item_id: number;
+      item_name: string;
+      quantity: number;
+      selling_price: number;
+      applicable_classes?: string[];
+    }[];
   }) {
     const {
       applicantId,
@@ -3661,6 +3975,7 @@ export const bundlePaymentAPI = {
       customerName,
       targetClass,
       balanceDue,
+      bundleId,
       bundleItems,
     } = params;
 
@@ -3669,6 +3984,7 @@ export const bundlePaymentAPI = {
 
     const txn = await tryInsertTxn({
       applicant_id: applicantId,
+      bundle_id: bundleId ?? null,
       shift_id: shiftId,
       type: "BUNDLE_PURCHASE",
       amount_paid: amount,
@@ -3690,11 +4006,13 @@ export const bundlePaymentAPI = {
     // persist all physical items in transaction_items with selling prices so they appear
     // in the student's store purchase history and drive the behind-the-scenes revenue split.
     let finalBundleItems = bundleItems;
-    if (!finalBundleItems || finalBundleItems.length === 0) {
+    if (finalBundleItems === undefined) {
       try {
         const { data: matchedBundles } = await supabase
           .from("bundles")
-          .select("id, bundle_items(quantity, inventory(item_id, item_name, selling_price, applicable_classes))")
+          .select(
+            "id, bundle_items(quantity, inventory(item_id, item_name, selling_price, applicable_classes))",
+          )
           .eq("bundle_type", "registration")
           .eq("is_active", true);
 
@@ -3705,9 +4023,9 @@ export const bundlePaymentAPI = {
             item_name: bi.inventory?.item_name || "Bundle Item",
             quantity: bi.quantity,
             selling_price: Number(bi.inventory?.selling_price) || 0,
-             applicable_classes: Array.isArray(bi.inventory?.applicable_classes)
-               ? bi.inventory.applicable_classes
-               : ["All"],
+            applicable_classes: Array.isArray(bi.inventory?.applicable_classes)
+              ? bi.inventory.applicable_classes
+              : ["All"],
           }));
         }
       } catch (e) {
@@ -3726,7 +4044,10 @@ export const bundlePaymentAPI = {
       const inStockBundleItems = finalBundleItems
         .map((item) => {
           const available = liveStock[item.item_id] ?? 0;
-          return { ...item, quantity: Math.max(0, Math.min(item.quantity, available)) };
+          return {
+            ...item,
+            quantity: Math.max(0, Math.min(item.quantity, available)),
+          };
         })
         .filter((item) => item.quantity > 0);
 
@@ -3754,9 +4075,11 @@ export const bundlePaymentAPI = {
         item_name: item.item_name,
         quantity: item.quantity,
         unit_price: Number(item.selling_price) || 0,
-        total_price: (Number(item.selling_price) || 0) * (Number(item.quantity) || 1),
+        total_price:
+          (Number(item.selling_price) || 0) * (Number(item.quantity) || 1),
       }));
-      if (itemRows.length > 0) await supabase.from("transaction_items").insert(itemRows);
+      if (itemRows.length > 0)
+        await supabase.from("transaction_items").insert(itemRows);
 
       // Track ALL bundle items in student_book_issuances for fulfillment tracking.
       const allIssuanceRows = finalBundleItems.map((item) => {
@@ -3775,16 +4098,26 @@ export const bundlePaymentAPI = {
         };
       });
       if (allIssuanceRows.length > 0) {
-        const { error: issuanceErr } = await supabase.from("student_book_issuances").insert(allIssuanceRows);
-        if (issuanceErr) console.error("[student_book_issuances] insert failed (registration):", issuanceErr.message, issuanceErr.details, { rows: allIssuanceRows });
+        const { error: issuanceErr } = await supabase
+          .from("student_book_issuances")
+          .insert(allIssuanceRows);
+        if (issuanceErr)
+          console.error(
+            "[student_book_issuances] insert failed (registration):",
+            issuanceErr.message,
+            issuanceErr.details,
+            { rows: allIssuanceRows },
+          );
       }
 
       // Receipt shows in-stock items
-      lineItems.push(...inStockBundleItems.map((item) => ({
-        item_name: item.item_name,
-        quantity: item.quantity,
-        total_price: item.selling_price * item.quantity,
-      })));
+      lineItems.push(
+        ...inStockBundleItems.map((item) => ({
+          item_name: item.item_name,
+          quantity: item.quantity,
+          total_price: item.selling_price * item.quantity,
+        })),
+      );
     }
 
     // Add summary line items
@@ -3812,7 +4145,9 @@ export const bundlePaymentAPI = {
         amount: amount,
         paymentMode: paymentMode,
       });
-    } catch (e) { /* ledger write failure is non-fatal */ }
+    } catch (e) {
+      /* ledger write failure is non-fatal */
+    }
 
     return {
       success: true,
@@ -3917,7 +4252,10 @@ export const bundlePaymentAPI = {
 const studentBundleBalanceAPI = {
   // Check if a student has an active bundle payment for current term (to avoid double-billing).
   // Uses a dynamic SUM-based lookup: also checks via applicant linkage for recently enrolled students.
-  async checkStudentBundlePayment(studentId: string, currentTerm?: string): Promise<{
+  async checkStudentBundlePayment(
+    studentId: string,
+    currentTerm?: string,
+  ): Promise<{
     hasBundle: boolean;
     isFullPayment: boolean;
     balanceDue: number;
@@ -3926,9 +4264,15 @@ const studentBundleBalanceAPI = {
     academicTerm?: string;
   }> {
     if (!studentId) {
-      return { hasBundle: false, isFullPayment: false, balanceDue: 0, bundleAmount: 0 };
+      return {
+        hasBundle: false,
+        isFullPayment: false,
+        balanceDue: 0,
+        bundleAmount: 0,
+      };
     }
-    const txnSelect = "transaction_id, amount_paid, balance_due, type, notes, academic_term, timestamp, bundle_id, bundles(bundle_type)";
+    const txnSelect =
+      "transaction_id, amount_paid, balance_due, type, notes, academic_term, timestamp, bundle_id, bundles(bundle_type)";
 
     // 1. Primary: fetch BUNDLE_PURCHASE transactions by student_id — includes both
     //    bundle-backed and direct registration payments (no bundle_id).
@@ -3961,11 +4305,13 @@ const studentBundleBalanceAPI = {
 
     // Merge and deduplicate by transaction_id
     const seen = new Set<number>();
-    const allTxns = [...(directTxns || []), ...applicantTxns].filter((t: any) => {
-      if (seen.has(t.transaction_id)) return false;
-      seen.add(t.transaction_id);
-      return true;
-    });
+    const allTxns = [...(directTxns || []), ...applicantTxns].filter(
+      (t: any) => {
+        if (seen.has(t.transaction_id)) return false;
+        seen.add(t.transaction_id);
+        return true;
+      },
+    );
 
     // Filter to registration-type bundles only (exclude acceptance fees, store purchases)
     const registrationTxns = allTxns.filter((t: any) => {
@@ -3983,7 +4329,12 @@ const studentBundleBalanceAPI = {
       : registrationTxns[0];
 
     if (!relevantTxn) {
-      return { hasBundle: false, isFullPayment: false, balanceDue: 0, bundleAmount: 0 };
+      return {
+        hasBundle: false,
+        isFullPayment: false,
+        balanceDue: 0,
+        bundleAmount: 0,
+      };
     }
     const balanceDue = Number(relevantTxn.balance_due) || 0;
     const isFullPayment = balanceDue === 0;
@@ -4006,7 +4357,15 @@ const studentBundleBalanceAPI = {
     customerName?: string;
     targetClass?: string;
   }): Promise<{ success: boolean; newBalance: number }> {
-    const { transactionId, studentId, shiftId, amount, paymentMode, customerName, targetClass } = params;
+    const {
+      transactionId,
+      studentId,
+      shiftId,
+      amount,
+      paymentMode,
+      customerName,
+      targetClass,
+    } = params;
     // Get current transaction to check balance
     const { data: txn, error: txnError } = await supabase
       .from("transactions")
@@ -4016,7 +4375,9 @@ const studentBundleBalanceAPI = {
     if (txnError || !txn) throw new Error("Transaction not found");
     const currentBalance = Number(txn.balance_due) || 0;
     if (amount > currentBalance + 0.01) {
-      throw new Error(`Cannot pay ₦${amount.toLocaleString("en-NG")} — balance is only ₦${currentBalance.toLocaleString("en-NG")}`);
+      throw new Error(
+        `Cannot pay ₦${amount.toLocaleString("en-NG")} — balance is only ₦${currentBalance.toLocaleString("en-NG")}`,
+      );
     }
     // Create a NEW installment transaction row — never overwrite the original
     const installmentTxn = await tryInsertTxn({
@@ -4036,23 +4397,35 @@ const studentBundleBalanceAPI = {
       .from("transactions")
       .update({ balance_due: newBalance, amount_paid: newAmountPaid })
       .eq("transaction_id", transactionId);
-    if (updateTxnError) throw new Error(`Payment recorded but failed to update bundle balance: ${updateTxnError.message}`);
+    if (updateTxnError)
+      throw new Error(
+        `Payment recorded but failed to update bundle balance: ${updateTxnError.message}`,
+      );
     // Update student's current_fees_owed
     const { data: student, error: studentFetchError } = await supabase
       .from("students")
       .select("current_fees_owed")
       .eq("student_id", studentId)
       .single();
-    if (studentFetchError) throw new Error(`Payment recorded but failed to load student balance: ${studentFetchError.message}`);
+    if (studentFetchError)
+      throw new Error(
+        `Payment recorded but failed to load student balance: ${studentFetchError.message}`,
+      );
     if (student) {
       const { error: studentUpdateError } = await supabase
         .from("students")
         .update({
-          current_fees_owed: Math.max(0, Number(student.current_fees_owed) - amount),
+          current_fees_owed: Math.max(
+            0,
+            Number(student.current_fees_owed) - amount,
+          ),
           updated_at: new Date().toISOString(),
         })
         .eq("student_id", studentId);
-      if (studentUpdateError) throw new Error(`Payment recorded but failed to update student balance: ${studentUpdateError.message}`);
+      if (studentUpdateError)
+        throw new Error(
+          `Payment recorded but failed to update student balance: ${studentUpdateError.message}`,
+        );
     }
 
     // Double-entry ledger for bundle installment payment
@@ -4064,7 +4437,9 @@ const studentBundleBalanceAPI = {
         amount,
         paymentMode,
       });
-    } catch (e) { /* ledger write failure is non-fatal */ }
+    } catch (e) {
+      /* ledger write failure is non-fatal */
+    }
 
     return { success: true, newBalance };
   },
@@ -4083,7 +4458,8 @@ export const expenseAPI = {
     description?: string;
     createdBy?: number;
   }) {
-    const { shiftId, category, amount, paymentMode, description, createdBy } = params;
+    const { shiftId, category, amount, paymentMode, description, createdBy } =
+      params;
     const { data, error } = await supabase
       .from("expenses")
       .insert({
@@ -4122,7 +4498,10 @@ export const expenseAPI = {
       .eq("shift_id", shiftId)
       .eq("payment_mode", "Cash Drawer");
     if (error) throw error;
-    return (data || []).reduce((sum: number, e: any) => sum + Number(e.amount), 0);
+    return (data || []).reduce(
+      (sum: number, e: any) => sum + Number(e.amount),
+      0,
+    );
   },
 
   // Get expense summary grouped by category for a date range
@@ -4135,7 +4514,10 @@ export const expenseAPI = {
     const { data, error } = await query;
     if (error) throw error;
 
-    const grouped: Record<string, { total: number; count: number; cashTotal: number; bankTotal: number }> = {};
+    const grouped: Record<
+      string,
+      { total: number; count: number; cashTotal: number; bankTotal: number }
+    > = {};
     for (const e of data || []) {
       const cat = e.category;
       if (!grouped[cat]) {
@@ -4182,7 +4564,10 @@ export const expenseAPI = {
     }
 
     return {
-      byCategory: Object.entries(byCategory).map(([category, total]) => ({ category, total })),
+      byCategory: Object.entries(byCategory).map(([category, total]) => ({
+        category,
+        total,
+      })),
       totalCash,
       totalBank,
       grandTotal,
@@ -4212,7 +4597,8 @@ export const expenseAPI = {
     if (params.startDate) query = query.gte("created_at", params.startDate);
     if (params.endDate) query = query.lte("created_at", params.endDate);
     if (params.category) query = query.eq("category", params.category);
-    if (params.paymentMode) query = query.eq("payment_mode", params.paymentMode);
+    if (params.paymentMode)
+      query = query.eq("payment_mode", params.paymentMode);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -4239,52 +4625,66 @@ async function enrichIssuanceRows(rawRows: any[]): Promise<any[]> {
     new Set(
       rawRows
         .filter((r) => r.student_id && !r.students?.name)
-        .map((r) => r.student_id)
-    )
+        .map((r) => r.student_id),
+    ),
   );
   const missingApplicantIds = Array.from(
     new Set(
       rawRows
         .filter((r) => r.applicant_id && !r.applicants?.first_name)
         .map((r) => Number(r.applicant_id))
-        .filter((id) => !isNaN(id) && id > 0)
-    )
+        .filter((id) => !isNaN(id) && id > 0),
+    ),
   );
   const itemIds = Array.from(
-    new Set(
-      rawRows
-        .map((r) => r.item_id)
-        .filter(Boolean)
-    )
+    new Set(rawRows.map((r) => r.item_id).filter(Boolean)),
   );
   const txnIds = Array.from(
     new Set(
       rawRows
         .map((r) => r.transaction_id)
-        .filter((id) => id !== null && id !== undefined)
-    )
+        .filter((id) => id !== null && id !== undefined),
+    ),
   );
 
   // 2. Perform parallel batch secondary lookups
   const [studentRes, applicantRes, invRes, txnRes] = await Promise.all([
     missingStudentIds.length
-      ? supabase.from("students").select("student_id, name, student_class").in("student_id", missingStudentIds)
+      ? supabase
+          .from("students")
+          .select("student_id, name, student_class")
+          .in("student_id", missingStudentIds)
       : Promise.resolve({ data: [] }),
     missingApplicantIds.length
-      ? supabase.from("applicants").select("id, first_name, last_name, proposed_class").in("id", missingApplicantIds)
+      ? supabase
+          .from("applicants")
+          .select("id, first_name, last_name, proposed_class")
+          .in("id", missingApplicantIds)
       : Promise.resolve({ data: [] }),
     itemIds.length
-      ? supabase.from("inventory").select("item_id, item_name, stock_quantity").in("item_id", itemIds)
+      ? supabase
+          .from("inventory")
+          .select("item_id, item_name, stock_quantity")
+          .in("item_id", itemIds)
       : Promise.resolve({ data: [] }),
     txnIds.length
-      ? supabase.from("transactions").select("transaction_id, status").in("transaction_id", txnIds)
+      ? supabase
+          .from("transactions")
+          .select("transaction_id, status")
+          .in("transaction_id", txnIds)
       : Promise.resolve({ data: [] }),
   ]);
 
-  const studentMap = new Map((studentRes.data || []).map((s: any) => [s.student_id, s]));
-  const applicantMap = new Map((applicantRes.data || []).map((a: any) => [a.id, a]));
+  const studentMap = new Map(
+    (studentRes.data || []).map((s: any) => [s.student_id, s]),
+  );
+  const applicantMap = new Map(
+    (applicantRes.data || []).map((a: any) => [a.id, a]),
+  );
   const invMap = new Map((invRes.data || []).map((i: any) => [i.item_id, i]));
-  const txnMap = new Map((txnRes.data || []).map((t: any) => [t.transaction_id, t]));
+  const txnMap = new Map(
+    (txnRes.data || []).map((t: any) => [t.transaction_id, t]),
+  );
 
   // 3. Map values onto each row with void safeguard detection
   return rawRows.map((row: any) => {
@@ -4294,8 +4694,12 @@ async function enrichIssuanceRows(rawRows: any[]): Promise<any[]> {
     if (row.students && row.students.name) {
       studentName = row.students.name;
       studentClass = row.students.student_class || "";
-    } else if (row.applicants && (row.applicants.first_name || row.applicants.last_name)) {
-      studentName = `${row.applicants.first_name || ""} ${row.applicants.last_name || ""}`.trim();
+    } else if (
+      row.applicants &&
+      (row.applicants.first_name || row.applicants.last_name)
+    ) {
+      studentName =
+        `${row.applicants.first_name || ""} ${row.applicants.last_name || ""}`.trim();
       studentClass = row.applicants.proposed_class || "New Admission";
     } else if (row.student_id && studentMap.has(row.student_id)) {
       const s = studentMap.get(row.student_id);
@@ -4308,12 +4712,16 @@ async function enrichIssuanceRows(rawRows: any[]): Promise<any[]> {
     }
 
     const invItem = row.item_id ? invMap.get(row.item_id) : null;
-    const itemName = row.item_name || invItem?.item_name || row.book_name || "Store Item";
-    const stockQty = invItem ? Number(invItem.stock_quantity) || 0 : (row.stock_quantity ?? 0);
+    const itemName =
+      row.item_name || invItem?.item_name || row.book_name || "Store Item";
+    const stockQty = invItem
+      ? Number(invItem.stock_quantity) || 0
+      : (row.stock_quantity ?? 0);
 
     const txn = row.transaction_id ? txnMap.get(row.transaction_id) : null;
     const isTxnVoided = txn?.status === "VOIDED" || txn?.status === "voided";
-    const isVoided = row.status === "voided" || row.is_voided === true || isTxnVoided;
+    const isVoided =
+      row.status === "voided" || row.is_voided === true || isTxnVoided;
 
     return {
       ...row,
@@ -4338,7 +4746,9 @@ export const issuanceAPI = {
         .order("created_at", { ascending: false });
       if (error) throw error;
       const enriched = await enrichIssuanceRows(data || []);
-      return enriched.filter((row: any) => !row.is_voided && row.status !== "voided");
+      return enriched.filter(
+        (row: any) => !row.is_voided && row.status !== "voided",
+      );
     } catch (e) {
       console.error("getPendingByStudent error:", e);
       return [];
@@ -4355,7 +4765,9 @@ export const issuanceAPI = {
         .order("created_at", { ascending: false });
       if (error) throw error;
       const enriched = await enrichIssuanceRows(data || []);
-      return enriched.filter((row: any) => !row.is_voided && row.status !== "voided");
+      return enriched.filter(
+        (row: any) => !row.is_voided && row.status !== "voided",
+      );
     } catch (e) {
       console.error("getPendingByApplicant error:", e);
       return [];
@@ -4367,7 +4779,9 @@ export const issuanceAPI = {
     try {
       const { data, error } = await supabase
         .from("student_book_issuances")
-        .select("*, students(name, student_class), applicants(first_name, last_name, proposed_class)")
+        .select(
+          "*, students(name, student_class), applicants(first_name, last_name, proposed_class)",
+        )
         .in("status", ["unassigned", "pending"])
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -4388,7 +4802,9 @@ export const issuanceAPI = {
       }
     }
     const enriched = await enrichIssuanceRows(rawData);
-    return enriched.filter((row: any) => !row.is_voided && row.status !== "voided");
+    return enriched.filter(
+      (row: any) => !row.is_voided && row.status !== "voided",
+    );
   },
 
   async fulfill(issuanceId: number, assignedBy: number) {
@@ -4402,7 +4818,10 @@ export const issuanceAPI = {
 
     // Storekeeper Fulfillment Safeguard: Reject fulfillment if issuance or transaction was voided
     if (issuance.status === "voided" || issuance.is_voided) {
-      return { success: false, error: "Cannot fulfill item: Transaction has been voided." };
+      return {
+        success: false,
+        error: "Cannot fulfill item: Transaction has been voided.",
+      };
     }
     if (issuance.transaction_id) {
       const { data: txn } = await supabase
@@ -4411,7 +4830,10 @@ export const issuanceAPI = {
         .eq("transaction_id", issuance.transaction_id)
         .maybeSingle();
       if (txn && (txn.status === "VOIDED" || txn.status === "voided")) {
-        return { success: false, error: "Cannot fulfill item: Associated transaction has been voided." };
+        return {
+          success: false,
+          error: "Cannot fulfill item: Associated transaction has been voided.",
+        };
       }
     }
 
@@ -4424,11 +4846,16 @@ export const issuanceAPI = {
         .single();
       const currentStock = inv?.stock_quantity ?? 0;
       if (currentStock < (issuance.quantity || 1)) {
-        return { success: false, error: `Insufficient stock (${currentStock} available, ${issuance.quantity} needed)` };
+        return {
+          success: false,
+          error: `Insufficient stock (${currentStock} available, ${issuance.quantity} needed)`,
+        };
       }
       await supabase
         .from("inventory")
-        .update({ stock_quantity: Math.max(0, currentStock - (issuance.quantity || 1)) })
+        .update({
+          stock_quantity: Math.max(0, currentStock - (issuance.quantity || 1)),
+        })
         .eq("item_id", issuance.item_id);
     }
 
@@ -4438,6 +4865,7 @@ export const issuanceAPI = {
         status: "assigned",
         assigned_at: new Date().toISOString(),
         assigned_by: assignedBy,
+        stock_deducted: true,
       })
       .eq("id", issuanceId);
     if (updateErr) return { success: false, error: updateErr.message };
@@ -4449,7 +4877,9 @@ export const issuanceAPI = {
     try {
       const { data, error } = await supabase
         .from("student_book_issuances")
-        .select("*, students(name, student_class), applicants(first_name, last_name, proposed_class)")
+        .select(
+          "*, students(name, student_class), applicants(first_name, last_name, proposed_class)",
+        )
         .order("created_at", { ascending: false });
       if (error) throw error;
       rawData = data || [];
@@ -4482,7 +4912,15 @@ export const ledgerAPI = {
     cashierName?: string;
     academicTerm?: string;
   }) {
-    const { studentId, transactionId, feeTypeName, amount, paymentMode, cashierName, academicTerm } = params;
+    const {
+      studentId,
+      transactionId,
+      feeTypeName,
+      amount,
+      paymentMode,
+      cashierName,
+      academicTerm,
+    } = params;
     const rows = [
       {
         student_id: studentId,
@@ -4521,40 +4959,50 @@ export const ledgerAPI = {
     // the transactions table so historical payments render immediately.
     const { data: txns, error: txnErr } = await supabase
       .from("transactions")
-      .select("transaction_id, amount_paid, payment_mode, timestamp, type, fee_types(name)")
+      .select(
+        "transaction_id, amount_paid, payment_mode, timestamp, type, fee_types(name)",
+      )
       .eq("student_id", studentId)
       .neq("status", "VOIDED")
       .order("timestamp", { ascending: false });
     if (txnErr) return data || [];
-    return (txns || []).map((t: any) => {
-      const feeName = t.fee_types?.name || (t.type === "STORE_PURCHASE" ? "Store Purchase" : t.type === "BUNDLE_PURCHASE" ? "Bundle Payment" : "Fee Payment");
-      return [
-        {
-          id: `${t.transaction_id}-d`,
-          student_id: studentId,
-          transaction_id: t.transaction_id,
-          entry_type: "debit",
-          fee_type_name: feeName,
-          amount: Number(t.amount_paid),
-          payment_mode: null,
-          cashier_name: null,
-          academic_term: null,
-          created_at: t.timestamp,
-        },
-        {
-          id: `${t.transaction_id}-c`,
-          student_id: studentId,
-          transaction_id: t.transaction_id,
-          entry_type: "credit",
-          fee_type_name: feeName,
-          amount: Number(t.amount_paid),
-          payment_mode: t.payment_mode,
-          cashier_name: null,
-          academic_term: null,
-          created_at: t.timestamp,
-        },
-      ];
-    }).flat();
+    return (txns || [])
+      .map((t: any) => {
+        const feeName =
+          t.fee_types?.name ||
+          (t.type === "STORE_PURCHASE"
+            ? "Store Purchase"
+            : t.type === "BUNDLE_PURCHASE"
+              ? "Bundle Payment"
+              : "Fee Payment");
+        return [
+          {
+            id: `${t.transaction_id}-d`,
+            student_id: studentId,
+            transaction_id: t.transaction_id,
+            entry_type: "debit",
+            fee_type_name: feeName,
+            amount: Number(t.amount_paid),
+            payment_mode: null,
+            cashier_name: null,
+            academic_term: null,
+            created_at: t.timestamp,
+          },
+          {
+            id: `${t.transaction_id}-c`,
+            student_id: studentId,
+            transaction_id: t.transaction_id,
+            entry_type: "credit",
+            fee_type_name: feeName,
+            amount: Number(t.amount_paid),
+            payment_mode: t.payment_mode,
+            cashier_name: null,
+            academic_term: null,
+            created_at: t.timestamp,
+          },
+        ];
+      })
+      .flat();
   },
 
   async getAllStudentSummaries() {
@@ -4572,16 +5020,25 @@ export const ledgerAPI = {
       .in("student_id", studentIds);
     if (eErr) throw eErr;
 
-    const summaryMap = new Map<string, { totalBilled: number; totalPaid: number }>();
+    const summaryMap = new Map<
+      string,
+      { totalBilled: number; totalPaid: number }
+    >();
     for (const e of entries || []) {
-      const s = summaryMap.get(e.student_id) || { totalBilled: 0, totalPaid: 0 };
+      const s = summaryMap.get(e.student_id) || {
+        totalBilled: 0,
+        totalPaid: 0,
+      };
       if (e.entry_type === "debit") s.totalBilled += Number(e.amount);
       else s.totalPaid += Number(e.amount);
       summaryMap.set(e.student_id, s);
     }
 
     return students.map((s: any) => {
-      const sum = summaryMap.get(s.student_id) || { totalBilled: 0, totalPaid: 0 };
+      const sum = summaryMap.get(s.student_id) || {
+        totalBilled: 0,
+        totalPaid: 0,
+      };
       return {
         ...s,
         total_billed: sum.totalBilled,
