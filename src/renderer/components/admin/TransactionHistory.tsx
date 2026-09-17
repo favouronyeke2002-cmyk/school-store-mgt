@@ -131,6 +131,7 @@ const TransactionHistory: React.FC = () => {
   const [endDate, setEndDate] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [selected, setSelected] = useState<Transaction | null>(null);
   const [details, setDetails] = useState<any>(null);
   const [settings, setSettings] = useState<any>(null);
@@ -207,7 +208,7 @@ const TransactionHistory: React.FC = () => {
 
   const [statMetrics, setStatMetrics] = useState(() => calculateMetrics([]));
 
-  useEffect(() => { searchTransactions(); }, [typeFilter, paymentFilter]);
+  useEffect(() => { searchTransactions(); }, [typeFilter, paymentFilter, statusFilter]);
   useEffect(() => { settingsAPI.get().then(setSettings).catch(console.error); }, []);
 
   const searchTransactions = async () => {
@@ -236,6 +237,12 @@ const TransactionHistory: React.FC = () => {
           ...t,
           is_voided: t.is_voided === true || t.status === "VOIDED" || t.status === "voided",
         }))
+        .filter((t) => {
+          const voided = t.is_voided === true || String(t.status || "").toLowerCase() === "voided";
+          if (statusFilter === "voided") return voided;
+          if (statusFilter === "completed") return !voided;
+          return true;
+        })
         .sort(
           (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
         );
@@ -397,7 +404,7 @@ const TransactionHistory: React.FC = () => {
           </p>
         </div>
         <button
-          onClick={() => { setQuery(""); setStartDate(""); setEndDate(""); setTypeFilter(""); setPaymentFilter(""); }}
+          onClick={() => { setQuery(""); setStartDate(""); setEndDate(""); setTypeFilter(""); setPaymentFilter(""); setStatusFilter(""); }}
           className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
         >
           Clear Filters
@@ -443,6 +450,14 @@ const TransactionHistory: React.FC = () => {
               <option value="STORE_PURCHASE">Store Purchase</option>
               <option value="FEES_CASH_COLLECTION">Fees Collection</option>
               <option value="EXPENSE">Expense</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Status:</span>
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-3 py-2 border rounded-md">
+              <option value="">All Statuses</option>
+              <option value="completed">Completed</option>
+              <option value="voided">Voided</option>
             </select>
           </div>
           <div className="flex items-center gap-2">
@@ -528,9 +543,14 @@ const TransactionHistory: React.FC = () => {
                       {fmtCurrency(t.amount_paid)}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button onClick={() => viewDetails(t)} className="px-2 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300">
-                        View
-                      </button>
+                      <div className="flex flex-col items-center gap-1.5">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${voided ? "bg-red-100 text-red-700 border border-red-200" : "bg-green-100 text-green-700 border border-green-200"}`}>
+                          {voided ? "VOIDED" : "Completed"}
+                        </span>
+                        <button onClick={() => viewDetails(t)} className="px-2 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300">
+                          View
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

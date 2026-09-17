@@ -2951,6 +2951,23 @@ function mapBundleItems(bundle_items: any[]) {
   }));
 }
 
+function normalizeClassTag(value: unknown): string {
+  return String(value || "")
+    .trim()
+    .replace(/^#/, "")
+    .replace(/[\s._-]+/g, "")
+    .toUpperCase();
+}
+
+function itemFitsClass(item: any, studentClass?: string | null): boolean {
+  const tags = Array.isArray(item?.applicable_classes) ? item.applicable_classes : [];
+  if (tags.length === 0) return true;
+  const normalizedTags = tags.map(normalizeClassTag);
+  if (normalizedTags.some((tag: string) => tag === "ALL" || tag === "GENERAL")) return true;
+  const normalizedClass = normalizeClassTag(studentClass);
+  return !normalizedClass || normalizedTags.includes(normalizedClass);
+}
+
 async function enrichMissingInventory(items: ReturnType<typeof mapBundleItems>) {
   const missing = items.filter((i) => !i.item_name && i.item_id);
   if (missing.length === 0) return items;
@@ -3412,12 +3429,9 @@ export const bundlePaymentAPI = {
     });
 
     // Filter bundle items by targetClass if student class is specified
-    const applicableBundleItems = (bundle.items || []).filter((item: any) => {
-      if (!targetClass) return true;
-      const classes: string[] = item.applicable_classes;
-      if (!classes || classes.length === 0 || classes.includes("All")) return true;
-      return classes.includes(targetClass);
-    });
+    const applicableBundleItems = (bundle.items || []).filter((item: any) =>
+      itemFitsClass(item, targetClass),
+    );
 
     // Live stock check: never decrement or hand off items that are actually out of stock.
     // Cap each item's quantity to what's really on the shelf and drop items with none left.
@@ -3634,7 +3648,7 @@ export const bundlePaymentAPI = {
     customerName?: string;
     targetClass?: string;
     balanceDue?: number;
-    bundleItems?: { item_id: number; item_name: string; quantity: number; selling_price: number }[];
+    bundleItems?: { item_id: number; item_name: string; quantity: number; selling_price: number; applicable_classes?: string[] }[];
   }) {
     const {
       applicantId,
@@ -3680,7 +3694,7 @@ export const bundlePaymentAPI = {
       try {
         const { data: matchedBundles } = await supabase
           .from("bundles")
-          .select("id, bundle_items(quantity, inventory(item_id, item_name, selling_price))")
+          .select("id, bundle_items(quantity, inventory(item_id, item_name, selling_price, applicable_classes))")
           .eq("bundle_type", "registration")
           .eq("is_active", true);
 
@@ -3691,6 +3705,9 @@ export const bundlePaymentAPI = {
             item_name: bi.inventory?.item_name || "Bundle Item",
             quantity: bi.quantity,
             selling_price: Number(bi.inventory?.selling_price) || 0,
+             applicable_classes: Array.isArray(bi.inventory?.applicable_classes)
+               ? bi.inventory.applicable_classes
+               : ["All"],
           }));
         }
       } catch (e) {
@@ -3698,7 +3715,11 @@ export const bundlePaymentAPI = {
       }
     }
 
-    if (finalBundleItems && finalBundleItems.length > 0) {
+    finalBundleItems = (finalBundleItems || []).filter((item) =>
+      itemFitsClass(item, targetClass),
+    );
+
+    if (finalBundleItems.length > 0) {
       const liveStock = await inventoryAPI.getStockLevels(
         finalBundleItems.map((item) => item.item_id),
       );

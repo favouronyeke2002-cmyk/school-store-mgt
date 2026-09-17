@@ -4,9 +4,9 @@ import { bundleAPI, inventoryAPI } from '../../lib/api';
 
 const fmt = (n: number) => `₦${(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-interface BundleItem { id: number; item_id: number; item_name: string; selling_price: number; stock_quantity: number; quantity: number; }
+interface BundleItem { id: number; item_id: number; item_name: string; selling_price: number; stock_quantity: number; quantity: number; applicable_classes?: string[]; }
 interface Bundle { id: number; name: string; description: string | null; base_price: number; bundle_type: 'acceptance' | 'registration' | 'custom'; is_active: boolean; applicable_to: string; class_category?: string | null; coaching_addon?: boolean; items: BundleItem[]; }
-interface InventoryItem { item_id: number; item_name: string; selling_price: number; stock_quantity: number; }
+interface InventoryItem { item_id: number; item_name: string; selling_price: number; stock_quantity: number; applicable_classes?: string[]; }
 
 type BundleFormState = {
   name: string;
@@ -32,6 +32,13 @@ interface BundleFormProps {
 const BundleForm: React.FC<BundleFormProps> = ({ form, setForm, error, saving, inventory, onSubmit, onCancel }) => {
   const getItemPrice = (itemId: number) => inventory.find((i) => i.item_id === itemId)?.selling_price || 0;
   const getItemName = (itemId: number) => inventory.find((i) => i.item_id === itemId)?.item_name || 'Unknown';
+  const getItemTags = (itemId: number) => {
+    const tags = inventory.find((i) => i.item_id === itemId)?.applicable_classes || ['All'];
+    return tags.map((tag) => {
+      const clean = String(tag).replace(/^#/, '');
+      return clean.toLowerCase() === 'all' || clean.toLowerCase() === 'general' ? '#General' : `#${clean}`;
+    });
+  };
   const addItem = (itemId: number) => {
     if (!form.items.some((i) => i.itemId === itemId)) setForm((p) => ({ ...p, items: [...p.items, { itemId, quantity: 1 }] }));
   };
@@ -151,6 +158,11 @@ const BundleForm: React.FC<BundleFormProps> = ({ form, setForm, error, saving, i
                 <div className="flex-1">
                   <div className="text-sm font-medium">{name}</div>
                   <div className="text-xs text-gray-400">{fmt(price)} each</div>
+                   <div className="flex flex-wrap gap-1 mt-1">
+                     {getItemTags(item.itemId).map((tag) => (
+                       <span key={tag} className="text-[10px] font-semibold bg-blue-50 text-blue-700 rounded-full px-1.5 py-0.5">{tag}</span>
+                     ))}
+                   </div>
                 </div>
                 <input
                   type="number"
@@ -170,7 +182,7 @@ const BundleForm: React.FC<BundleFormProps> = ({ form, setForm, error, saving, i
             className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
           >
             <option value="">+ Add Item</option>
-            {availableItems.map((i) => <option key={i.item_id} value={i.item_id}>{i.item_name} ({fmt(i.selling_price)})</option>)}
+            {availableItems.map((i) => <option key={i.item_id} value={i.item_id}>{i.item_name} · {getItemTags(i.item_id).join(', ')} ({fmt(i.selling_price)})</option>)}
           </select>
         )}
       </div>
