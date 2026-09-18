@@ -93,6 +93,8 @@ interface Bundle {
   name: string;
   description: string | null;
   base_price: number;
+  base_fee?: number;
+  total_amount?: number;
   bundle_type: "acceptance" | "registration" | "custom";
   is_active: boolean;
   applicable_to?: string;
@@ -1308,7 +1310,12 @@ const BundlePaymentModal: React.FC<{
   bundle: Bundle;
   minFloor: number;
   applicantName: string;
-  onComplete: (amount: number, paymentMode: "Cash" | "POS_Transfer") => void;
+  onComplete: (
+    amount: number,
+    paymentMode: "Cash" | "POS_Transfer",
+    dynamicBundleTotal: number,
+    bundleItems: Bundle["items"],
+  ) => void;
   onCancel: () => void;
   processing: boolean;
   error: string;
@@ -1325,7 +1332,30 @@ const BundlePaymentModal: React.FC<{
   const [paymentMode, setPaymentMode] = useState<"Cash" | "POS_Transfer">(
     "Cash",
   );
+  const [bundleItems, setBundleItems] = useState(bundle.items || []);
   const [stockLevels, setStockLevels] = useState<Record<number, number>>({});
+
+  const itemizedBundleTotal = (bundle.items || []).reduce(
+    (sum, item) => sum + Number(item.selling_price) * Number(item.quantity),
+    0,
+  );
+  const baseRegistrationFee =
+    bundle.base_fee != null
+      ? Number(bundle.base_fee)
+      : bundle.total_amount != null
+        ? Number(bundle.total_amount) - itemizedBundleTotal
+        : Number(bundle.base_price) - itemizedBundleTotal;
+  const dynamicBundleTotal =
+    baseRegistrationFee +
+    bundleItems.reduce(
+      (sum, item) => sum + Number(item.selling_price) * Number(item.quantity),
+      0,
+    );
+
+  useEffect(() => {
+    setBundleItems(bundle.items || []);
+    setAmount(String(dynamicBundleTotal));
+  }, [bundle, dynamicBundleTotal]);
 
   useEffect(() => {
     const itemIds = bundle.items?.map((i) => i.item_id) || [];
@@ -1336,10 +1366,13 @@ const BundlePaymentModal: React.FC<{
     inventoryAPI
       .getStockLevels(itemIds)
       .then(setStockLevels)
-      .catch(() => setStockLevels({}));
+      .catch((error) => {
+        console.debug("[CashierPOS] inventory stock lookup failed:", error);
+        setStockLevels({});
+      });
   }, [bundle]);
 
-  const stockCappedItems = (bundle.items || []).map((item) => {
+  const stockCappedItems = bundleItems.map((item) => {
     const available = stockLevels[item.item_id] ?? item.quantity;
     return {
       ...item,
@@ -1350,10 +1383,15 @@ const BundlePaymentModal: React.FC<{
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onComplete(parseFloat(amount) || 0, paymentMode);
+    onComplete(
+      parseFloat(amount) || 0,
+      paymentMode,
+      dynamicBundleTotal,
+      bundleItems,
+    );
   };
 
-  const isPartial = parseFloat(amount) < bundle.base_price;
+  const isPartial = parseFloat(amount) < dynamicBundleTotal;
   const isBelowFloor = isPartial && parseFloat(amount) < minFloor;
 
   return (
@@ -1413,8 +1451,40 @@ const BundlePaymentModal: React.FC<{
                     ? "—"
                     : fmt(item.selling_price * item.quantity)}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const remainingItems = bundleItems.filter(
+                      (i) => i.item_id !== item.item_id,
+                    );
+                    setBundleItems(remainingItems);
+                    setAmount(
+                      String(
+                        baseRegistrationFee +
+                          remainingItems.reduce(
+                            (sum, remainingItem) =>
+                              sum +
+                              Number(remainingItem.selling_price) *
+                                Number(remainingItem.quantity),
+                            0,
+                          ),
+                      ),
+                    );
+                  }}
+                  className="ml-2 text-gray-400 hover:text-danger-600"
+                  title="Remove item"
+                  aria-label={`Remove ${item.item_name}`}
+                >
+                  ✕
+                </button>
               </div>
             ))}
+          </div>
+          <div className="flex justify-between text-sm border-t pt-2 mt-2">
+            <span className="font-bold text-gray-900">Total</span>
+            <span className="text-xl font-extrabold text-primary-600">
+              {fmt(dynamicBundleTotal)}
+            </span>
           </div>
         </div>
 
@@ -1439,10 +1509,10 @@ const BundlePaymentModal: React.FC<{
             <div className="flex gap-2 mt-2">
               <button
                 type="button"
-                onClick={() => setAmount(String(bundle.base_price))}
+                onClick={() => setAmount(String(dynamicBundleTotal))}
                 className="flex-1 py-1.5 text-xs bg-gray-100 rounded-lg hover:bg-gray-200 font-semibold"
               >
-                Full ({fmt(bundle.base_price)})
+                Full ({fmt(dynamicBundleTotal)})
               </button>
               <button
                 type="button"
@@ -1458,7 +1528,7 @@ const BundlePaymentModal: React.FC<{
               >
                 {isBelowFloor
                   ? `Minimum partial payment is ${fmt(minFloor)}`
-                  : `Partial payment — balance will be ${fmt(bundle.base_price - parseFloat(amount))}`}
+                  : `Partial payment — balance will be ${fmt(dynamicBundleTotal - parseFloat(amount))}`}
               </div>
             )}
           </div>
@@ -2237,6 +2307,7 @@ const WalkInRegistrationFeeModal: React.FC<{
     total: number,
     coachingIncluded: boolean,
     balanceDue?: number,
+    bundleItems?: Bundle["items"],
   ) => void;
   onCancel: () => void;
   processing: boolean;
@@ -2257,6 +2328,14 @@ const WalkInRegistrationFeeModal: React.FC<{
   const [paymentType, setPaymentType] = useState<"full" | "half">("full");
   const [stockLevels, setStockLevels] = useState<Record<number, number>>({});
   const [stockLoaded, setStockLoaded] = useState(false);
+  const [bundleItems, setBundleItems] = useState<Bundle["items"]>(
+    matchedBundle?.items || [],
+  );
+
+  const itemizedBundleTotal = (matchedBundle?.items || []).reduce(
+    (sum, item) => sum + Number(item.selling_price) * Number(item.quantity),
+    0,
+  );
 
   // Check live inventory stock for every item in the bundle before rendering it
   useEffect(() => {
@@ -2270,8 +2349,15 @@ const WalkInRegistrationFeeModal: React.FC<{
     inventoryAPI
       .getStockLevels(itemIds)
       .then((levels) => setStockLevels(levels))
-      .catch(() => setStockLevels({}))
+      .catch((error) => {
+        console.debug("[CashierPOS] inventory stock lookup failed:", error);
+        setStockLevels({});
+      })
       .finally(() => setStockLoaded(true));
+  }, [matchedBundle]);
+
+  useEffect(() => {
+    setBundleItems(matchedBundle?.items || []);
   }, [matchedBundle]);
 
   const COACHING_FEE = COACHING_FEE_AMOUNT;
@@ -2281,21 +2367,37 @@ const WalkInRegistrationFeeModal: React.FC<{
   const isFallbackMode = !matchedBundle && !!fallbackPrices;
   const canProceed = isBundleMode || isFallbackMode;
 
-  const base = isBundleMode
-    ? matchedBundle!.base_price
+  const baseRegistrationFee = isBundleMode
+    ? matchedBundle!.base_fee != null
+      ? Number(matchedBundle!.base_fee)
+      : matchedBundle!.total_amount != null
+        ? Number(matchedBundle!.total_amount) - itemizedBundleTotal
+        : Number(matchedBundle!.base_price) - itemizedBundleTotal
     : fallbackPrices
       ? fallbackPrices[studentStatus]
       : 0;
+
+  const dynamicBundleTotal =
+    baseRegistrationFee +
+    bundleItems.reduce(
+      (sum, item) => sum + Number(item.selling_price) * Number(item.quantity),
+      0,
+    );
+  const base = isBundleMode ? dynamicBundleTotal : baseRegistrationFee;
 
   // Coaching: bundle mode = driven by bundle.coaching_addon; fallback mode = Junior/Senior only (never Remedial)
   const hasCoaching = isBundleMode
     ? !!matchedBundle!.coaching_addon
     : isFallbackMode && categoryGroup !== "REMEDIAL";
 
-  const fullTotal = base + (coachingAddon ? COACHING_FEE : 0);
-  const halfTotal = Math.ceil(base / 2) + (coachingAddon ? COACHING_FEE : 0);
+  const fullTotal = dynamicBundleTotal + (coachingAddon ? COACHING_FEE : 0);
+  const halfTotal =
+    Math.ceil(dynamicBundleTotal / 2) + (coachingAddon ? COACHING_FEE : 0);
   const total = paymentType === "full" ? fullTotal : halfTotal;
-  const balanceDue = paymentType === "half" ? base - Math.ceil(base / 2) : 0;
+  const balanceDue =
+    paymentType === "half"
+      ? dynamicBundleTotal - Math.ceil(dynamicBundleTotal / 2)
+      : 0;
 
   // Cap each bundle item's quantity to live stock and mark out-of-stock items so
   // they never make it into the print/receipt payload handed to the storekeeper.
@@ -2312,18 +2414,26 @@ const WalkInRegistrationFeeModal: React.FC<{
     },
   );
 
-  const stockCappedItems = classFilteredItems.map((item) => {
-    const available = stockLoaded ? (stockLevels[item.item_id] ?? 0) : 0;
-    return {
-      ...item,
-      availableStock: available,
-      outOfStock: available <= 0,
-      quantity: Math.max(0, Math.min(item.quantity, available)),
-    };
-  });
+  const stockCappedItems = bundleItems
+    .filter((item) =>
+      classFilteredItems.some((i) => i.item_id === item.item_id),
+    )
+    .map((item) => {
+      const available = stockLoaded ? (stockLevels[item.item_id] ?? 0) : 0;
+      return {
+        ...item,
+        availableStock: available,
+        outOfStock: available <= 0,
+        quantity: Math.max(0, Math.min(item.quantity, available)),
+      };
+    });
   const inStockBundleItems = stockCappedItems.filter(
     (i) => !i.outOfStock && i.quantity > 0,
   );
+
+  const handleRemoveBundleItem = (itemId: number) => {
+    setBundleItems((items) => items.filter((item) => item.item_id !== itemId));
+  };
 
   const tierColor: Record<string, string> = {
     JUNIOR: "bg-blue-100 text-blue-700",
@@ -2424,35 +2534,54 @@ const WalkInRegistrationFeeModal: React.FC<{
 
               <div className="flex justify-between text-sm">
                 <span className="text-gray-700">Base Registration Fee</span>
-                <span className="font-semibold">{fmt(base)}</span>
+                <span className="font-semibold">
+                  {fmt(baseRegistrationFee)}
+                </span>
               </div>
 
-              {matchedBundle && stockCappedItems.length > 0 && (
+              {matchedBundle && bundleItems.length > 0 && (
                 <div className="border-t pt-2 mt-1 space-y-1">
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                     Included Items
                   </p>
-                  {stockCappedItems.map((item) => (
-                    <div
-                      key={item.item_id}
-                      className={`flex justify-between text-xs ${item.outOfStock ? "text-danger-500" : "text-gray-600"}`}
-                    >
-                      <span>
-                        {item.item_name}{" "}
-                        {item.quantity > 1 ? `×${item.quantity}` : ""}
-                        {item.outOfStock && (
-                          <span className="ml-2 font-bold uppercase text-[10px] bg-danger-100 text-danger-700 px-1.5 py-0.5 rounded">
-                            Out of Stock
-                          </span>
-                        )}
-                      </span>
-                      <span>
-                        {item.outOfStock
-                          ? "—"
-                          : fmt(item.selling_price * item.quantity)}
-                      </span>
-                    </div>
-                  ))}
+                  {bundleItems.map((item) => {
+                    const stockItem = stockCappedItems.find(
+                      (stockCappedItem) =>
+                        stockCappedItem.item_id === item.item_id,
+                    );
+                    return (
+                      <div
+                        key={item.item_id}
+                        className={`flex items-center gap-2 text-xs ${stockItem?.outOfStock ? "text-danger-500" : "text-gray-600"}`}
+                      >
+                        <span className="shrink-0 rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-bold text-gray-700">
+                          {item.quantity}x
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          {item.item_name}
+                          {stockItem?.outOfStock && (
+                            <span className="ml-2 font-bold uppercase text-[10px] bg-danger-100 text-danger-700 px-1.5 py-0.5 rounded">
+                              Out of Stock
+                            </span>
+                          )}
+                        </span>
+                        <span className="shrink-0">
+                          {stockItem?.outOfStock
+                            ? "—"
+                            : fmt(item.selling_price * item.quantity)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveBundleItem(item.item_id)}
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-100 font-bold text-red-600 transition-colors hover:bg-red-600 hover:text-white"
+                          title={`Remove ${item.item_name}`}
+                          aria-label={`Remove ${item.item_name}`}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -2562,6 +2691,7 @@ const WalkInRegistrationFeeModal: React.FC<{
                   total,
                   coachingAddon,
                   paymentType === "half" ? balanceDue : undefined,
+                  bundleItems,
                 )
               }
               disabled={
@@ -2704,7 +2834,10 @@ const WalkInBundleModal: React.FC<{
     inventoryAPI
       .getStockLevels(itemIds)
       .then(setStockLevels)
-      .catch(() => setStockLevels({}))
+      .catch((error) => {
+        console.debug("[CashierPOS] inventory stock lookup failed:", error);
+        setStockLevels({});
+      })
       .finally(() => setStockLoaded(true));
   }, [bundle]);
 
@@ -3822,6 +3955,7 @@ const CashierPOS: React.FC = () => {
     total: number,
     coachingIncluded: boolean,
     balanceDue?: number,
+    selectedBundleItems?: Bundle["items"],
   ) => {
     if (!walkInApplicant || !activeShift) return;
     setWalkInModalProcessing(true);
@@ -3840,7 +3974,14 @@ const CashierPOS: React.FC = () => {
             selling_price: number;
           }[]
         | undefined = undefined;
-      if (walkInRegistrationBundle?.items?.length) {
+      if (selectedBundleItems !== undefined) {
+        bundleItems = selectedBundleItems.map((item) => ({
+          item_id: item.item_id,
+          item_name: item.item_name,
+          quantity: item.quantity,
+          selling_price: item.selling_price,
+        }));
+      } else if (walkInRegistrationBundle?.items?.length) {
         const pClass = walkInApplicant.proposed_class;
         bundleItems = walkInRegistrationBundle.items
           .filter((item: any) => {
@@ -3902,9 +4043,14 @@ const CashierPOS: React.FC = () => {
   };
 
   // Bundle payment handler
-  const handleBundlePayment = async () => {
+  const handleBundlePayment = async (
+    amountToPay: number,
+    paymentMode: "Cash" | "POS_Transfer",
+    dynamicBundleTotal: number,
+    purchasedBundleItems: Bundle["items"],
+  ) => {
     if (!walkInApplicant || !selectedBundle || !activeShift) return;
-    const amount = parseFloat(bundleAmount);
+    const amount = amountToPay;
     if (isNaN(amount) || amount <= 0) {
       setBundleError("Enter a valid amount");
       return;
@@ -3923,10 +4069,12 @@ const CashierPOS: React.FC = () => {
         bundleId: selectedBundle.id,
         shiftId: activeShift.id,
         amountPaid: amount,
-        paymentMode: bundlePayMode,
+        totalAmount: dynamicBundleTotal,
+        paymentMode,
         minPartialFloor: minFloor,
         customerName: walkInApplicant.full_name,
         targetClass: walkInApplicant.proposed_class || undefined,
+        items: purchasedBundleItems,
       });
       if (result.success) {
         setShowBundlePayment(false);
@@ -3935,7 +4083,7 @@ const CashierPOS: React.FC = () => {
           timestamp: new Date().toISOString(),
           student_name: walkInApplicant.full_name,
           student_class: walkInApplicant.proposed_class || "Applicant",
-          payment_mode: bundlePayMode,
+          payment_mode: paymentMode,
           fee_type_name: selectedBundle.name,
         };
         setLastTxn({
@@ -5762,7 +5910,7 @@ const CashierPOS: React.FC = () => {
               : schoolSettings?.min_partial_payment_floor || 30000
           }
           applicantName={walkInApplicant.full_name}
-          onComplete={(_amount, _mode) => handleBundlePayment()}
+          onComplete={handleBundlePayment}
           onCancel={() => {
             setShowBundlePayment(false);
             setSelectedBundle(null);

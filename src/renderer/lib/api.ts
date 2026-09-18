@@ -3611,6 +3611,7 @@ export const bundlePaymentAPI = {
     bundleId: number;
     shiftId: number;
     amountPaid: number;
+    totalAmount?: number;
     paymentMode: "Cash" | "POS_Transfer";
     minPartialFloor: number;
     customerName?: string;
@@ -3628,6 +3629,7 @@ export const bundlePaymentAPI = {
       bundleId,
       shiftId,
       amountPaid,
+      totalAmount,
       paymentMode,
       minPartialFloor,
       customerName,
@@ -3639,7 +3641,7 @@ export const bundlePaymentAPI = {
     const bundle = await bundleAPI.getById(bundleId);
     if (!bundle) throw new Error("Bundle not found");
 
-    const totalDue = Number(bundle.base_price);
+    const totalDue = Number(totalAmount ?? bundle.base_price);
 
     // Validate partial payment floor
     if (amountPaid < totalDue && amountPaid < minPartialFloor) {
