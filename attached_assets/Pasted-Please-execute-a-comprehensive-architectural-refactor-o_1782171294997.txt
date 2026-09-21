@@ -1,0 +1,33 @@
+Please execute a comprehensive architectural refactor of our Fees, Billing, and Student Ledger systems This update requires fixing background data synchronization issues while completely modernizing the ledger UI layout.
+
+### PART 1: BACKEND PIPELINES & DATA INTEGRITY (Fees & Billing)
+
+1. Fix Stale List Visibility:
+   - Ensure the Fees Management parent list query fetches and displays all active fee rows instantly upon component mounting, resolving any cached or missing initialization state errors.
+
+2. Enforce Cascade Fee Balance Deletions:
+   - Update the 'Delete' fee handler function. When a master Fee Type row is deleted, execute a transaction that automatically clears out all unpaid line item instances of this specific 'fee_type_id' inside the student balances ledger table.
+   - Following deletion, run a calculation handler to deduct that specific amount from the 'Total Balance Owed' field across all impacted student profiles so balances stay accurate and up to date.
+
+3. Resolve Term Assignment Validation:
+   - Ensure that the Session and Term parameters selected in the dashboard top bar (e.g., 2025/2026 - 1st Term) are explicitly bound into the 'Create & Auto-Assign' payload data structure. Student fee line records must never be assigned across untracked school terms.
+
+---
+
+### PART 2: UI MODERNIZATION (From Raw Table to Student Financial Timeline)
+1. Connect Context & Parameter Filtering:
+   - Route the "Manage Fees & View Ledger" action button on students page to open this ledger view filtered explicitly by the selected student's unique ID.
+   - Include a top-bar Filter Controller supporting Term selection ('1st Term', '2nd Term', '3rd Term') and Category filters ('All', 'Store Purchases', 'Fee Payments').
+
+2. Add Summary Metric Cards:
+   - At the top of the individual student ledger view, display three prominent summary cards: 'Total Balance Owed' (rendered in soft red), 'Total Paid in Selected Term' (soft green), and 'Active Academic Class/Term'.
+
+3. Render a Vertical Activity Timeline Feed:
+   - Replace the old, error-prone spreadsheet table layout entirely with an ordered vertical timeline mapping all historical debits and credits:
+     - For 'Store Purchases': Render a shopping cart icon badge, displaying the specific item breakdown array (e.g., '1x Complete Uniform Set', '2x Exercise Books'), payment method, and total cost.
+     - For 'Fee Payments': Render a green receipt icon showing the fee type covered, transaction reference code, and the payment amount.
+     - For 'Fee Allocations/Charges': Render a clear badge showing when a recurring bill or manual levy was assigned to the student's account balance.
+
+4. Implement Loading & Safety Empty States:
+   - Wrap the component logic in an explicit loading safeguard condition (e.g., if (!ledgerData) return <LoadingSpinner />) to stop the client-side screen crashes and blank white views when toggling tabs.
+   - If a student has no recorded financial activity for a selected filter combination, safely return a clean, styled empty state component stating: "No transaction activity recorded for this term."

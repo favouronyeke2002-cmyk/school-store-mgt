@@ -1,0 +1,49 @@
+Please fix the following frontend bugs and database schema mismatches immediately:
+
+1. Fix Database Schema Error (screencapture-d2e85a12-7949-475c-ba0b-0099d30f9c07-00-z34xx5874aef-janeway-replit-dev-2026-06-19-08_46_36.jpg): 
+   - The settings page is crashing with schema cache errors regarding a missing 'class_list' column in the 'school_settings' table. 
+   - Please update the database schema migration to ensure 'class_list' exists as a valid text/json column, or correct the state-saving logic so it doesn't try to query a non-existent column.
+
+2. Fix Item Name Input Focus Issue: 
+   - In the Inventory Add/Edit item modal, typing a single character causes the text box to lose focus (it deselects active typing). 
+   - Ensure the input value state is properly memoized or managed so the input field does not re-render and drop focus on every keystroke. 
+   - Also, ensure that number-incrementing/decrementing arrows on quantity boxes only change the value when explicitly clicked, rather than triggering on hover or focus.
+
+3. Simplify Class Management UI at the settings tab:
+   - Remove the split "Add New Class / Arm" and "Add Arm to Existing Base" dual layouts. It is over-complicating the UI and it should be able to be edited too.
+   - Replace it with a single text input field labeled "Add New Class/Arm" (e.g., placeholder: "JSS1A"). When the user types the full name and clicks "+", it should save that exact string directly as a usable class badge.Please fix the UI conflict and saving bug inside the Inventory Management dashboard view based on these specific rules:
+
+1. Fix Pencil Icon ('Edit Item' Modal - image_57aa27.png): Remove the 'Initial Stock' input field entirely from this update form. The Edit Item modal must only handle non-quantifiable properties: Item Name, Category, Barcode, Cost Price, and Selling Price. Ensure that clicking 'Update Item' successfully saves these modified values directly to the database without throwing storage errors.
+
+2. Simplify Stock Button ('Adjust Stock' Modal - image_57a67e.png): Modify the stock adjustment workflow. Instead of forcing relative math calculations (+/-) and mandatory written text descriptions for every minor change, provide an absolute 'Current Stock Quantity' text input. 
+
+3. Admin vs Cashier Stock Override: 
+   - When logged in as an Admin, allow the user to directly overwrite the total stock number (e.g., changing 250 directly to 300) and click 'Apply' to save instantly without requiring a mandatory 'Reason' text input.
+   - Restrict this absolute override capability on the cashier-facing terminal to prevent un-audited inventory manipulations.
+Please align the 'Edit Student' modal (image_5731aa.png) with our strict fee management rules to prevent unsafe manual financial entries:
+
+1. Lock the Balance Due Field: Change the 'Balance Due (₦)' text input field to be read-only so that users cannot blindly type over or delete the student's standing financial balance.
+
+2. Add Template-Based Adjustments: Below the read-only balance, implement the same fee template checklist component used in the 'Add New Student' modal (image_573243.png). This must allow the admin to assign additional premade fee templates to an existing student's account securely.
+
+3. Enforce Audit Trail for Direct Adjustments: If a manual direct override to the balance is absolutely necessary, add an optional 'Manual Adjustment' toggle. When turned on, it should display a numeric input box accompanied by a mandatory 'Reason for Adjustment' text area. The 'Save Changes' button must remain disabled until a written justification is provided.
+Please rewrite the backend routing and frontend components for the Cashier Terminal and Student Management views to address the following structural issues:
+1. Stop the Automated Registration Popup: Currently, completing the 'Walk-In Applicant' modal immediately forces the system to jump directly to the giant Registration Fee Bundle window. This is incorrect. Rewrite the submission handler so that clicking 'Create Applicant' ONLY closes the modal and binds that applicant's name to the active cart area. 
+
+2. Implement the Intermediate Action Menu: Once a walk-in or student profile is loaded into the active station, display an explicit, manual action menu containing three distinct buttons:
+   - "Issue Hard Copy Form (₦3,000)"
+   - "Collect Acceptance Fee (₦10,000)"
+   - "Process Full Registration Fee Bundle" (This modal must ONLY open if this button is clicked manually).
+
+3. Integrate Day vs. Boarding Student Type: 
+   - Add a 'Status' selection field (Options: 'Day Student' / 'Boarding Student') into the 'Add New Student' modal, the student list (removing type to 'Status'),the 'Walk-In Applicant' modal, and the 'Edit Student' profile view.
+   - Display this 'Day' or 'Boarding' badge clearly on the student management row alongside their name/class.
+lease expand the Day vs. Boarding logic to the 'Fees & Billing' creation module and administrative tables with these specifications:
+
+1. Update Fee Creation Form: Inside the 'Create New Fee/Template' panel, add a mandatory field labeled 'Applicable To' with three options:
+   - 'All Students'
+   - 'Boarding Students Only'
+   - 'Day Students Only'
+Add Roster Filter Badges: On the main 'Student Management' table view, add a filter component next to the Class dropdown to allow filtering the visible roster by 'Day' or 'Boarding' status instantly.
+4. Smart Bundle Routing: 
+   - Modify the 'Process Full Registration Fee Bundle' button logic. If the active profile is flagged as a 'Day Student', it must fetch and load the Day Registration Prospectus Bundle. If flagged as a 'Boarding Student', it must load the comprehensive Boarding Prospectus Bundle (which includes hostel and feeding components). Both student types must retain the same baseline ₦3,000 Form Fee and ₦10,000 Acceptance Fee allocations.
