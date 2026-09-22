@@ -1386,29 +1386,21 @@ const BundlePaymentModal: React.FC<{
   const [bundleItems, setBundleItems] = useState(eligibleBundleItems);
   const [stockLevels, setStockLevels] = useState<Record<number, number>>({});
 
-  const itemizedBundleTotal = eligibleBundleItems.reduce(
-    (sum, item) => sum + Number(item.selling_price) * Number(item.quantity),
-    0,
-  );
-  const configuredBundleItemsTotal = (bundle.items || []).reduce(
-    (sum, item) => sum + Number(item.selling_price) * Number(item.quantity),
-    0,
-  );
   const baseRegistrationFee =
     bundle.base_fee != null
       ? Number(bundle.base_fee)
       : bundle.total_amount != null
-        ? Number(bundle.total_amount) - configuredBundleItemsTotal
-        : Number(bundle.base_price) - itemizedBundleTotal;
-  const dynamicBundleTotal =
-    baseRegistrationFee +
-    bundleItems.reduce(
-      (sum, item) => sum + Number(item.selling_price) * Number(item.quantity),
-      0,
-    );
+        ? Number(bundle.total_amount)
+        : Number(bundle.base_price);
+  const [removedBundleItemTotal, setRemovedBundleItemTotal] = useState(0);
+  const dynamicBundleTotal = Math.max(
+    0,
+    baseRegistrationFee - removedBundleItemTotal,
+  );
 
   useEffect(() => {
     setBundleItems(eligibleBundleItems);
+    setRemovedBundleItemTotal(0);
     setAmount(String(dynamicBundleTotal));
   }, [bundle, targetClass, studentTags]);
 
@@ -1509,20 +1501,23 @@ const BundlePaymentModal: React.FC<{
                 <button
                   type="button"
                   onClick={() => {
+                    setRemovedBundleItemTotal(
+                      (total) =>
+                        total +
+                        Number(item.selling_price) * Number(item.quantity),
+                    );
                     const remainingItems = bundleItems.filter(
                       (i) => i.item_id !== item.item_id,
                     );
                     setBundleItems(remainingItems);
                     setAmount(
                       String(
-                        baseRegistrationFee +
-                          remainingItems.reduce(
-                            (sum, remainingItem) =>
-                              sum +
-                              Number(remainingItem.selling_price) *
-                                Number(remainingItem.quantity),
-                            0,
-                          ),
+                        Math.max(
+                          0,
+                          dynamicBundleTotal -
+                            Number(item.selling_price) *
+                              Number(item.quantity),
+                        ),
                       ),
                     );
                   }}
@@ -2385,20 +2380,12 @@ const WalkInRegistrationFeeModal: React.FC<{
   const [paymentType, setPaymentType] = useState<"full" | "half">("full");
   const [stockLevels, setStockLevels] = useState<Record<number, number>>({});
   const [stockLoaded, setStockLoaded] = useState(false);
+  const [removedBundleItemTotal, setRemovedBundleItemTotal] = useState(0);
   const eligibleBundleItems = (matchedBundle?.items || []).filter((item) =>
     itemMatchesStudent(item, proposedClass, studentTags),
   );
   const [bundleItems, setBundleItems] = useState<Bundle["items"]>(
     eligibleBundleItems,
-  );
-
-  const itemizedBundleTotal = eligibleBundleItems.reduce(
-    (sum, item) => sum + Number(item.selling_price) * Number(item.quantity),
-    0,
-  );
-  const configuredBundleItemsTotal = (matchedBundle?.items || []).reduce(
-    (sum, item) => sum + Number(item.selling_price) * Number(item.quantity),
-    0,
   );
 
   // Check live inventory stock for every item in the bundle before rendering it
@@ -2422,6 +2409,7 @@ const WalkInRegistrationFeeModal: React.FC<{
 
   useEffect(() => {
     setBundleItems(eligibleBundleItems);
+    setRemovedBundleItemTotal(0);
   }, [matchedBundle, proposedClass, studentTags]);
 
   const COACHING_FEE = COACHING_FEE_AMOUNT;
@@ -2435,19 +2423,15 @@ const WalkInRegistrationFeeModal: React.FC<{
     ? matchedBundle!.base_fee != null
       ? Number(matchedBundle!.base_fee)
       : matchedBundle!.total_amount != null
-        ? Number(matchedBundle!.total_amount) - configuredBundleItemsTotal
-        : Number(matchedBundle!.base_price) - configuredBundleItemsTotal
+        ? Number(matchedBundle!.total_amount)
+        : Number(matchedBundle!.base_price)
     : fallbackPrices
       ? fallbackPrices[studentStatus]
       : 0;
 
-  const dynamicBundleTotal =
-    baseRegistrationFee +
-    bundleItems.reduce(
-      (sum, item) => sum + Number(item.selling_price) * Number(item.quantity),
-      0,
-    );
-  const base = isBundleMode ? dynamicBundleTotal : baseRegistrationFee;
+  const dynamicBundleTotal = isBundleMode
+    ? Math.max(0, baseRegistrationFee - removedBundleItemTotal)
+    : baseRegistrationFee;
 
   // Coaching: bundle mode = driven by bundle.coaching_addon; fallback mode = Junior/Senior only (never Remedial)
   const hasCoaching = isBundleMode
@@ -2488,7 +2472,17 @@ const WalkInRegistrationFeeModal: React.FC<{
   );
 
   const handleRemoveBundleItem = (itemId: number) => {
-    setBundleItems((items) => items.filter((item) => item.item_id !== itemId));
+    setBundleItems((items) => {
+      const removedItem = items.find((item) => item.item_id === itemId);
+      if (removedItem) {
+        setRemovedBundleItemTotal(
+          (total) =>
+            total +
+            Number(removedItem.selling_price) * Number(removedItem.quantity),
+        );
+      }
+      return items.filter((item) => item.item_id !== itemId);
+    });
   };
 
   const tierColor: Record<string, string> = {
