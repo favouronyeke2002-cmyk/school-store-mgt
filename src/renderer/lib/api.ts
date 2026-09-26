@@ -889,8 +889,17 @@ export const feeTypeAPI = {
       classFilter?: string;
       feeCategory?: "standard" | "registration";
       applicableTo?: string;
+      amountScope?: "grandfather" | "retroactive";
     },
   ) {
+    const { data: previousFee, error: previousFeeError } = await supabase
+      .from("fee_types")
+      .select("name, amount")
+      .eq("id", id)
+      .maybeSingle();
+    if (previousFeeError) throw previousFeeError;
+    if (!previousFee) throw new Error("Fee type not found");
+
     const base = {
       name: data.name,
       description: data.description || null,
@@ -912,6 +921,39 @@ export const feeTypeAPI = {
         .update(base)
         .eq("id", id);
       if (e2) throw e2;
+    }
+
+    const oldAmount = Number(previousFee.amount || 0);
+    const amountDelta = Number(data.amount) - oldAmount;
+    if (data.amountScope === "retroactive" && amountDelta !== 0) {
+      const { data: assignedRows, error: assignedError } = await supabase
+        .from("student_fees")
+        .select("id, student_id, amount_due")
+        .eq("fee_type_id", id);
+      if (assignedError) throw assignedError;
+
+      const rows = assignedRows || [];
+      for (const row of rows) {
+        const { error: adjustmentError } = await supabase
+          .from("student_fees")
+          .update({
+            amount_due: Math.max(0, Number(row.amount_due || 0) + amountDelta),
+          })
+          .eq("id", row.id);
+        if (adjustmentError) throw adjustmentError;
+      }
+
+      const adjustmentLabel = `Fee Adjustment: ${data.name} price updated from ₦${oldAmount.toLocaleString("en-NG", { maximumFractionDigits: 2 })} to ₦${Number(data.amount).toLocaleString("en-NG", { maximumFractionDigits: 2 })}`;
+      await ledgerAPI.recordFeeAdjustments(
+        rows.map((row: any) => row.student_id),
+        adjustmentLabel,
+        Math.abs(amountDelta),
+        amountDelta > 0 ? "debit" : "credit",
+      );
+
+      for (const studentId of new Set(rows.map((row: any) => row.student_id))) {
+        await studentFeeAPI.syncStudentOwedBalance(studentId);
+      }
     }
 
     // ── Prune stale assignments ────────────────────────────────────────────
@@ -2182,6 +2224,7 @@ export const transactionAPI = {
     startDate?: string;
     endDate?: string;
     type?: string;
+    status?: string;
     paymentMode?: string;
   }) {
     // 1. Explicitly join with both students AND applicants directly from the transactions foreign keys
@@ -2198,8 +2241,7 @@ export const transactionAPI = {
         )
       `);
 
-    // 2. Apply core parameters filtering
-    if (filters.type) queryBuilder = queryBuilder.eq("type", filters.type);
+    // 2. Apply core parameters filtering without excluding voided rows by default.
     if (filters.paymentMode)
       queryBuilder = queryBuilder.eq("payment_mode", filters.paymentMode);
     if (filters.startDate)
@@ -2212,6 +2254,14 @@ export const transactionAPI = {
         "timestamp",
         `${filters.endDate}T23:59:59`,
       );
+    if (filters.status) {
+      const normalizedStatus = filters.status.trim().toLowerCase();
+      if (normalizedStatus === "voided") {
+        queryBuilder = queryBuilder.eq("status", "VOIDED");
+      } else if (normalizedStatus === "completed") {
+        queryBuilder = queryBuilder.neq("status", "VOIDED");
+      }
+    }
 
     queryBuilder = queryBuilder
       .order("timestamp", { ascending: false })
@@ -2253,6 +2303,20 @@ export const transactionAPI = {
         status: (t.status as string) || "ACTIVE",
       };
     });
+
+    const normalizeTransactionType = (value?: string) =>
+      String(value ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[_\s-]+/g, " ");
+
+    if (filters.type) {
+      const normalizedFilter = normalizeTransactionType(filters.type);
+      results = results.filter((t: any) => {
+        const normalizedType = normalizeTransactionType(t.type);
+        return normalizedType === normalizedFilter;
+      });
+    }
 
     // 4. Handle structural text matching filtration (client-side)
     if (filters.query) {
@@ -2368,21 +2432,36 @@ export const transactionAPI = {
     transactionId: number,
     updates: { type?: string; payment_mode?: string },
   ) {
-    const { error } = await supabase
+    const rawPaymentMode = updates.payment_mode?.trim().toLowerCase();
+    const normalizedPaymentMode = rawPaymentMode?.replace(/[\s-]+/g, "_");
+    const paymentMode =
+      rawPaymentMode === "pos / transfer"
+        ? "pos_transfer"
+        : normalizedPaymentMode === "cash"
+          ? "cash"
+          : normalizedPaymentMode;
+    const normalizedUpdates = {
+      ...updates,
+      ...(paymentMode ? { payment_mode: paymentMode } : {}),
+    };
+    const { data, error } = await supabase
       .from("transactions")
-      .update(updates)
-      .eq("transaction_id", transactionId);
+      .update(normalizedUpdates)
+      .eq("transaction_id", transactionId)
+      .select("transaction_id, type, payment_mode, status");
     if (error) throw error;
-    return { success: true };
+    const transaction: any = data?.[0] || data;
+    return { success: true, transaction };
   },
 
   async void(transactionId: number) {
     // 1. Fetch the transaction to understand what to reverse
-    const { data: txn, error: fetchErr } = await supabase
+    const { data: txnRows, error: fetchErr } = await supabase
       .from("transactions")
       .select("*")
       .eq("transaction_id", transactionId)
-      .single();
+      .limit(1);
+    const txn = txnRows?.[0];
     if (fetchErr || !txn) throw new Error("Transaction not found");
     if (
       String(txn.status || "").toUpperCase() === "VOIDED" ||
@@ -2393,22 +2472,32 @@ export const transactionAPI = {
 
     // 2. Mark as VOIDED — audit row stays forever, never deleted
     const voidedAt = new Date().toISOString();
-    let { error: voidErr } = await supabase
+    let { data: voidedData, error: voidErr } = await supabase
       .from("transactions")
       .update({ status: "VOIDED", voided_at: voidedAt })
-      .eq("transaction_id", transactionId);
+      .eq("transaction_id", transactionId)
+      .select("transaction_id, status");
     if (
       voidErr &&
       String(voidErr.message || "")
         .toLowerCase()
         .includes("voided_at")
     ) {
-      ({ error: voidErr } = await supabase
+      ({ data: voidedData, error: voidErr } = await supabase
         .from("transactions")
         .update({ status: "VOIDED" })
-        .eq("transaction_id", transactionId));
+        .eq("transaction_id", transactionId)
+        .select("transaction_id, status"));
     }
     if (voidErr) throw voidErr;
+    const updatedTransaction: any = voidedData?.[0] || voidedData;
+    if (
+      String((updatedTransaction as any)?.status || "")
+        .trim()
+        .toUpperCase() !== "VOIDED"
+    ) {
+      throw new Error("Transaction status was not persisted as VOIDED");
+    }
 
     const amount = Number(txn.amount_paid);
 
@@ -2420,12 +2509,13 @@ export const transactionAPI = {
       txn.fee_type_id
     ) {
       try {
-        const { data: sf } = await supabase
+        const { data: sfRows } = await supabase
           .from("student_fees")
           .select("id, amount_paid")
           .eq("student_id", txn.student_id)
           .eq("fee_type_id", txn.fee_type_id)
-          .maybeSingle();
+          .limit(1);
+        const sf = sfRows?.[0];
         if (sf) {
           await supabase
             .from("student_fees")
@@ -2434,11 +2524,12 @@ export const transactionAPI = {
             })
             .eq("id", (sf as any).id);
         }
-        const { data: stu } = await supabase
+        const { data: studentRows } = await supabase
           .from("students")
           .select("current_fees_owed")
           .eq("student_id", txn.student_id)
-          .maybeSingle();
+          .limit(1);
+        const stu = studentRows?.[0];
         if (stu) {
           await supabase
             .from("students")
@@ -2460,12 +2551,13 @@ export const transactionAPI = {
       txn.bundle_id
     ) {
       try {
-        const { data: ap } = await supabase
+        const { data: paymentRows } = await supabase
           .from("applicant_payments")
           .select("id, amount_paid")
           .eq("applicant_id", txn.applicant_id)
           .eq("bundle_id", txn.bundle_id)
-          .maybeSingle();
+          .limit(1);
+        const ap = paymentRows?.[0];
         if (ap) {
           await supabase
             .from("applicant_payments")
@@ -2497,11 +2589,12 @@ export const transactionAPI = {
         // Restore stock for items that were already delivered/deducted
         for (const iss of issuances as any[]) {
           if (iss.stock_deducted && iss.item_id) {
-            const { data: inv } = await supabase
+            const { data: inventoryRows } = await supabase
               .from("inventory")
               .select("stock_quantity")
               .eq("item_id", iss.item_id)
-              .single();
+              .limit(1);
+            const inv = inventoryRows?.[0];
             if (inv) {
               await supabase
                 .from("inventory")
@@ -2524,7 +2617,7 @@ export const transactionAPI = {
 
     // Direct store purchases do not create issuance rows, so restore their
     // itemized stock here. Bundle stock is restored above from issuances.
-    if (txn.type === "STORE_PURCHASE") {
+    if (txn.type === "STORE_PURCHASE" || txn.type === "FORM_FEE") {
       try {
         const { data: itemRows } = await supabase
           .from("transaction_items")
@@ -2532,11 +2625,12 @@ export const transactionAPI = {
           .eq("transaction_id", transactionId);
         for (const item of itemRows || []) {
           if (!item.item_id) continue;
-          const { data: inv } = await supabase
+          const { data: inventoryRows } = await supabase
             .from("inventory")
             .select("stock_quantity")
             .eq("item_id", item.item_id)
-            .single();
+            .limit(1);
+          const inv = inventoryRows?.[0];
           if (inv) {
             await supabase
               .from("inventory")
@@ -2579,11 +2673,12 @@ export const transactionAPI = {
     //   Record an Admin Reversal audit log, deduct the amount from current global revenue, and credit the student's ledger balance.
     if (txn.shift_id) {
       try {
-        const { data: shift } = await supabase
+        const { data: shiftRows } = await supabase
           .from("shifts")
           .select("*")
           .eq("id", txn.shift_id)
-          .single();
+          .limit(1);
+        const shift = shiftRows?.[0];
 
         if (shift) {
           if (shift.status === "open") {
@@ -2637,7 +2732,7 @@ export const transactionAPI = {
       }
     }
 
-    return { success: true };
+    return { success: true, transaction: updatedTransaction };
   },
 
   async createPurchase(
@@ -3933,9 +4028,7 @@ export const bundlePaymentAPI = {
       !!formItem && Number(formItem.stock_quantity) > 0;
 
     // Route revenue: Store Revenue if physical inventory, otherwise School Administrative Income by default
-    const txnType = isPhysicalInventory
-      ? "STORE_PURCHASE"
-      : "FEES_CASH_COLLECTION";
+    const txnType = "FORM_FEE";
     const notes = isPhysicalInventory
       ? "Admission Form Purchase (Physical Store Inventory)"
       : "Admission Form Fee (School Administrative Income)";
@@ -4968,6 +5061,25 @@ export const issuanceAPI = {
 
 // ─── Ledger (Double-Entry Accounting) ─────────────────────────────────────────
 export const ledgerAPI = {
+  async recordFeeAdjustments(
+    studentIds: string[],
+    feeTypeName: string,
+    amount: number,
+    entryType: "debit" | "credit",
+  ) {
+    if (studentIds.length === 0 || amount <= 0) return { success: true };
+    const { error } = await supabase.from("ledger_entries").insert(
+      studentIds.map((studentId) => ({
+        student_id: studentId,
+        entry_type: entryType,
+        fee_type_name: feeTypeName,
+        amount,
+      })),
+    );
+    if (error) throw error;
+    return { success: true };
+  },
+
   async recordDoubleEntry(params: {
     studentId: string;
     transactionId: number;

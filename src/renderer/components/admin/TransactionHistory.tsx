@@ -28,6 +28,12 @@ function printReceipt(html: string) {
 const fmtCurrency = (n: number) =>
   `₦${(n || 0).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+const normalizeTransactionType = (value?: string) =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s-]+/g, " ");
+
 function buildReceiptHtml(
   settings: any,
   txn: any,
@@ -74,11 +80,9 @@ function buildReceiptHtml(
       : "";
 
   const paymentLabel =
-    txn.payment_mode === "POS_Transfer"
+    normalizePaymentMode(txn.payment_mode) === "pos_transfer"
       ? "POS / Transfer"
-      : txn.payment_mode === "Bank_Transfer"
-        ? "Bank Transfer"
-        : "Cash";
+      : "Cash";
 
   return `<!DOCTYPE html><html><head><title>Receipt</title>
   <style>
@@ -130,10 +134,24 @@ const TRANSACTION_TYPES = [
 ];
 
 const PAYMENT_MODES = [
-  { value: "Cash", label: "Cash" },
-  { value: "POS_Transfer", label: "POS / Transfer" },
-  { value: "Bank_Transfer", label: "Bank Transfer" },
+  { value: "cash", label: "Cash" },
+  { value: "pos_transfer", label: "POS / Transfer" },
+  { value: "bank_transfer", label: "Bank Transfer" },
 ];
+
+const normalizePaymentMode = (value?: string) => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (
+    normalized === "pos" ||
+    normalized === "pos_transfer" ||
+    normalized === "bank_transfer"
+  )
+    return "pos_transfer";
+  return normalized === "cash" ? "cash" : normalized;
+};
 
 const BUNDLE_TYPES = new Set(["ACCEPTANCE_FEE", "BUNDLE_PURCHASE"]);
 
@@ -187,78 +205,72 @@ const TransactionHistory: React.FC = () => {
   const [voidError, setVoidError] = useState("");
 
   // ── Stat card metrics calculation ─────────────────────────────────────────
-  const calculateMetrics = (txList: Transaction[]) => {
-    // Locate the .reduce() loops calculating 'Store Purchases', 'Fees Collected', and 'Net Total'.
-    // Explicitly add a void condition to every summary loop:
-    // if (tx.status === 'voided' || tx.is_voided === true) return accumulator;
+  const calculateMetrics = (txList: Transaction[], totalExpenses = 0) => {
+    const REVENUE_TYPES = new Set([
+      "fees_cash_collection",
+      "fee_payment",
+      "bundle_purchase",
+      "acceptance_fee",
+      "acceptance",
+      "form fee",
+      "form_fee",
+      "registration fee",
+      "registration_fee",
+      "store_purchase",
+    ]);
+
+    const normalize = (value?: string) =>
+      normalizeTransactionType(value).replace(/\s+/g, " ");
+
+    const valueOf = (tx: any) => Number(tx.amount_paid ?? tx.amount ?? 0) || 0;
+    const isCompleted = (tx: any) => {
+      const status = String(tx.status ?? "active")
+        .trim()
+        .toLowerCase();
+      return (
+        status === "completed" ||
+        status === "active" ||
+        status === "paid" ||
+        status === "success" ||
+        status === ""
+      );
+    };
+
     const storeTotal = txList.reduce((accumulator, tx: any) => {
-      if (tx.status === "voided" || tx.is_voided === true) return accumulator;
-      if (tx.status === "VOIDED" || tx.status === "CANCELLED")
-        return accumulator;
-      if (tx.type === "STORE_PURCHASE")
-        return accumulator + Number(tx.amount_paid || 0);
-      return accumulator;
-    }, 0);
-
-    const feesTotal = txList.reduce((accumulator, tx: any) => {
-      if (tx.status === "voided" || tx.is_voided === true) return accumulator;
-      if (tx.status === "VOIDED" || tx.status === "CANCELLED")
-        return accumulator;
-      if (tx.type === "FEES_CASH_COLLECTION")
-        return accumulator + Number(tx.amount_paid || 0);
-      return accumulator;
-    }, 0);
-
-    const otherRevenueTotal = txList.reduce((accumulator, tx: any) => {
-      if (tx.status === "voided" || tx.is_voided === true) return accumulator;
-      if (tx.status === "VOIDED" || tx.status === "CANCELLED")
-        return accumulator;
-      if (
-        tx.type !== "STORE_PURCHASE" &&
-        tx.type !== "FEES_CASH_COLLECTION" &&
-        tx.type !== "EXPENSE"
-      ) {
-        return accumulator + Number(tx.amount_paid || 0);
+      if (!isCompleted(tx)) return accumulator;
+      if (normalize(tx.type) === "store purchase") {
+        return accumulator + valueOf(tx);
       }
       return accumulator;
     }, 0);
 
-    const expensesTotal = txList.reduce((accumulator, tx: any) => {
-      if (tx.status === "voided" || tx.is_voided === true) return accumulator;
-      if (tx.status === "VOIDED" || tx.status === "CANCELLED")
-        return accumulator;
-      if (tx.type === "EXPENSE")
-        return accumulator + Number(tx.amount_paid || 0);
+    const totalRevenue = txList.reduce((accumulator, tx: any) => {
+      if (!isCompleted(tx)) return accumulator;
+      const txType = normalize(tx.type);
+      if (REVENUE_TYPES.has(txType)) {
+        return accumulator + valueOf(tx);
+      }
       return accumulator;
     }, 0);
 
-    const netTotal = txList.reduce((accumulator, tx: any) => {
-      if (tx.status === "voided" || tx.is_voided === true) return accumulator;
-      if (tx.status === "VOIDED" || tx.status === "CANCELLED")
-        return accumulator;
-      if (tx.type === "EXPENSE")
-        return accumulator - Number(tx.amount_paid || 0);
-      return accumulator + Number(tx.amount_paid || 0);
-    }, 0);
+    const netTotal = totalRevenue - totalExpenses;
 
     const validTotal = txList.reduce((accumulator, tx: any) => {
-      if (tx.status === "voided" || tx.is_voided === true) return accumulator;
-      if (tx.status === "VOIDED" || tx.status === "CANCELLED")
-        return accumulator;
-      return accumulator + Number(tx.amount_paid || 0);
+      if (!isCompleted(tx)) return accumulator;
+      return accumulator + valueOf(tx);
     }, 0);
 
     return {
       storeTotal,
-      feesTotal,
-      otherRevenueTotal,
-      expensesTotal,
+      feesTotal: totalRevenue,
+      otherRevenueTotal: Math.max(0, totalRevenue - storeTotal),
+      expensesTotal: totalExpenses,
       netTotal,
       validTotal,
     };
   };
 
-  const [statMetrics, setStatMetrics] = useState(() => calculateMetrics([]));
+  const [statMetrics, setStatMetrics] = useState(() => calculateMetrics([], 0));
 
   useEffect(() => {
     searchTransactions();
@@ -275,22 +287,26 @@ const TransactionHistory: React.FC = () => {
           query,
           startDate,
           endDate,
-          type: typeFilter === "EXPENSE" ? undefined : typeFilter,
+          type: typeFilter || undefined,
+          status: statusFilter || undefined,
           paymentMode: paymentFilter,
         }),
-        typeFilter === "" || typeFilter === "EXPENSE"
-          ? expenseAPI.getExpensesForHistory({
-              startDate,
-              endDate,
-              paymentMode:
-                paymentFilter === "Cash"
-                  ? "Cash Drawer"
-                  : paymentFilter === "POS_Transfer"
-                    ? "Bank Transfer"
-                    : undefined,
-            })
-          : Promise.resolve([]),
+        expenseAPI.getExpensesForHistory({
+          startDate,
+          endDate,
+          paymentMode:
+            paymentFilter === "Cash"
+              ? "Cash Drawer"
+              : paymentFilter === "POS_Transfer"
+                ? "Bank Transfer"
+                : undefined,
+        }),
       ]);
+
+      const normalizedTypeFilter = typeFilter
+        ? normalizeTransactionType(typeFilter)
+        : "";
+
       const allData: Transaction[] = [...txnData, ...expenseData]
         .map((t: any) => ({
           ...t,
@@ -303,16 +319,25 @@ const TransactionHistory: React.FC = () => {
           const voided =
             t.is_voided === true ||
             String(t.status || "").toLowerCase() === "voided";
-          if (statusFilter === "voided") return voided;
-          if (statusFilter === "completed") return !voided;
-          return true;
+          const typeMatches =
+            !normalizedTypeFilter ||
+            normalizeTransactionType(t.type) === normalizedTypeFilter;
+          if (statusFilter === "voided") return voided && typeMatches;
+          if (statusFilter === "completed") return !voided && typeMatches;
+          return typeMatches;
         })
         .sort(
           (a, b) =>
             new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
         );
+
+      const totalExpenses = expenseData.reduce(
+        (sum, item) => sum + Number(item.amount_paid ?? item.amount ?? 0),
+        0,
+      );
+
       setTransactions(allData);
-      setStatMetrics(calculateMetrics(allData));
+      setStatMetrics(calculateMetrics(allData, totalExpenses));
     } catch (err) {
       console.error(err);
     }
@@ -322,7 +347,7 @@ const TransactionHistory: React.FC = () => {
   const viewDetails = async (t: Transaction) => {
     setSelected(t);
     setEditType(t.type);
-    setEditPaymentMode(t.payment_mode);
+    setEditPaymentMode(normalizePaymentMode(t.payment_mode));
     setSaveError("");
     setSaveSuccess(false);
     setShowVoidConfirm(false);
@@ -403,7 +428,8 @@ const TransactionHistory: React.FC = () => {
     selected != null &&
     !isVoided &&
     selected.type !== "EXPENSE" &&
-    (editType !== selected.type || editPaymentMode !== selected.payment_mode);
+    (editType !== selected.type ||
+      editPaymentMode !== normalizePaymentMode(selected.payment_mode));
 
   const handleSaveChanges = async () => {
     if (!selected || selected.type === "EXPENSE" || isVoided) return;
@@ -411,24 +437,32 @@ const TransactionHistory: React.FC = () => {
     setSaveError("");
     setSaveSuccess(false);
     try {
-      await transactionAPI.update(selected.transaction_id as number, {
-        type: editType,
-        payment_mode: editPaymentMode,
-      });
+      const result = await transactionAPI.update(
+        selected.transaction_id as number,
+        {
+          type: editType,
+          payment_mode: editPaymentMode,
+        },
+      );
+      const savedPaymentMode =
+        result.transaction?.payment_mode ||
+        normalizePaymentMode(editPaymentMode);
       const patched = {
         ...selected,
         type: editType,
-        payment_mode: editPaymentMode,
+        payment_mode: savedPaymentMode,
       };
       setSelected(patched);
       setTransactions((prev) =>
         prev.map((t) =>
           t.transaction_id === selected.transaction_id
-            ? { ...t, type: editType, payment_mode: editPaymentMode }
+            ? { ...t, type: editType, payment_mode: savedPaymentMode }
             : t,
         ),
       );
+      await searchTransactions();
       setSaveSuccess(true);
+      closeModal();
     } catch (err: any) {
       setSaveError(err.message || "Save failed. Please try again.");
     }
@@ -445,32 +479,28 @@ const TransactionHistory: React.FC = () => {
       if (!Number.isInteger(numericId) || numericId <= 0) {
         throw new Error("Invalid transaction ID");
       }
-      await transactionAPI.void(numericId);
+      const result = await transactionAPI.void(numericId);
+      if (
+        String(result.transaction?.status || "")
+          .trim()
+          .toUpperCase() !== "VOIDED"
+      ) {
+        throw new Error("Transaction status was not persisted as VOIDED");
+      }
+      await searchTransactions();
       const patched: Transaction = {
         ...selected,
-        status: "VOIDED",
+        status: result.transaction?.status || "VOIDED",
         is_voided: true,
       };
       setSelected(patched);
       setShowVoidConfirm(false);
-
-      // 1. Immediately update local state (transactions array)
-      const updatedTransactions = transactions.map((t) =>
-        Number(t.transaction_id) === numericId
-          ? { ...t, status: "VOIDED", is_voided: true }
-          : t,
-      );
-      setTransactions(updatedTransactions);
-
-      // 2. Immediately recalculate stat card metrics state without requiring browser refresh
-      setStatMetrics(calculateMetrics(updatedTransactions));
-
-      // 3. Dispatch global event so Shift History, Store Fulfillment, etc. re-fetch immediately in real time
       window.dispatchEvent(
         new CustomEvent("pos:transaction-voided", {
           detail: { transactionId: numericId },
         }),
       );
+      closeModal();
     } catch (err: any) {
       setVoidError(err.message || "Failed to void transaction.");
     }
@@ -509,11 +539,7 @@ const TransactionHistory: React.FC = () => {
 
   // ── Payment label helper ──────────────────────────────────────────────────
   const paymentLabel = (mode: string) =>
-    mode === "POS_Transfer"
-      ? "POS / Transfer"
-      : mode === "Bank_Transfer"
-        ? "Bank Transfer"
-        : mode;
+    normalizePaymentMode(mode) === "pos_transfer" ? "POS / Transfer" : "Cash";
 
   const transaction: Transaction = selected
     ? {
@@ -629,9 +655,11 @@ const TransactionHistory: React.FC = () => {
               className="px-3 py-2 border rounded-md"
             >
               <option value="">All Types</option>
-              <option value="STORE_PURCHASE">Store Purchase</option>
-              <option value="FEES_CASH_COLLECTION">Fees Collection</option>
-              <option value="EXPENSE">Expense</option>
+              <option value="FORM_FEE">Form Fees</option>
+              <option value="ACCEPTANCE_FEE">Acceptance Fees</option>
+              <option value="FEES_CASH_COLLECTION">Tuition / Term Fees</option>
+              <option value="STORE_PURCHASE">Store Purchases</option>
+              <option value="BUNDLE_PURCHASE">Bundles</option>
             </select>
           </div>
           <div className="flex items-center gap-2">
@@ -776,7 +804,9 @@ const TransactionHistory: React.FC = () => {
                                   ? "Acceptance"
                                   : t.type === "BUNDLE_PURCHASE"
                                     ? "Bundle"
-                                    : "Fees"}
+                                    : t.type === "FORM_FEE"
+                                      ? "Form Fees"
+                                      : "Fees"}
                           </span>
                         )}
                       </td>
