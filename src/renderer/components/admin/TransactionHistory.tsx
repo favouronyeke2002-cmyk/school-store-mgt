@@ -188,6 +188,8 @@ const TransactionHistory: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [classFilter, setClassFilter] = useState("");
+  const [availableClasses, setAvailableClasses] = useState<string[]>([]);
   const [selected, setSelected] = useState<Transaction | null>(null);
   const [details, setDetails] = useState<any>(null);
   const [settings, setSettings] = useState<any>(null);
@@ -205,76 +207,80 @@ const TransactionHistory: React.FC = () => {
   const [voidError, setVoidError] = useState("");
 
   // ── Stat card metrics calculation ─────────────────────────────────────────
-  const calculateMetrics = (txList: Transaction[], totalExpenses = 0) => {
-    const REVENUE_TYPES = new Set([
-      "fees_cash_collection",
-      "fee_payment",
-      "bundle_purchase",
-      "acceptance_fee",
-      "acceptance",
-      "form fee",
-      "form_fee",
-      "registration fee",
-      "registration_fee",
-      "store_purchase",
-    ]);
-
-    const normalize = (value?: string) =>
-      normalizeTransactionType(value).replace(/\s+/g, " ");
-
+  const calculateMetrics = (txList: Transaction[]) => {
     const valueOf = (tx: any) => Number(tx.amount_paid ?? tx.amount ?? 0) || 0;
     const isCompleted = (tx: any) => {
       const status = String(tx.status ?? "active")
         .trim()
         .toLowerCase();
       return (
-        status === "completed" ||
-        status === "active" ||
-        status === "paid" ||
-        status === "success" ||
-        status === ""
+        tx.is_voided !== true &&
+        status !== "voided" &&
+        status !== "cancelled" &&
+        ["completed", "active", "paid", "success", ""].includes(status)
       );
     };
+    const typeOf = (tx: any) =>
+      String(tx.type || "")
+        .trim()
+        .toUpperCase();
+    const feeNameOf = (tx: any) =>
+      String(tx.fee_type_name || tx.fee_type || tx.description || "");
+    const isApplicationForm = (tx: any) =>
+      /application\s+form/i.test(feeNameOf(tx));
+    const isOtherOverhead = (tx: any) =>
+      /misc|overhead|\bother\b|administrative/i.test(feeNameOf(tx));
+    const sum = (predicate: (tx: any) => boolean) =>
+      txList.reduce(
+        (total, tx: any) =>
+          isCompleted(tx) && predicate(tx) ? total + valueOf(tx) : total,
+        0,
+      );
 
-    const storeTotal = txList.reduce((accumulator, tx: any) => {
-      if (!isCompleted(tx)) return accumulator;
-      if (normalize(tx.type) === "store purchase") {
-        return accumulator + valueOf(tx);
-      }
-      return accumulator;
-    }, 0);
-
-    const totalRevenue = txList.reduce((accumulator, tx: any) => {
-      if (!isCompleted(tx)) return accumulator;
-      const txType = normalize(tx.type);
-      if (REVENUE_TYPES.has(txType)) {
-        return accumulator + valueOf(tx);
-      }
-      return accumulator;
-    }, 0);
-
-    const netTotal = totalRevenue - totalExpenses;
-
-    const validTotal = txList.reduce((accumulator, tx: any) => {
-      if (!isCompleted(tx)) return accumulator;
-      return accumulator + valueOf(tx);
-    }, 0);
+    const formFees = sum(
+      (tx) => typeOf(tx) === "FORM_FEE" || isApplicationForm(tx),
+    );
+    const acceptanceFees = sum((tx) => typeOf(tx) === "ACCEPTANCE_FEE");
+    const tuitionFees = sum((tx) => typeOf(tx) === "FEES_CASH_COLLECTION");
+    const storePurchases = sum(
+      (tx) => typeOf(tx) === "STORE_PURCHASE" && !isApplicationForm(tx),
+    );
+    const bundlesPurchased = sum((tx) => typeOf(tx) === "BUNDLE_PURCHASE");
+    const otherOverheadFees = sum(
+      (tx) =>
+        ![
+          "EXPENSE",
+          "FORM_FEE",
+          "ACCEPTANCE_FEE",
+          "FEES_CASH_COLLECTION",
+          "STORE_PURCHASE",
+          "BUNDLE_PURCHASE",
+        ].includes(typeOf(tx)) && isOtherOverhead(tx),
+    );
 
     return {
-      storeTotal,
-      feesTotal: totalRevenue,
-      otherRevenueTotal: Math.max(0, totalRevenue - storeTotal),
-      expensesTotal: totalExpenses,
-      netTotal,
-      validTotal,
+      formFees,
+      acceptanceFees,
+      tuitionFees,
+      storePurchases,
+      bundlesPurchased,
+      otherOverheadFees,
+      validTotal: sum(() => true),
     };
   };
 
-  const [statMetrics, setStatMetrics] = useState(() => calculateMetrics([], 0));
+  const [statMetrics, setStatMetrics] = useState(() => calculateMetrics([]));
 
   useEffect(() => {
     searchTransactions();
-  }, [typeFilter, paymentFilter, statusFilter]);
+  }, [
+    typeFilter,
+    paymentFilter,
+    statusFilter,
+    startDate,
+    endDate,
+    classFilter,
+  ]);
   useEffect(() => {
     settingsAPI.get().then(setSettings).catch(console.error);
   }, []);
@@ -331,13 +337,24 @@ const TransactionHistory: React.FC = () => {
             new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
         );
 
-      const totalExpenses = expenseData.reduce(
-        (sum, item) => sum + Number(item.amount_paid ?? item.amount ?? 0),
-        0,
-      );
+      const availableClasses = Array.from(
+        new Set(
+          allData
+            .map((transaction) => transaction.student_class?.trim())
+            .filter((studentClass): studentClass is string =>
+              Boolean(studentClass && studentClass !== "—"),
+            ),
+        ),
+      ).sort((a, b) => a.localeCompare(b));
+      const classFilteredData = classFilter
+        ? allData.filter(
+            (transaction) => transaction.student_class === classFilter,
+          )
+        : allData;
 
-      setTransactions(allData);
-      setStatMetrics(calculateMetrics(allData, totalExpenses));
+      setAvailableClasses(availableClasses);
+      setTransactions(classFilteredData);
+      setStatMetrics(calculateMetrics(classFilteredData));
     } catch (err) {
       console.error(err);
     }
@@ -573,6 +590,7 @@ const TransactionHistory: React.FC = () => {
             setTypeFilter("");
             setPaymentFilter("");
             setStatusFilter("");
+            setClassFilter("");
           }}
           className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
         >
@@ -581,35 +599,33 @@ const TransactionHistory: React.FC = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
         {[
-          { label: "Transactions", value: transactions.length },
+          { label: "Form Fees", value: fmtCurrency(statMetrics.formFees) },
+          {
+            label: "Acceptance Fees",
+            value: fmtCurrency(statMetrics.acceptanceFees),
+          },
+          {
+            label: "Tuition & Term Fees",
+            value: fmtCurrency(statMetrics.tuitionFees),
+          },
           {
             label: "Store Purchases",
-            value: fmtCurrency(statMetrics.storeTotal),
+            value: fmtCurrency(statMetrics.storePurchases),
           },
           {
-            label: "Fees Collected",
-            value: fmtCurrency(statMetrics.feesTotal),
+            label: "Bundles Purchased",
+            value: fmtCurrency(statMetrics.bundlesPurchased),
           },
           {
-            label: "Expenses",
-            value: fmtCurrency(statMetrics.expensesTotal),
-            isExpense: true,
+            label: "Other / Overhead Fees",
+            value: fmtCurrency(statMetrics.otherOverheadFees),
           },
-          { label: "Net Total", value: fmtCurrency(statMetrics.netTotal) },
         ].map((s, i) => (
           <div key={i} className="bg-white rounded-lg shadow-sm p-5">
-            <div
-              className={`text-sm ${s.isExpense ? "text-red-500" : "text-gray-500"}`}
-            >
-              {s.label}
-            </div>
-            <div
-              className={`text-2xl font-bold ${s.isExpense ? "text-red-600" : ""}`}
-            >
-              {s.value}
-            </div>
+            <div className="text-sm text-gray-500">{s.label}</div>
+            <div className="text-xl font-bold text-gray-900">{s.value}</div>
           </div>
         ))}
       </div>
@@ -685,6 +701,21 @@ const TransactionHistory: React.FC = () => {
               <option value="Cash">Cash</option>
               <option value="POS_Transfer">POS / Transfer</option>
               <option value="Bank_Transfer">Bank Transfer</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Class:</span>
+            <select
+              value={classFilter}
+              onChange={(e) => setClassFilter(e.target.value)}
+              className="px-3 py-2 border rounded-md"
+            >
+              <option value="">All Classes</option>
+              {availableClasses.map((studentClass) => (
+                <option key={studentClass} value={studentClass}>
+                  {studentClass}
+                </option>
+              ))}
             </select>
           </div>
         </div>

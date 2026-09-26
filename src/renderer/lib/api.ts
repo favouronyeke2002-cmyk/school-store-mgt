@@ -2238,7 +2238,8 @@ export const transactionAPI = {
           first_name,
           last_name,
           proposed_class
-        )
+        ),
+        fee_types (name)
       `);
 
     // 2. Apply core parameters filtering without excluding voided rows by default.
@@ -2298,6 +2299,8 @@ export const transactionAPI = {
         amount_paid: t.amount_paid,
         payment_mode: t.payment_mode,
         timestamp: t.timestamp,
+        fee_type_name: t.fee_types?.name || t.fee_type || "",
+        description: t.description || t.notes || "",
         student_name: finalName,
         student_class: finalClass,
         status: (t.status as string) || "ACTIVE",
@@ -2357,7 +2360,8 @@ export const transactionAPI = {
       unit_price: Number(i.unit_price ?? i.inventory?.selling_price ?? 0),
       total_price: Number(
         i.total_price ??
-          (Number(i.quantity || 1) * Number(i.unit_price ?? i.inventory?.selling_price ?? 0)),
+          Number(i.quantity || 1) *
+            Number(i.unit_price ?? i.inventory?.selling_price ?? 0),
       ),
     }));
 
@@ -2386,10 +2390,7 @@ export const transactionAPI = {
       receiptItems = [
         {
           item_name:
-            txn.fee_types?.name ||
-            txn.description ||
-            txn.type ||
-            "Payment",
+            txn.fee_types?.name || txn.description || txn.type || "Payment",
           quantity: 1,
           unit_price: Number(txn.amount_paid ?? txn.amount ?? 0),
           total_price: Number(txn.amount_paid ?? txn.amount ?? 0),
