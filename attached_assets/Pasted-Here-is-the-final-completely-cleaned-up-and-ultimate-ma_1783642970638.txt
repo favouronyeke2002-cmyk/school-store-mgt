@@ -1,0 +1,33 @@
+Here is the final, completely cleaned up, and ultimate master prompt.
+
+I have meticulously combined all 4 of those fragmented patches into a single, seamless instruction set. It fixes the **boarding status bug**, copies the **outstanding bundle balance**, automatically **bills the student for their new class fees**, and updates the identifiers so the **Cashier's panel** doesn't lose track of them.
+
+Delete all the prior text versions, copy this exact block, and paste it into Replit AI to implement the ultimate fix:
+
+---
+
+### 📋 The Master Enrollment Fix Prompt (Paste into Replit AI)
+
+```text
+Please completely rewrite the backend enrollment transaction function (`handleEnroll`) in the Admin Panel to fix data translation bugs, inherit standard class fees, and securely bridge previous outstanding applicant balances. 
+
+The database transaction must execute these 4 steps sequentially and atomically:
+
+1. CREATE THE STUDENT RECORD & FIX STATUS FLIP
+- Insert the new row into the 'students' table, saving the original applicant's 'id' into an 'applicant_id' column to bridge their history.
+- FIX THE STATUS FLIP BUG: Read the applicant's existing housing status ('Boarding' or 'Day') from the applicant record and pass that exact string into the 'status' or 'enrollment_type' column during the insert. Do not default or overwrite it to 'Day'.
+
+2. INHERIT CLASS STANDARD FEES (AUTOMATIC BILLING)
+- Fetch the active academic_session_id and term_id from the school settings context.
+- Look up the global fee configurations mapped to the student's chosen class (e.g., if the applicant is joining the "ACE" class, fetch the standard 'ACE School Fees' record for the current term).
+- If a standard fee exists for that class, insert a corresponding row into the 'student_fees' table for this new student so that their Financial Statement Feed automatically loads the class debit (e.g., Charged: ₦94,000.00).
+
+3. ATTACH CARRIED-OVER REGISTRATION BUNDLE BALANCE
+- Check the 'transactions' or 'applicant_payments' tables for any outstanding bundle 'balance_due' linked to this applicant (e.g., ₦224,300.00).
+- If a remaining balance exists, insert an ADDITIONAL dedicated row into the 'student_fees' table titled "Carried Over Registration Balance" with that exact 'balance_due' value linked to the active term.
+- CRUCIAL FOR CASHIER CONNECT: Update the 'student_id' field on that original bundle transaction record from null to the new student's ID. This ensures the Cashier Panel's "Collect Fees" screen detects the outstanding installment card automatically.
+
+4. RECALCULATE ACADEMIC TERM LEDGER METRICS
+- Run a refresh/recalculation on the inserted rows so that the Admin 'Student Ledger' screen dynamically displays both their standard class fee cards and their outstanding bundle debt cards simultaneously, ensuring they appear on the dashboard overview instead of saying "No students match your filters."
+
+```

@@ -1,0 +1,19 @@
+Please refactor our student enrollment components, cashier flows, and dashboard metrics to ensure absolute data consistency and fix ongoing calculation bugs across the portal. 
+
+Please implement the following fixes across the application:
+
+1. FIX THE 'ADD STUDENT' FORM (ADMIN PANEL)
+- Locate the 'Add Student' form modal submission handler. Ensure that when a new student is manually created, any static tracking columns like 'outstanding_balance' or 'arrears' default strictly to 0 instead of injecting hardcoded placeholder values (like ₦100k or ₦300k).
+- Add an automatic listener: When an admin selects a Class and Student Status (Day or Boarding) in the modal, the checkboxes under 'Initial Fees to Apply' should automatically check themselves to match the relevant active fee configurations for that specific selection by default.
+
+2. FIX THE 'QUICK ADD' FLOW & LEDGER CORRUPTION (CASHIER SECTION)
+- Fix the bug where a student enrolled via the Cashier's 'Quick Add' (e.g., OIS-004) generates a profile row but completely fails to initialize a financial record, leading to an empty "No students match your filters" state on the Student Ledger view.
+- Ensure the 'Quick Add' controller automatically triggers our backend fee assignment engine immediately upon creation, dynamically mapping the standard initial fees for their selected class and residency status.
+
+3. FIX THE VISUAL STATUS BADGE STATE BUG
+- In the Fees Management / Student Ledger view sidebar, ensure that the 'Type / Status' text badge (rendering 'Day' or 'Boarding' below the student's name) reactively reflects the database row status.
+- Ensure the edit profile save handler successfully pushes the mutated 'residency_status' value to the Supabase 'students' table row so the UI badge updates instantly alongside the financial updates.
+
+4. MAKE ALL DASHBOARD TABLES & TOTALS FULLY DYNAMIC
+- Completely remove any reliance on static balance columns for frontend table rendering.
+- The 'FEES OWED' column on the Student Management table, the main ledger rows, and the cumulative metrics summary highlights at the top of the dashboard (e.g., "X students · ₦XXXX outstanding") must calculate their numbers dynamically in real-time by running an aggregate sum of the unpaid active line items inside the 'student_fees' ledger table.
