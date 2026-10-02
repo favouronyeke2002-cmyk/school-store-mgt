@@ -128,6 +128,17 @@ const CashierSalePage: React.FC<any> = (props) => {
     refund,
   } = props;
 
+  const requiredStreamClasses = Array.isArray(
+    schoolSettings?.stream_required_classes,
+  )
+    ? schoolSettings.stream_required_classes
+    : ["SS1", "SS2", "SS3"];
+
+  const classRequiresStream = (className: string) => {
+    const level = seniorClassKey(className);
+    return !!level && requiredStreamClasses.includes(level);
+  };
+
   return (
     <div className="flex flex-1 min-w-0 overflow-hidden">
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -353,7 +364,7 @@ const CashierSalePage: React.FC<any> = (props) => {
                             </option>
                           ))}
                         </select>
-                        {!!seniorClassKey(walkInEditClass) &&
+                        {classRequiresStream(walkInEditClass) &&
                           streams.length > 0 && (
                             <select
                               value={walkInEditStream}
@@ -361,13 +372,7 @@ const CashierSalePage: React.FC<any> = (props) => {
                                 setWalkInEditStream(e.target.value)
                               }
                               className="text-xs bg-white border border-warning-300 rounded px-2 py-1"
-                              required={(
-                                schoolSettings?.stream_required_classes || [
-                                  "SS1",
-                                  "SS2",
-                                  "SS3",
-                                ]
-                              ).includes(seniorClassKey(walkInEditClass) || "")}
+                              required={classRequiresStream(walkInEditClass)}
                             >
                               <option value="">Select stream</option>
                               {streams.map((stream: string) => (
@@ -412,13 +417,7 @@ const CashierSalePage: React.FC<any> = (props) => {
                       disabled={
                         props.walkInEditSaving ||
                         !walkInEditName.trim() ||
-                        ((
-                          schoolSettings?.stream_required_classes || [
-                            "SS1",
-                            "SS2",
-                            "SS3",
-                          ]
-                        ).includes(seniorClassKey(walkInEditClass) || "") &&
+                        (classRequiresStream(walkInEditClass) &&
                           !walkInEditStream)
                       }
                       className="px-2 py-1 bg-success-600 text-white text-xs font-semibold rounded hover:bg-success-700 disabled:opacity-50"

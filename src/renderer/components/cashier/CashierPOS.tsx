@@ -1175,25 +1175,18 @@ const QuickAddStudentModal: React.FC<{
               ))}
             </select>
           </div>
-          {!!seniorClassKey(studentClass) && streams.length > 0 && (
+          {classStreamRequired(studentClass) && streams.length > 0 && (
             <div>
               <label className="text-sm font-medium text-gray-700 mb-1 block">
-                Department Stream{" "}
-                {classStreamRequired(studentClass) && (
-                  <span className="text-danger-500">*</span>
-                )}
+                Department Stream <span className="text-danger-500">*</span>
               </label>
               <select
                 value={departmentStream}
                 onChange={(e) => setDepartmentStream(e.target.value)}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-                required={classStreamRequired(studentClass)}
+                required
               >
-                <option value="">
-                  {classStreamRequired(studentClass)
-                    ? "Select Stream"
-                    : "No Stream"}
-                </option>
+                <option value="">Select Stream</option>
                 {streams.map((stream) => (
                   <option key={stream} value={stream}>
                     {stream}
@@ -1402,25 +1395,18 @@ const WalkInApplicantModal: React.FC<{
               })()}
             </select>
           </div>
-          {!!seniorClassKey(proposedClass) && streams.length > 0 && (
+          {classStreamRequired(proposedClass) && streams.length > 0 && (
             <div>
               <label className="text-sm font-medium text-gray-700 mb-1 block">
-                Department Stream{" "}
-                {classStreamRequired(proposedClass) && (
-                  <span className="text-danger-500">*</span>
-                )}
+                Department Stream <span className="text-danger-500">*</span>
               </label>
               <select
                 value={departmentStream}
                 onChange={(e) => setDepartmentStream(e.target.value)}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-                required={classStreamRequired(proposedClass)}
+                required
               >
-                <option value="">
-                  {classStreamRequired(proposedClass)
-                    ? "Select Stream"
-                    : "No Stream"}
-                </option>
+                <option value="">Select Stream</option>
                 {streams.map((stream) => (
                   <option key={stream} value={stream}>
                     {stream}
@@ -2508,7 +2494,10 @@ const WalkInRegistrationFeeModal: React.FC<{
 }) => {
   const [payMode, setPayMode] = useState<"Cash" | "POS_Transfer">("Cash");
   const [coachingAddon, setCoachingAddon] = useState(false);
-  const [paymentType, setPaymentType] = useState<"full" | "half">("full");
+  const [paymentType, setPaymentType] = useState<"full" | "half" | "custom">(
+    "full",
+  );
+  const [customAmount, setCustomAmount] = useState<string>("120000");
   const [stockLevels, setStockLevels] = useState<Record<number, number>>({});
   const [stockLoaded, setStockLoaded] = useState(false);
   const [removedBundleItemTotal, setRemovedBundleItemTotal] = useState(0);
@@ -2571,11 +2560,28 @@ const WalkInRegistrationFeeModal: React.FC<{
   const fullTotal = dynamicBundleTotal + (coachingAddon ? COACHING_FEE : 0);
   const halfTotal =
     Math.ceil(dynamicBundleTotal / 2) + (coachingAddon ? COACHING_FEE : 0);
-  const total = paymentType === "full" ? fullTotal : halfTotal;
+  const MIN_INITIAL_INSTALLMENT = 120_000;
+  const customPaymentAmount = Number(customAmount) || 0;
+  const customTotal =
+    paymentType === "custom"
+      ? Math.min(Math.max(customPaymentAmount, 0), fullTotal)
+      : fullTotal;
+  const total =
+    paymentType === "full"
+      ? fullTotal
+      : paymentType === "half"
+        ? halfTotal
+        : customTotal;
   const balanceDue =
     paymentType === "half"
       ? dynamicBundleTotal - Math.ceil(dynamicBundleTotal / 2)
-      : 0;
+      : paymentType === "custom"
+        ? Math.max(0, fullTotal - customTotal)
+        : 0;
+  const customBelowMinimum =
+    paymentType === "custom" && customPaymentAmount < MIN_INITIAL_INSTALLMENT;
+  const customExceedsTotal =
+    paymentType === "custom" && customPaymentAmount > fullTotal;
 
   // Cap each bundle item's quantity to live stock and mark out-of-stock items so
   // they never make it into the print/receipt payload handed to the storekeeper.
@@ -2787,12 +2793,12 @@ const WalkInRegistrationFeeModal: React.FC<{
                 </label>
               )}
 
-              {/* Payment Type Toggle - Full vs Half */}
+              {/* Payment Type Toggle - Full / Half / Custom */}
               <div className="border-t pt-3 mt-2">
                 <label className="text-sm font-medium text-gray-700 mb-2 block">
                   Payment Type
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setPaymentType("full")}
@@ -2808,6 +2814,18 @@ const WalkInRegistrationFeeModal: React.FC<{
                   >
                     <div className="text-xs opacity-80">Half Payment</div>
                     <div className="text-base">{fmt(halfTotal)}</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentType("custom")}
+                    className={`py-3 rounded-xl text-sm font-bold border-2 transition-all ${paymentType === "custom" ? "bg-primary-500 border-primary-500 text-white" : "bg-white border-gray-200 text-gray-600 hover:border-primary-400"}`}
+                  >
+                    <div className="text-xs opacity-80">Custom Installment</div>
+                    <div className="text-base">
+                      {fmt(
+                        Math.max(customPaymentAmount, MIN_INITIAL_INSTALLMENT),
+                      )}
+                    </div>
                   </button>
                 </div>
                 {paymentType === "half" && (
@@ -2825,11 +2843,50 @@ const WalkInRegistrationFeeModal: React.FC<{
                     </div>
                   </div>
                 )}
+                {paymentType === "custom" && (
+                  <div className="mt-3 space-y-2">
+                    <label className="text-sm font-medium text-gray-700 block">
+                      Custom Installment Amount
+                    </label>
+                    <input
+                      type="number"
+                      min={MIN_INITIAL_INSTALLMENT}
+                      step={1000}
+                      value={customAmount}
+                      onChange={(e) => setCustomAmount(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                      placeholder="Enter amount"
+                    />
+                    {customBelowMinimum && (
+                      <div className="text-xs font-medium text-danger-600">
+                        Minimum initial installment required is ₦120,000
+                      </div>
+                    )}
+                    {customExceedsTotal && (
+                      <div className="text-xs font-medium text-danger-600">
+                        Payment amount cannot exceed the total bill of{" "}
+                        {fmt(fullTotal)}
+                      </div>
+                    )}
+                    {!customBelowMinimum &&
+                      !customExceedsTotal &&
+                      customPaymentAmount > 0 && (
+                        <div className="text-xs text-gray-600">
+                          Remaining balance:{" "}
+                          {fmt(Math.max(0, fullTotal - customPaymentAmount))}
+                        </div>
+                      )}
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-between border-t pt-2 mt-2">
                 <span className="font-bold text-gray-900">
-                  {paymentType === "full" ? "Total" : "Amount to Pay"}
+                  {paymentType === "full"
+                    ? "Total"
+                    : paymentType === "half"
+                      ? "Amount to Pay"
+                      : "Custom Installment"}
                 </span>
                 <span className="text-xl font-extrabold text-primary-600">
                   {fmt(total)}
@@ -2870,12 +2927,17 @@ const WalkInRegistrationFeeModal: React.FC<{
                   payMode,
                   total,
                   coachingAddon,
-                  paymentType === "half" ? balanceDue : undefined,
+                  paymentType === "half" || paymentType === "custom"
+                    ? balanceDue
+                    : undefined,
                   bundleItems,
                 )
               }
               disabled={
                 processing ||
+                (paymentType === "custom" &&
+                  (customPaymentAmount < MIN_INITIAL_INSTALLMENT ||
+                    customExceedsTotal)) ||
                 (isBundleMode &&
                   (matchedBundle!.items?.length || 0) > 0 &&
                   !stockLoaded)
@@ -4798,32 +4860,24 @@ const CashierPOS: React.FC = () => {
                   ))}
                 </select>
               </div>
-              {!!seniorClassKey(quickEditClass) &&
+              {(Array.isArray(schoolSettings?.stream_required_classes)
+                ? schoolSettings.stream_required_classes.includes(
+                    seniorClassKey(quickEditClass) || "",
+                  )
+                : ["SS1", "SS2", "SS3"].includes(
+                    seniorClassKey(quickEditClass) || "",
+                  )) &&
                 (schoolSettings?.streams || []).length > 0 && (
                   <div>
                     <label className="text-sm font-medium text-gray-700 mb-1 block">
                       Department Stream{" "}
-                      {(
-                        schoolSettings?.stream_required_classes || [
-                          "SS1",
-                          "SS2",
-                          "SS3",
-                        ]
-                      ).includes(seniorClassKey(quickEditClass) || "") && (
-                        <span className="text-danger-500">*</span>
-                      )}
+                      <span className="text-danger-500">*</span>
                     </label>
                     <select
                       value={quickEditStream}
                       onChange={(e) => setQuickEditStream(e.target.value)}
                       className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm"
-                      required={(
-                        schoolSettings?.stream_required_classes || [
-                          "SS1",
-                          "SS2",
-                          "SS3",
-                        ]
-                      ).includes(seniorClassKey(quickEditClass) || "")}
+                      required
                     >
                       <option value="">Select Stream</option>
                       {(schoolSettings?.streams || []).map((stream: string) => (
@@ -4847,13 +4901,13 @@ const CashierPOS: React.FC = () => {
                     quickEditSaving ||
                     !quickEditName.trim() ||
                     !quickEditClass ||
-                    ((
-                      schoolSettings?.stream_required_classes || [
-                        "SS1",
-                        "SS2",
-                        "SS3",
-                      ]
-                    ).includes(seniorClassKey(quickEditClass) || "") &&
+                    ((Array.isArray(schoolSettings?.stream_required_classes)
+                      ? schoolSettings.stream_required_classes.includes(
+                          seniorClassKey(quickEditClass) || "",
+                        )
+                      : ["SS1", "SS2", "SS3"].includes(
+                          seniorClassKey(quickEditClass) || "",
+                        )) &&
                       !quickEditStream)
                   }
                   className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50"

@@ -4141,6 +4141,17 @@ export const bundlePaymentAPI = {
           amount: amountPaid,
           paymentMode: paymentMode,
         });
+        const remainingBalance = Math.max(0, amountDue - newTotalPaid);
+        if (remainingBalance > 0) {
+          await supabase.from("ledger_entries").insert({
+            student_id: txn.student_id || `applicant_${applicantId}`,
+            transaction_id: txn.transaction_id,
+            entry_type: "debit",
+            fee_type_name: "Outstanding Balance Forward",
+            amount: remainingBalance,
+            academic_term: null,
+          });
+        }
       } catch (e) {
         /* ledger write failure is non-fatal */
       }
@@ -4459,6 +4470,16 @@ export const bundlePaymentAPI = {
         amount: amount,
         paymentMode: paymentMode,
       });
+      if (balanceDue && balanceDue > 0) {
+        await supabase.from("ledger_entries").insert({
+          student_id: `applicant_${applicantId}`,
+          transaction_id: txn.transaction_id,
+          entry_type: "debit",
+          fee_type_name: "Outstanding Balance Forward",
+          amount: Number(balanceDue),
+          academic_term: null,
+        });
+      }
     } catch (e) {
       /* ledger write failure is non-fatal */
     }
@@ -4751,6 +4772,16 @@ const studentBundleBalanceAPI = {
         amount,
         paymentMode,
       });
+      if (newBalance > 0) {
+        await supabase.from("ledger_entries").insert({
+          student_id: studentId,
+          transaction_id: installmentTxn.transaction_id,
+          entry_type: "debit",
+          fee_type_name: "Outstanding Balance Forward",
+          amount: newBalance,
+          academic_term: null,
+        });
+      }
     } catch (e) {
       /* ledger write failure is non-fatal */
     }
