@@ -64,6 +64,8 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
   const [tab, setTab] = useState<"types" | "ledger">("types");
   const [feeTypes, setFeeTypes] = useState<FeeType[]>([]);
   const [ledger, setLedger] = useState<StudentFee[]>([]);
+  const [ledgerStudents, setLedgerStudents] = useState<any[]>([]);
+  const [ledgerSummaries, setLedgerSummaries] = useState<any[]>([]);
   const [classes, setClasses] = useState<string[]>([]);
   const [currentSession, setCurrentSession] = useState("2025/2026");
   const [currentTerm, setCurrentTerm] = useState("First Term");
@@ -241,10 +243,17 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
 
   const load = () => {
     setLoading(true);
-    Promise.all([feeTypeAPI.getAll(), studentFeeAPI.getAll()])
-      .then(([ft, sf]) => {
+    Promise.all([
+      feeTypeAPI.getAll(),
+      studentFeeAPI.getAll(),
+      studentAPI.getAllUnpaginated(),
+      ledgerAPI.getAllStudentSummaries(),
+    ])
+      .then(([ft, sf, students, ledgerSummaries]) => {
         setFeeTypes(ft);
         setLedger(sf);
+        setLedgerStudents(students);
+        setLedgerSummaries(ledgerSummaries);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -601,6 +610,19 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
         netBalance: number;
       }
     >();
+    for (const student of ledgerStudents) {
+      map.set(student.student_id, {
+        student_id: student.student_id,
+        student_name: student.name || "",
+        student_class: student.student_class || "",
+        student_status: student.student_status || "Day",
+        arrearsForward: 0,
+        currentTermBill: 0,
+        currentTermPaid: 0,
+        totalPaid: 0,
+        netBalance: 0,
+      });
+    }
     for (const sf of ledger) {
       if (!map.has(sf.student_id)) {
         map.set(sf.student_id, {
@@ -627,6 +649,16 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
       entry.totalPaid += Number(sf.amount_paid);
       entry.netBalance += Number(sf.balance);
     }
+    const studentsWithFees = new Set(ledger.map((row) => row.student_id));
+    for (const summary of ledgerSummaries) {
+      if (studentsWithFees.has(summary.student_id)) continue;
+      const entry = map.get(summary.student_id);
+      if (!entry) continue;
+      entry.currentTermBill = Number(summary.total_billed || 0);
+      entry.currentTermPaid = Number(summary.total_paid || 0);
+      entry.totalPaid = Number(summary.total_paid || 0);
+      entry.netBalance = Number(summary.balance_due || 0);
+    }
     return Array.from(map.values()).sort((a, b) =>
       a.student_name.localeCompare(b.student_name),
     );
@@ -636,8 +668,13 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
     if (ledgerClass !== "all" && s.student_class !== ledgerClass) return false;
     if (ledgerTypeFilter !== "all" && s.student_status !== ledgerTypeFilter)
       return false;
-    if (ledgerStatus === "outstanding" && s.netBalance <= 0) return false;
-    if (ledgerStatus === "paid" && s.netBalance > 0) return false;
+    if (ledgerStatus === "all") {
+      // All Balances intentionally includes fully settled (zero-balance) students.
+    } else if (ledgerStatus === "outstanding" && s.netBalance <= 0) {
+      return false;
+    } else if (ledgerStatus === "paid" && s.netBalance > 0) {
+      return false;
+    }
     if (ledgerSearch) {
       const q = ledgerSearch.toLowerCase();
       return (
@@ -982,7 +1019,7 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
               }}
               className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
             >
-              <option value="all">All Balance</option>
+              <option value="all">All Balances</option>
               <option value="outstanding">Outstanding</option>
               <option value="paid">Fully Paid</option>
             </select>

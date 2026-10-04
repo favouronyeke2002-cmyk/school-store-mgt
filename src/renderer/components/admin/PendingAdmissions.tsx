@@ -14,7 +14,6 @@ import {
   studentAPI,
   settingsAPI,
   feeTypeAPI,
-  studentFeeAPI,
   transactionAPI,
   seniorClassKey,
 } from "../../lib/api";
@@ -31,7 +30,7 @@ interface Applicant {
   department_stream?: string | null;
   phone: string | null;
   student_status: "Day" | "Boarding" | null;
-  status: "pending" | "eligible" | "enrolled";
+  status: "pending" | "eligible" | "enrolled" | "withdrawn";
   eligible_at: string | null;
   enrolled_student_id: string | null;
   enrolled_student_name: string | null;
@@ -44,9 +43,10 @@ const PendingAdmissions: React.FC = () => {
   const [applicants, setApplicants] = useState<Applicant[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<
-    "pending" | "eligible" | "enrolled" | "all"
+    "pending" | "eligible" | "enrolled" | "withdrawn" | "all"
   >("all");
   const [search, setSearch] = useState("");
+  const [statusError, setStatusError] = useState("");
 
   // Enrollment modal
   const [showEnroll, setShowEnroll] = useState(false);
@@ -67,7 +67,6 @@ const PendingAdmissions: React.FC = () => {
   } | null>(null);
   const [loadingApplicantPayments, setLoadingApplicantPayments] =
     useState(false);
-  const [applyStandardFees, setApplyStandardFees] = useState(true);
   const [classes, setClasses] = useState<string[]>([]);
   const [streams, setStreams] = useState<string[]>([]);
   const [streamRequiredClasses, setStreamRequiredClasses] = useState<string[]>([
@@ -139,7 +138,6 @@ const PendingAdmissions: React.FC = () => {
     setEnrollingBalance(0);
     setApplicantPaid(null);
     setLoadingApplicantPayments(true);
-    setApplyStandardFees(true);
     setShowEnroll(true);
     const housingStatus = a.student_status || "Day";
 
@@ -185,7 +183,6 @@ const PendingAdmissions: React.FC = () => {
           total,
           label: fullBundlePaid ? "Full Bundle" : "Acceptance Only",
         });
-        setApplyStandardFees(!fullBundlePaid);
       })
       .catch((error) => {
         console.error(error);
@@ -220,6 +217,9 @@ const PendingAdmissions: React.FC = () => {
       {
         studentId: enrollForm.studentId || undefined, // empty → auto-generate
         name: enrollForm.name,
+        firstName: enrollTarget.first_name,
+        lastName: enrollTarget.last_name,
+        parentPhone: (enrollTarget as any).parent_phone || undefined,
         studentClass: enrollForm.class,
         departmentStream: enrollForm.departmentStream || null,
         admissionType: "New",
@@ -229,8 +229,8 @@ const PendingAdmissions: React.FC = () => {
       { autoAssignFees: false },
     );
 
-    if (!result.success) {
-      setEnrollError(result.error || "Failed to create student");
+    if (!result.success || !result.studentId) {
+      setEnrollError(result.error || "Student creation returned no student ID");
       setEnrollSaving(false);
       setEnrollStatus("");
       return;
@@ -240,61 +240,59 @@ const PendingAdmissions: React.FC = () => {
 
     // ── STEP 2: Link applicant → student (also bridges transactions.student_id) ─
     setEnrollStatus("Linking applicant record…");
-    await applicantAPI.enroll(enrollTarget.id, newStudentId, {
-      autoAssignFees: false,
-    });
-
-    // ── STEP 3: Inherit standard class fees for the current term ─────────────
-    if (applyStandardFees) {
-      setEnrollStatus("Assigning class fees…");
-      try {
-        const settings = await settingsAPI.get();
-        const classFees = await feeTypeAPI.getByClass(enrollForm.class);
-        const housingStatus = enrollTarget.student_status || "Day";
-        const applicableFees = classFees.filter((f: any) => {
-          if (f.fee_category !== "standard") return false;
-          if (f.applicable_to === "Day" && housingStatus !== "Day")
-            return false;
-          if (f.applicable_to === "Boarding" && housingStatus !== "Boarding")
-            return false;
-          if (
-            settings.current_term &&
-            f.term &&
-            f.term !== settings.current_term
-          )
-            return false;
-          return true;
-        });
-        for (const fee of applicableFees) {
-          await feeTypeAPI.assignToStudents(
-            fee.id,
-            Number(fee.amount),
-            undefined,
-            newStudentId,
-            "standard",
-            fee.applicable_to,
-          );
-        }
-      } catch (feeErr) {
-        console.warn("Class fee assignment skipped (non-fatal):", feeErr);
-      }
+    const enrollmentResult = await applicantAPI.enroll(
+      enrollTarget.id,
+      newStudentId,
+      {
+        autoAssignFees: false,
+      },
+    );
+    if (!enrollmentResult.success) {
+      setEnrollError(
+        enrollmentResult.error || "Failed to link applicant ledger",
+      );
+      setEnrollSaving(false);
+      setEnrollStatus("");
+      return;
     }
 
-    // ── STEP 4: Carry over any outstanding registration bundle balance ────────
-    setEnrollStatus("Bridging registration balance…");
+    // ── STEP 3: Inherit standard class fees for the current term ─────────────
+    setEnrollStatus("Assigning class fees…");
     try {
-      const balance = await applicantAPI.getOutstandingBalance(enrollTarget.id);
-      if (balance > 0) {
-        const settings = await settingsAPI.get();
-        await studentFeeAPI.addCarryOverEntry(
+      const settings = await settingsAPI.get();
+      const classFees = await feeTypeAPI.getByClass(enrollForm.class);
+      const housingStatus = enrollTarget.student_status || "Day";
+      const activeSession = settings.academic_session || "2026/2027";
+      const activeTerm = settings.current_term || "First Term";
+      const applicableFees = classFees.filter((f: any) => {
+        if (f.fee_category !== "standard") return false;
+        if (f.academic_session !== activeSession) return false;
+        if (f.term && f.term !== activeTerm) return false;
+        if (f.applicable_to === "Day" && housingStatus !== "Day") return false;
+        if (f.applicable_to === "Boarding" && housingStatus !== "Boarding")
+          return false;
+        return true;
+      });
+      for (const fee of applicableFees) {
+        const assignment = await feeTypeAPI.assignToStudents(
+          fee.id,
+          Number(fee.amount),
+          undefined,
           newStudentId,
-          balance,
-          settings.academic_session || "",
-          settings.current_term || "",
+          "standard",
+          fee.applicable_to,
         );
+        if (!assignment.success) {
+          throw new Error(assignment.error || `Could not assign ${fee.name}`);
+        }
       }
-    } catch (balErr) {
-      console.warn("Balance carry-over skipped (non-fatal):", balErr);
+    } catch (feeErr) {
+      setEnrollError(
+        `Student created, but active-term fees could not be assigned: ${(feeErr as Error).message}`,
+      );
+      setEnrollStatus("");
+      setEnrollSaving(false);
+      return;
     }
 
     setEnrollStatus("");
@@ -308,6 +306,22 @@ const PendingAdmissions: React.FC = () => {
     await applicantAPI.delete(deleteTarget.id);
     setShowDelete(false);
     setDeleteTarget(null);
+    load();
+  };
+
+  const markLeftSchool = async (applicant: Applicant) => {
+    if (
+      !window.confirm(
+        `Mark ${applicant.full_name} as withdrawn / left school? Payment history will be retained.`,
+      )
+    )
+      return;
+    setStatusError("");
+    const result = await applicantAPI.markWithdrawn(applicant.id);
+    if (!result.success) {
+      setStatusError(result.error || "Failed to update applicant status");
+      return;
+    }
     load();
   };
 
@@ -341,9 +355,16 @@ const PendingAdmissions: React.FC = () => {
             <option value="eligible">Ready to Enroll</option>
             <option value="pending">Pending Payment</option>
             <option value="enrolled">Enrolled</option>
+            <option value="withdrawn">Withdrawn / Left School</option>
           </select>
         </div>
       </div>
+
+      {statusError && (
+        <div className="mb-4 rounded-lg bg-danger-50 px-4 py-3 text-sm text-danger-700">
+          {statusError}
+        </div>
+      )}
 
       <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
         <input
@@ -442,6 +463,11 @@ const PendingAdmissions: React.FC = () => {
                         <span className="flex items-center gap-1 text-primary-600 text-xs font-bold">
                           <UserPlus className="w-3.5 h-3.5" /> Enrolled
                         </span>
+                      ) : a.status === "withdrawn" ? (
+                        <span className="flex items-center gap-1 text-gray-500 text-xs font-bold">
+                          <AlertCircle className="w-3.5 h-3.5" /> Withdrawn /
+                          Left School
+                        </span>
                       ) : (
                         <span className="flex items-center gap-1 text-warning-600 text-xs font-bold">
                           <Clock className="w-3.5 h-3.5" /> Pending
@@ -464,6 +490,14 @@ const PendingAdmissions: React.FC = () => {
                         <span className="text-xs text-gray-500 mr-1">
                           {a.enrolled_student_name} ({a.enrolled_student_class})
                         </span>
+                      )}
+                      {a.status !== "enrolled" && a.status !== "withdrawn" && (
+                        <button
+                          onClick={() => void markLeftSchool(a)}
+                          className="px-2 py-1 text-xs text-warning-700 hover:bg-warning-50 rounded"
+                        >
+                          Mark Left School
+                        </button>
                       )}
                       <button
                         onClick={() => {
@@ -664,16 +698,6 @@ const PendingAdmissions: React.FC = () => {
                   </select>
                 </div>
               )}
-              <label className="flex items-start gap-3 text-sm text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={applyStandardFees}
-                  onChange={(e) => setApplyStandardFees(e.target.checked)}
-                  disabled={loadingApplicantPayments}
-                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                />
-                <span>Apply standard class term fees upon enrollment</span>
-              </label>
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"

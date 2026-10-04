@@ -1,5 +1,11 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { shiftAPI } from '../lib/api';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+} from "react";
+import { shiftAPI } from "../lib/api";
 
 interface Shift {
   id: number;
@@ -10,7 +16,7 @@ interface Shift {
   cash_difference: number | null;
   opened_at: string;
   closed_at: string | null;
-  status: 'open' | 'closed';
+  status: "open" | "closed";
   username?: string;
 }
 
@@ -19,7 +25,10 @@ interface ShiftContextType {
   isStaleShift: boolean;
   loading: boolean;
   openShift: (openingCash: number, userId: number) => Promise<boolean>;
-  closeShift: (closingCash: number, userId: number) => Promise<{ expectedCash: number; difference: number } | null>;
+  closeShift: (
+    closingCash: number,
+    userId: number,
+  ) => Promise<{ expectedCash: number; difference: number } | null>;
   refreshShift: () => void;
 }
 
@@ -38,46 +47,70 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
       const shift = await shiftAPI.getActive();
       setActiveShift(shift);
     } catch (err) {
-      console.error('Failed to fetch active shift:', err);
+      console.error("Failed to fetch active shift:", err);
     }
     setLoading(false);
   }, []);
 
-  const openShift = useCallback(async (openingCash: number, userId: number): Promise<boolean> => {
-    try {
-      const result = await shiftAPI.open(userId, openingCash);
-      if (result.success) {
-        await refreshShift();
-        return true;
+  const openShift = useCallback(
+    async (openingCash: number, userId: number): Promise<boolean> => {
+      try {
+        const result = await shiftAPI.open(userId, openingCash);
+        if (result.success) {
+          await refreshShift();
+          return true;
+        }
+        return false;
+      } catch (err) {
+        console.error("Failed to open shift:", err);
+        return false;
       }
-      return false;
-    } catch (err) {
-      console.error('Failed to open shift:', err);
-      return false;
-    }
-  }, [refreshShift]);
+    },
+    [refreshShift],
+  );
 
-  const closeShift = useCallback(async (closingCash: number, userId: number) => {
-    if (!activeShift) return null;
+  const closeShift = useCallback(
+    async (closingCash: number, userId: number) => {
+      if (!activeShift) return null;
 
-    try {
-      const result = await shiftAPI.close(activeShift.id, closingCash, userId);
-      if (result.success) {
-        setActiveShift(null);
-        return { expectedCash: result.expectedCash, difference: result.difference };
+      try {
+        const result = await shiftAPI.close(
+          activeShift.id,
+          closingCash,
+          userId,
+        );
+        if (result.success) {
+          setActiveShift(null);
+          return {
+            expectedCash: result.expectedCash,
+            difference: result.difference,
+          };
+        }
+        return null;
+      } catch (err) {
+        console.error("Failed to close shift:", err);
+        return null;
       }
-      return null;
-    } catch (err) {
-      console.error('Failed to close shift:', err);
-      return null;
-    }
-  }, [activeShift]);
+    },
+    [activeShift],
+  );
 
   const today = new Date().toDateString();
-  const isStaleShift = Boolean(activeShift && new Date(activeShift.opened_at).toDateString() !== today);
+  const isStaleShift = Boolean(
+    activeShift && new Date(activeShift.opened_at).toDateString() !== today,
+  );
 
   return (
-    <ShiftContext.Provider value={{ activeShift, isStaleShift, loading, openShift, closeShift, refreshShift }}>
+    <ShiftContext.Provider
+      value={{
+        activeShift,
+        isStaleShift,
+        loading,
+        openShift,
+        closeShift,
+        refreshShift,
+      }}
+    >
       {children}
     </ShiftContext.Provider>
   );
@@ -85,7 +118,7 @@ export function ShiftProvider({ children }: { children: React.ReactNode }) {
 
 export function useShift() {
   const context = useContext(ShiftContext);
-  if (!context) throw new Error('useShift must be used within ShiftProvider');
+  if (!context) throw new Error("useShift must be used within ShiftProvider");
   return context;
 }
 

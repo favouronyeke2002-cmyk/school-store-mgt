@@ -42,6 +42,7 @@ import {
   feeTypeAPI,
   bundleAPI,
   applicantAPI,
+  customerAPI,
   bundlePaymentAPI,
   shiftAPI,
   expenseAPI,
@@ -1061,7 +1062,9 @@ const QuickAddStudentModal: React.FC<{
   streams: string[];
   streamRequiredClasses: string[];
   onSave: (data: {
-    name: string;
+    firstName: string;
+    lastName: string;
+    parentPhone: string;
     studentClass: string;
     departmentStream: string;
     studentStatus: "Day" | "Boarding";
@@ -1078,7 +1081,9 @@ const QuickAddStudentModal: React.FC<{
   saving,
   error,
 }) => {
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [parentPhone, setParentPhone] = useState("");
   const [studentClass, setStudentClass] = useState(classes[0] || "");
   const [departmentStream, setDepartmentStream] = useState("");
   const [studentStatus, setStudentStatus] = useState<"Day" | "Boarding">("Day");
@@ -1090,13 +1095,16 @@ const QuickAddStudentModal: React.FC<{
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (
-      !name.trim() ||
+      !firstName.trim() ||
+      !lastName.trim() ||
       !studentClass ||
       (classStreamRequired(studentClass) && !departmentStream)
     )
       return;
     onSave({
-      name: name.trim(),
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      parentPhone: parentPhone.trim(),
       studentClass,
       departmentStream,
       studentStatus,
@@ -1138,18 +1146,45 @@ const QuickAddStudentModal: React.FC<{
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">
+                First Name *
+              </label>
+              <input
+                type="text"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                placeholder="First name"
+                required
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">
+                Last Name *
+              </label>
+              <input
+                type="text"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                placeholder="Last name"
+                required
+              />
+            </div>
+          </div>
           <div>
             <label className="text-sm font-medium text-gray-700 mb-1 block">
-              Full Name *
+              Parent Phone Number
             </label>
             <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              type="tel"
+              value={parentPhone}
+              onChange={(e) => setParentPhone(e.target.value)}
               className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-              placeholder="Enter student's full name"
-              required
-              autoFocus
+              placeholder="Optional"
             />
           </div>
           <div>
@@ -1228,7 +1263,8 @@ const QuickAddStudentModal: React.FC<{
               type="submit"
               disabled={
                 saving ||
-                !name.trim() ||
+                !firstName.trim() ||
+                !lastName.trim() ||
                 !studentClass ||
                 (classStreamRequired(studentClass) && !departmentStream)
               }
@@ -1252,6 +1288,7 @@ const WalkInApplicantModal: React.FC<{
   onSave: (data: {
     firstName: string;
     lastName: string;
+    parentPhone: string;
     proposedClass: string;
     departmentStream: string;
     studentStatus: "Day" | "Boarding";
@@ -1271,6 +1308,7 @@ const WalkInApplicantModal: React.FC<{
 }) => {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [parentPhone, setParentPhone] = useState("");
   const [proposedClass, setProposedClass] = useState(classes[0] || "");
   const [departmentStream, setDepartmentStream] = useState("");
   const [studentStatus, setStudentStatus] = useState<"Day" | "Boarding">("Day");
@@ -1286,6 +1324,7 @@ const WalkInApplicantModal: React.FC<{
     onSave({
       firstName: firstName.trim(),
       lastName: lastName.trim(),
+      parentPhone: parentPhone.trim(),
       proposedClass,
       departmentStream,
       studentStatus,
@@ -1345,6 +1384,18 @@ const WalkInApplicantModal: React.FC<{
                 required
               />
             </div>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-1 block">
+              Parent Phone Number
+            </label>
+            <input
+              type="tel"
+              value={parentPhone}
+              onChange={(e) => setParentPhone(e.target.value)}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+              placeholder="Optional"
+            />
           </div>
           <div>
             <label className="text-sm font-medium text-gray-700 mb-1 block">
@@ -2862,20 +2913,12 @@ const WalkInRegistrationFeeModal: React.FC<{
                         Minimum initial installment required is ₦120,000
                       </div>
                     )}
-                    {customExceedsTotal && (
-                      <div className="text-xs font-medium text-danger-600">
-                        Payment amount cannot exceed the total bill of{" "}
-                        {fmt(fullTotal)}
+                    {!customBelowMinimum && customPaymentAmount > 0 && (
+                      <div className="text-xs text-gray-600">
+                        Remaining balance:{" "}
+                        {fmt(Math.max(0, fullTotal - customPaymentAmount))}
                       </div>
                     )}
-                    {!customBelowMinimum &&
-                      !customExceedsTotal &&
-                      customPaymentAmount > 0 && (
-                        <div className="text-xs text-gray-600">
-                          Remaining balance:{" "}
-                          {fmt(Math.max(0, fullTotal - customPaymentAmount))}
-                        </div>
-                      )}
                   </div>
                 )}
               </div>
@@ -3284,6 +3327,11 @@ const CashierPOS: React.FC = () => {
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [quickAddSaving, setQuickAddSaving] = useState(false);
   const [quickAddError, setQuickAddError] = useState("");
+  const [duplicateWarning, setDuplicateWarning] = useState<{
+    kind: "student" | "applicant";
+    record: any;
+    onCreate: () => void;
+  } | null>(null);
   const [quickAddedStudentIds, setQuickAddedStudentIds] = useState<Set<string>>(
     new Set(),
   );
@@ -3870,17 +3918,40 @@ const CashierPOS: React.FC = () => {
   };
 
   // Quick Add Student handler
-  const handleQuickAddSave = async (data: {
-    name: string;
-    studentClass: string;
-    departmentStream: string;
-    studentStatus: "Day" | "Boarding";
-  }) => {
+  const handleQuickAddSave = async (
+    data: {
+      firstName: string;
+      lastName: string;
+      parentPhone: string;
+      studentClass: string;
+      departmentStream: string;
+      studentStatus: "Day" | "Boarding";
+    },
+    allowDuplicate = false,
+  ) => {
     setQuickAddSaving(true);
     setQuickAddError("");
     try {
+      if (!allowDuplicate) {
+        const duplicate = await customerAPI.findDuplicate({
+          firstName: data.firstName,
+          lastName: data.lastName,
+          parentPhone: data.parentPhone,
+        });
+        if (duplicate) {
+          setDuplicateWarning({
+            ...duplicate,
+            onCreate: () => void handleQuickAddSave(data, true),
+          });
+          setQuickAddSaving(false);
+          return;
+        }
+      }
       const result = await studentAPI.create({
-        name: data.name,
+        name: `${data.firstName} ${data.lastName}`,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        parentPhone: data.parentPhone,
         studentClass: data.studentClass,
         departmentStream: data.departmentStream || null,
         admissionType: "Returning",
@@ -4047,38 +4118,39 @@ const CashierPOS: React.FC = () => {
   };
 
   // Walk-in applicant handlers
-  const handleWalkInCreate = async (data: {
-    firstName: string;
-    lastName: string;
-    proposedClass: string;
-    departmentStream: string;
-    studentStatus: "Day" | "Boarding";
-  }) => {
+  const handleWalkInCreate = async (
+    data: {
+      firstName: string;
+      lastName: string;
+      parentPhone: string;
+      proposedClass: string;
+      departmentStream: string;
+      studentStatus: "Day" | "Boarding";
+    },
+    allowDuplicate = false,
+  ) => {
     setWalkInSaving(true);
     setWalkInError("");
     try {
-      // Duplicate guard: warn if a non-enrolled applicant with same name + class already exists
-      const existingApplicants = await applicantAPI.getAll({
-        search: `${data.firstName} ${data.lastName}`,
-      });
-      const duplicate = existingApplicants.find(
-        (a: any) =>
-          a.first_name?.toLowerCase() === data.firstName.toLowerCase() &&
-          a.last_name?.toLowerCase() === data.lastName.toLowerCase() &&
-          a.proposed_class === data.proposedClass &&
-          a.department_stream === (data.departmentStream || null) &&
-          a.status !== "enrolled",
-      );
-      if (duplicate) {
-        setWalkInError(
-          `An applicant named "${data.firstName} ${data.lastName}" for ${data.proposedClass} already exists (ID #${duplicate.id}). Use the "Pending Applicants" filter in the customer search to find and select them instead of creating a duplicate.`,
-        );
-        setWalkInSaving(false);
-        return;
+      if (!allowDuplicate) {
+        const duplicate = await customerAPI.findDuplicate({
+          firstName: data.firstName,
+          lastName: data.lastName,
+          parentPhone: data.parentPhone,
+        });
+        if (duplicate) {
+          setDuplicateWarning({
+            ...duplicate,
+            onCreate: () => void handleWalkInCreate(data, true),
+          });
+          setWalkInSaving(false);
+          return;
+        }
       }
       const result = await applicantAPI.create({
         firstName: data.firstName,
         lastName: data.lastName,
+        parentPhone: data.parentPhone,
         proposedClass: data.proposedClass,
         departmentStream: data.departmentStream || null,
         studentStatus: data.studentStatus,
@@ -4987,6 +5059,120 @@ const CashierPOS: React.FC = () => {
           saving={walkInSaving}
           error={walkInError}
         />
+      )}
+
+      {duplicateWarning && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="duplicate-warning-title"
+            className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl"
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning-600" />
+                <div>
+                  <h2
+                    id="duplicate-warning-title"
+                    className="text-lg font-bold"
+                  >
+                    Possible duplicate found
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Warning:{" "}
+                    {duplicateWarning.record.name ||
+                      duplicateWarning.record.full_name ||
+                      `${duplicateWarning.record.first_name || ""} ${duplicateWarning.record.last_name || ""}`.trim()}{" "}
+                    already exists in{" "}
+                    {duplicateWarning.record.student_class ||
+                      duplicateWarning.record.proposed_class ||
+                      "an unspecified class"}
+                    .
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Close duplicate warning"
+                onClick={() => setDuplicateWarning(null)}
+                className="text-gray-400 hover:text-gray-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="mb-5 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
+              <div className="font-semibold text-gray-900">
+                {duplicateWarning.record.name ||
+                  duplicateWarning.record.full_name ||
+                  `${duplicateWarning.record.first_name || ""} ${duplicateWarning.record.last_name || ""}`.trim()}
+              </div>
+              <div className="mt-1 text-gray-600">
+                Class:{" "}
+                {duplicateWarning.record.student_class ||
+                  duplicateWarning.record.proposed_class ||
+                  "Not specified"}
+                {duplicateWarning.kind === "student"
+                  ? ` · Student ID ${duplicateWarning.record.student_id}`
+                  : ` · Applicant ID ${duplicateWarning.record.id}`}
+              </div>
+              {duplicateWarning.record.parent_phone && (
+                <div className="mt-1 text-gray-600">
+                  Parent phone: {duplicateWarning.record.parent_phone}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => {
+                  setDuplicateWarning(null);
+                  setShowQuickAdd(false);
+                  setShowWalkIn(false);
+                }}
+                className="flex-1 rounded-lg bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-800 hover:bg-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const { kind, record } = duplicateWarning;
+                  if (kind === "student") {
+                    selectStudent(record);
+                  } else {
+                    selectStudent({
+                      _isApplicant: true,
+                      _applicant: {
+                        ...record,
+                        full_name:
+                          record.full_name ||
+                          `${record.first_name} ${record.last_name}`,
+                      },
+                    });
+                  }
+                  setShowQuickAdd(false);
+                  setShowWalkIn(false);
+                  setDuplicateWarning(null);
+                }}
+                className="flex-1 rounded-lg bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-800 hover:bg-gray-200"
+              >
+                View Existing Profile
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const createAnyway = duplicateWarning.onCreate;
+                  setDuplicateWarning(null);
+                  createAnyway();
+                }}
+                className="flex-1 rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700"
+              >
+                Create Duplicate/New Student
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Bundle Payment Modal ─────────────────────────────────────── */}
