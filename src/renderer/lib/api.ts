@@ -310,29 +310,21 @@ export const customerAPI = {
   }) {
     const firstName = data.firstName.trim().toLowerCase();
     const lastName = data.lastName.trim().toLowerCase();
-    const parentPhone = data.parentPhone?.trim().toLowerCase();
+    const parentPhone = data.parentPhone?.trim().toLowerCase() || null;
 
     const findInTable = async (table: "students" | "applicants") => {
-      if (parentPhone) {
-        const { data: phoneMatch, error: phoneError } = await supabase
-          .from(table)
-          .select("*")
-          .eq("parent_phone_normalized", parentPhone)
-          .limit(1)
-          .maybeSingle();
-        if (phoneError) throw phoneError;
-        if (phoneMatch) return phoneMatch;
-      }
-
-      const { data: nameMatch, error: nameError } = await supabase
+      let query = supabase
         .from(table)
         .select("*")
         .eq("first_name_normalized", firstName)
-        .eq("last_name_normalized", lastName)
-        .limit(1)
-        .maybeSingle();
-      if (nameError) throw nameError;
-      return nameMatch;
+        .eq("last_name_normalized", lastName);
+      query = parentPhone
+        ? query.eq("parent_phone_normalized", parentPhone)
+        : query.is("parent_phone_normalized", null);
+
+      const { data: match, error } = await query.limit(1).maybeSingle();
+      if (error) throw error;
+      return match;
     };
 
     const student = await findInTable("students");
