@@ -4021,6 +4021,7 @@ const CashierPOS: React.FC = () => {
         name: `${data.firstName} ${data.lastName}`,
         studentClass: data.studentClass,
         admissionType: "Returning",
+        studentStatus: data.studentStatus,
         feesOwed: 0,
       });
       if (result.success) {
