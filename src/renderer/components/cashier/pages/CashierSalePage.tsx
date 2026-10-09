@@ -50,6 +50,8 @@ const CashierSalePage: React.FC<any> = (props) => {
     walkInEditStudentStatus,
     setWalkInEditStudentStatus,
     quickAddedStudentIds,
+    bundles,
+    classCategoryMap,
     bundlePaymentInfo,
     bundleFullyPaid,
     scope,
@@ -108,6 +110,7 @@ const CashierSalePage: React.FC<any> = (props) => {
     setTab,
     handleWalkInEditSave,
     handleWalkInBundleAction,
+    handleReturningBundleAction,
     handleFeesPayment,
     handleStorePurchase,
     handleBundleBalancePayment,
@@ -138,6 +141,52 @@ const CashierSalePage: React.FC<any> = (props) => {
     const level = seniorClassKey(className);
     return !!level && requiredStreamClasses.includes(level);
   };
+
+  const studentBundles = selectedStudent
+    ? (bundles || []).filter((bundle: any) => {
+        if (
+          !bundle.is_active ||
+          (bundle.applicable_student_status !== "Returning Students Only" &&
+            bundle.applicable_student_status !== "All Students")
+        )
+          return false;
+        const residency = selectedStudent.student_status || "Day";
+        if (bundle.applicable_to === "Day Only" && residency !== "Day")
+          return false;
+        if (
+          bundle.applicable_to === "Boarding Only" &&
+          residency !== "Boarding"
+        )
+          return false;
+        const normalize = (value?: string | null) =>
+          String(value || "")
+            .replace(/[\s._-]+/g, "")
+            .toUpperCase();
+        const studentClass = normalize(selectedStudent.student_class);
+        const category = normalize(
+          classCategoryMap?.[selectedStudent.student_class] ||
+            (/^(JSS|JHS)/i.test(selectedStudent.student_class)
+              ? "JUNIOR"
+              : /^SS/i.test(selectedStudent.student_class)
+                ? "SENIOR"
+                : ""),
+        );
+        const bundleCategory = normalize(bundle.class_category);
+        if (
+          bundleCategory &&
+          bundleCategory !== studentClass &&
+          !studentClass.startsWith(bundleCategory) &&
+          bundleCategory !== category
+        )
+          return false;
+        const targetClass = normalize(bundle.target_class);
+        if (targetClass && !studentClass.startsWith(targetClass)) return false;
+        return (
+          !bundle.department_stream ||
+          bundle.department_stream === selectedStudent.department_stream
+        );
+      })
+    : [];
 
   return (
     <div className="flex flex-1 min-w-0 overflow-hidden">
@@ -983,6 +1032,70 @@ const CashierSalePage: React.FC<any> = (props) => {
                     </div>
                   </div>
                 )}
+
+              {studentBundles.length > 0 && (
+                <section className="mt-5 space-y-2">
+                  <h3 className="text-sm font-semibold text-gray-700">
+                    Available Registration & Transition Bundles
+                  </h3>
+                  {studentBundles.map((bundle: any) => (
+                    <div
+                      key={bundle.id}
+                      className="bg-white rounded-lg border border-gray-200 p-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-semibold text-sm text-gray-900">
+                            {bundle.name}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-0.5">
+                            {bundle.applicable_student_status}
+                            {bundle.applicable_to !== "All Students"
+                              ? ` · ${bundle.applicable_to}`
+                              : ""}
+                          </div>
+                        </div>
+                        <span className="font-bold text-gray-800">
+                          {fmt(Number(bundle.base_price))}
+                        </span>
+                      </div>
+                      <details className="mt-2 text-xs text-gray-600">
+                        <summary className="cursor-pointer font-medium">
+                          Package contents ({bundle.items?.length || 0})
+                        </summary>
+                        <ul className="mt-1 space-y-1">
+                          {(bundle.items || []).map((item: any) => (
+                            <li
+                              key={item.item_id}
+                              className="flex justify-between gap-2"
+                            >
+                              <span>
+                                {item.item_name} × {item.quantity}
+                              </span>
+                              <span>
+                                {fmt(
+                                  Number(item.selling_price) *
+                                    Number(item.quantity),
+                                )}
+                              </span>
+                            </li>
+                          ))}
+                          {!bundle.items?.length && (
+                            <li>No physical items included.</li>
+                          )}
+                        </ul>
+                      </details>
+                      <button
+                        type="button"
+                        onClick={() => handleReturningBundleAction(bundle)}
+                        className="mt-3 w-full py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700"
+                      >
+                        Add Bundle Charge
+                      </button>
+                    </div>
+                  ))}
+                </section>
+              )}
             </div>
           </div>
         )}

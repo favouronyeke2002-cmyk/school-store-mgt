@@ -102,12 +102,18 @@ interface Bundle {
   base_price: number;
   base_fee?: number;
   total_amount?: number;
-  bundle_type: "acceptance" | "registration" | "custom";
+  bundle_type:
+    | "acceptance"
+    | "registration"
+    | "returning_registration"
+    | "custom";
   is_active: boolean;
   applicable_to?: string;
+  applicable_student_status?: string;
   class_category?: string | null;
   target_class?: string | null;
   department_stream?: string | null;
+  student_type?: string;
   coaching_addon?: boolean;
   items: {
     item_id: number;
@@ -122,6 +128,65 @@ type SaleMode = "store" | "fees" | "bundles";
 
 const fmt = (n: number) =>
   `₦${(n || 0).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const normalizeBundleTarget = (value?: string | null) =>
+  String(value || "")
+    .replace(/[\s._-]+/g, "")
+    .toUpperCase();
+
+const bundleMatchesStudent = (
+  bundle: Bundle,
+  student: {
+    student_class: string;
+    student_status?: string;
+    department_stream?: string;
+  },
+  classCategoryMap: Record<string, string>,
+  workflow: "walk-in" | "enrolled",
+) => {
+  const applicableStatus = bundle.applicable_student_status || "All Students";
+  const expectedStatus =
+    workflow === "walk-in" ? "New Applicants Only" : "Returning Students Only";
+  if (
+    applicableStatus !== expectedStatus &&
+    applicableStatus !== "All Students"
+  )
+    return false;
+
+  const residency = student.student_status || "Day";
+  if (bundle.applicable_to === "Day Only" && residency !== "Day") return false;
+  if (bundle.applicable_to === "Boarding Only" && residency !== "Boarding")
+    return false;
+
+  const studentClass = normalizeBundleTarget(student.student_class);
+  const studentCategory = normalizeBundleTarget(
+    classCategoryMap[student.student_class] ||
+      (/^(JSS|JHS)/i.test(student.student_class)
+        ? "JUNIOR"
+        : /^SS/i.test(student.student_class)
+          ? "SENIOR"
+          : /REMEDIAL|A\.C\.E\./i.test(student.student_class)
+            ? "REMEDIAL"
+            : ""),
+  );
+  const bundleCategory = normalizeBundleTarget(bundle.class_category);
+  if (
+    bundleCategory &&
+    bundleCategory !== studentClass &&
+    !studentClass.startsWith(bundleCategory) &&
+    bundleCategory !== studentCategory
+  )
+    return false;
+
+  const targetClass = normalizeBundleTarget(bundle.target_class);
+  if (targetClass && !studentClass.startsWith(targetClass)) return false;
+  if (
+    bundle.department_stream &&
+    bundle.department_stream !== student.department_stream
+  )
+    return false;
+  return true;
+};
 
 const normalizeEligibilityTag = (value: unknown) =>
   String(value || "")
@@ -3158,6 +3223,11 @@ const WalkInBundleModal: React.FC<{
           <p className="text-sm font-semibold text-warning-800">
             {applicantName}
           </p>
+          {bundle.applicable_student_status && (
+            <p className="text-xs text-warning-600 mt-0.5">
+              {bundle.applicable_student_status}
+            </p>
+          )}
           {bundle.applicable_to && bundle.applicable_to !== "All Students" && (
             <p className="text-xs text-warning-600 mt-0.5">
               {bundle.applicable_to}
@@ -3949,13 +4019,9 @@ const CashierPOS: React.FC = () => {
       }
       const result = await studentAPI.create({
         name: `${data.firstName} ${data.lastName}`,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        parentPhone: data.parentPhone,
         studentClass: data.studentClass,
-        departmentStream: data.departmentStream || null,
         admissionType: "Returning",
-        studentStatus: data.studentStatus,
+        feesOwed: 0,
       });
       if (result.success) {
         // Track this ID so cashier can edit it this shift
@@ -4228,11 +4294,16 @@ const CashierPOS: React.FC = () => {
         (b) =>
           b.bundle_type === "acceptance" &&
           b.is_active &&
-          (!b.target_class ||
-            b.target_class ===
-              seniorClassKey(walkInApplicant.proposed_class)) &&
-          (!b.department_stream ||
-            b.department_stream === walkInApplicant.department_stream),
+          bundleMatchesStudent(
+            b,
+            {
+              student_class: walkInApplicant.proposed_class || "",
+              student_status: walkInApplicant.student_status || "Day",
+              department_stream: walkInApplicant.department_stream,
+            },
+            classCategoryMap,
+            "walk-in",
+          ),
       );
       if (!bundle) {
         setErrorMsg(
@@ -4247,20 +4318,22 @@ const CashierPOS: React.FC = () => {
       const categoryGroup =
         classCategoryMap[walkInApplicant.proposed_class || ""] || null;
       const studentStatus = walkInApplicant.student_status || "Day";
-      const statusFilter =
-        studentStatus === "Day" ? "Day Only" : "Boarding Only";
       const regBundle =
         bundles.find(
           (b) =>
-            b.bundle_type === "registration" &&
+            (b.bundle_type === "registration" ||
+              b.bundle_type === "returning_registration") &&
             b.is_active &&
-            b.class_category === categoryGroup &&
-            (!b.target_class ||
-              b.target_class ===
-                seniorClassKey(walkInApplicant.proposed_class)) &&
-            (!b.department_stream ||
-              b.department_stream === walkInApplicant.department_stream) &&
-            b.applicable_to === statusFilter,
+            bundleMatchesStudent(
+              b,
+              {
+                student_class: walkInApplicant.proposed_class || "",
+                student_status: studentStatus,
+                department_stream: walkInApplicant.department_stream,
+              },
+              classCategoryMap,
+              "walk-in",
+            ),
         ) || null;
       setWalkInCategoryGroup(categoryGroup);
       setWalkInRegistrationBundle(regBundle);
@@ -4457,7 +4530,12 @@ const CashierPOS: React.FC = () => {
     dynamicBundleTotal: number,
     purchasedBundleItems: Bundle["items"],
   ) => {
-    if (!walkInApplicant || !selectedBundle || !activeShift) return;
+    if (
+      (!walkInApplicant && !selectedStudent) ||
+      !selectedBundle ||
+      !activeShift
+    )
+      return;
     const amount = amountToPay;
     if (isNaN(amount) || amount <= 0) {
       setBundleError("Enter a valid amount");
@@ -4473,16 +4551,26 @@ const CashierPOS: React.FC = () => {
     setBundleError("");
     try {
       const result = await bundlePaymentAPI.processBundlePayment({
-        applicantId: walkInApplicant.id,
+        applicantId: walkInApplicant?.id,
+        studentId: selectedStudent?.student_id,
         bundleId: selectedBundle.id,
         shiftId: activeShift.id,
         amountPaid: amount,
         totalAmount: dynamicBundleTotal,
         paymentMode,
         minPartialFloor: minFloor,
-        customerName: walkInApplicant.full_name,
-        targetClass: walkInApplicant.proposed_class || undefined,
-        studentTags: getAssignedTags(walkInApplicant),
+        customerName: walkInApplicant?.full_name || selectedStudent?.name,
+        targetClass:
+          walkInApplicant?.proposed_class ||
+          selectedStudent?.student_class ||
+          undefined,
+        studentTags: walkInApplicant
+          ? getAssignedTags(walkInApplicant)
+          : [
+              selectedStudent?.student_class,
+              selectedStudent?.department_stream,
+              classCategoryMap[selectedStudent?.student_class || ""],
+            ].filter(Boolean),
         items: purchasedBundleItems,
       });
       if (result.success) {
@@ -4490,8 +4578,11 @@ const CashierPOS: React.FC = () => {
         const receiptTxn = {
           transaction_id: result.transactionId,
           timestamp: new Date().toISOString(),
-          student_name: walkInApplicant.full_name,
-          student_class: walkInApplicant.proposed_class || "Applicant",
+          student_name: walkInApplicant?.full_name || selectedStudent?.name,
+          student_class:
+            walkInApplicant?.proposed_class ||
+            selectedStudent?.student_class ||
+            "Applicant",
           payment_mode: paymentMode,
           fee_type_name: selectedBundle.name,
         };
@@ -4503,8 +4594,17 @@ const CashierPOS: React.FC = () => {
           items: result.items || [],
         });
         setShowReceipt(true);
-        setWalkInApplicant(null);
+        if (walkInApplicant) setWalkInApplicant(null);
         setSelectedBundle(null);
+        if (selectedStudent) {
+          studentFeeAPI
+            .checkStudentBundlePayment(
+              selectedStudent.student_id,
+              schoolSettings?.current_term,
+            )
+            .then(setBundlePaymentInfo)
+            .catch(console.error);
+        }
         inventoryAPI
           .getAll({ categoryId: activeCat, activeOnly: true })
           .then(setInventory);
@@ -4513,6 +4613,13 @@ const CashierPOS: React.FC = () => {
       setBundleError((e as Error).message);
     }
     setBundleProcessing(false);
+  };
+
+  const handleReturningBundleAction = (bundle: Bundle) => {
+    if (!selectedStudent) return;
+    setBundleError("");
+    setSelectedBundle(bundle);
+    setShowBundlePayment(true);
   };
 
   if (!activeShift)
@@ -4649,6 +4756,8 @@ const CashierPOS: React.FC = () => {
           walkInEditStudentStatus={walkInEditStudentStatus}
           setWalkInEditStudentStatus={setWalkInEditStudentStatus}
           quickAddedStudentIds={quickAddedStudentIds}
+          bundles={bundles}
+          classCategoryMap={classCategoryMap}
           bundlePaymentInfo={bundlePaymentInfo}
           bundleFullyPaid={bundleFullyPaid}
           saleMode={saleMode}
@@ -4701,6 +4810,7 @@ const CashierPOS: React.FC = () => {
           setTab={setTab}
           handleWalkInEditSave={handleWalkInEditSave}
           handleWalkInBundleAction={handleWalkInBundleAction}
+          handleReturningBundleAction={handleReturningBundleAction}
           handleFeesPayment={handleFeesPayment}
           setFeesPayMode={setFeesPayMode}
           feesPayMode={feesPayMode}
@@ -5176,28 +5286,40 @@ const CashierPOS: React.FC = () => {
       )}
 
       {/* ── Bundle Payment Modal ─────────────────────────────────────── */}
-      {showBundlePayment && selectedBundle && walkInApplicant && (
-        <BundlePaymentModal
-          bundle={selectedBundle}
-          minFloor={
-            selectedBundle.bundle_type === "acceptance"
-              ? schoolSettings?.min_acceptance_partial_floor || 5000
-              : schoolSettings?.min_partial_payment_floor || 30000
-          }
-          applicantName={walkInApplicant.full_name}
-          targetClass={walkInApplicant.proposed_class || ""}
-          studentTags={getAssignedTags(walkInApplicant)}
-          onComplete={handleBundlePayment}
-          onCancel={() => {
-            setShowBundlePayment(false);
-            setSelectedBundle(null);
-            setWalkInApplicant(null);
-            setBundleError("");
-          }}
-          processing={bundleProcessing}
-          error={bundleError}
-        />
-      )}
+      {showBundlePayment &&
+        selectedBundle &&
+        (walkInApplicant || selectedStudent) && (
+          <BundlePaymentModal
+            bundle={selectedBundle}
+            minFloor={
+              selectedBundle.bundle_type === "acceptance"
+                ? schoolSettings?.min_acceptance_partial_floor || 5000
+                : schoolSettings?.min_partial_payment_floor || 30000
+            }
+            applicantName={walkInApplicant?.full_name || selectedStudent?.name}
+            targetClass={
+              walkInApplicant?.proposed_class || selectedStudent?.student_class
+            }
+            studentTags={
+              walkInApplicant
+                ? getAssignedTags(walkInApplicant)
+                : [
+                    selectedStudent?.student_class,
+                    selectedStudent?.department_stream,
+                    classCategoryMap[selectedStudent?.student_class || ""],
+                  ].filter(Boolean)
+            }
+            onComplete={handleBundlePayment}
+            onCancel={() => {
+              setShowBundlePayment(false);
+              setSelectedBundle(null);
+              if (walkInApplicant) setWalkInApplicant(null);
+              setBundleError("");
+            }}
+            processing={bundleProcessing}
+            error={bundleError}
+          />
+        )}
 
       {/* ── Walk-In Locked Form Payment Modal ───────────────────────── */}
       {showWalkInForm && walkInApplicant && (

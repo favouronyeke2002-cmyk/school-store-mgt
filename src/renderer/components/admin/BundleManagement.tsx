@@ -33,12 +33,18 @@ interface Bundle {
   name: string;
   description: string | null;
   base_price: number;
-  bundle_type: "acceptance" | "registration" | "custom";
+  bundle_type:
+    | "acceptance"
+    | "registration"
+    | "returning_registration"
+    | "custom";
   is_active: boolean;
   applicable_to: string;
+  applicable_student_status?: string;
   class_category?: string | null;
   target_class?: string | null;
   department_stream?: string | null;
+  student_type?: string;
   coaching_addon?: boolean;
   items: BundleItem[];
 }
@@ -54,8 +60,13 @@ type BundleFormState = {
   name: string;
   description: string;
   basePrice: string;
-  bundleType: "acceptance" | "registration" | "custom";
+  bundleType:
+    | "acceptance"
+    | "registration"
+    | "returning_registration"
+    | "custom";
   applicableTo: string;
+  applicableStudentStatus: string;
   classCategory: string;
   targetClass: string;
   departmentStream: string;
@@ -69,6 +80,7 @@ interface BundleFormProps {
   error: string;
   saving: boolean;
   inventory: InventoryItem[];
+  classes: string[];
   seniorClasses: string[];
   streams: string[];
   onSubmit: (e: React.FormEvent) => void;
@@ -81,6 +93,7 @@ const BundleForm: React.FC<BundleFormProps> = ({
   error,
   saving,
   inventory,
+  classes,
   seniorClasses,
   streams,
   onSubmit,
@@ -202,20 +215,43 @@ const BundleForm: React.FC<BundleFormProps> = ({
           Applicable Student Status
         </label>
         <select
+          value={form.applicableStudentStatus}
+          onChange={(e) =>
+            setForm((p) => ({
+              ...p,
+              applicableStudentStatus: e.target.value,
+            }))
+          }
+          className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+        >
+          <option value="All Students">All Students</option>
+          <option value="New Applicants Only">New Applicants Only</option>
+          <option value="Returning Students Only">
+            Returning Students Only
+          </option>
+        </select>
+        <p className="text-xs text-gray-400 mt-1">
+          New applicant bundles appear only in Walk-In Admission; returning
+          bundles appear for enrolled students in Cashier POS and Student
+          Ledger.
+        </p>
+      </div>
+
+      <div>
+        <label className="text-sm font-medium text-gray-700 mb-1 block">
+          Applicable Student Type
+        </label>
+        <select
           value={form.applicableTo}
           onChange={(e) =>
             setForm((p) => ({ ...p, applicableTo: e.target.value }))
           }
           className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
         >
-          <option value="All Students">All Students</option>
-          <option value="Day Only">Day Students Only</option>
-          <option value="Boarding Only">Boarding Students Only</option>
+          <option value="Day Only">Day Only</option>
+          <option value="Boarding Only">Boarding Only</option>
+          <option value="All Students">All Student Types</option>
         </select>
-        <p className="text-xs text-gray-400 mt-1">
-          For Registration bundles, this controls which student type is offered
-          this package in the Walk-In flow.
-        </p>
       </div>
 
       <div>
@@ -239,10 +275,14 @@ const BundleForm: React.FC<BundleFormProps> = ({
           <option value="JUNIOR">Junior Secondary (JSS1–3)</option>
           <option value="SENIOR">Senior Secondary (SS1–3)</option>
           <option value="REMEDIAL">Remedial / A.C.E. Class</option>
+          {classes.map((className) => (
+            <option key={className} value={className}>
+              {className.replace(/([A-Z]+)([0-9]+)/, "$1 $2")} only
+            </option>
+          ))}
         </select>
         <p className="text-xs text-gray-400 mt-1">
-          Links this bundle to the correct class tier in the Walk-In
-          Registration checkout.
+          Choose a broad tier or target one configured class.
         </p>
       </div>
 
@@ -295,7 +335,8 @@ const BundleForm: React.FC<BundleFormProps> = ({
         </div>
       )}
 
-      {form.applicableTo === "Boarding Only" &&
+      {(form.applicableTo === "All Students" ||
+        form.applicableTo === "Returning Students Only") &&
         (form.classCategory === "JUNIOR" ||
           form.classCategory === "SENIOR") && (
           <div className="flex items-center justify-between bg-primary-50 border border-primary-200 rounded-xl px-4 py-3">
@@ -304,7 +345,7 @@ const BundleForm: React.FC<BundleFormProps> = ({
                 Include Optional Coaching Fee
               </p>
               <p className="text-xs text-primary-600 mt-0.5">
-                Exposes a +₦10,000 coaching checkbox for boarding students at
+                Exposes a +₦10,000 coaching checkbox for eligible students at
                 checkout
               </p>
             </div>
@@ -427,6 +468,7 @@ const emptyForm: BundleFormState = {
   basePrice: "",
   bundleType: "registration",
   applicableTo: "All Students",
+  applicableStudentStatus: "New Applicants Only",
   classCategory: "",
   targetClass: "",
   departmentStream: "",
@@ -434,16 +476,20 @@ const emptyForm: BundleFormState = {
   items: [],
 };
 
-const MIGRATION_SQL = `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS class_category text;\nALTER TABLE bundles ADD COLUMN IF NOT EXISTS coaching_addon boolean DEFAULT false;\nALTER TABLE bundles ADD COLUMN IF NOT EXISTS target_class text;\nALTER TABLE bundles ADD COLUMN IF NOT EXISTS department_stream text;`;
+const MIGRATION_SQL = `ALTER TABLE bundles ADD COLUMN IF NOT EXISTS class_category text;\nALTER TABLE bundles ADD COLUMN IF NOT EXISTS coaching_addon boolean DEFAULT false;\nALTER TABLE bundles ADD COLUMN IF NOT EXISTS target_class text;\nALTER TABLE bundles ADD COLUMN IF NOT EXISTS department_stream text;\nALTER TABLE bundles ADD COLUMN IF NOT EXISTS applicable_to text NOT NULL DEFAULT 'All Students';\nALTER TABLE bundles ADD COLUMN IF NOT EXISTS applicable_student_status text NOT NULL DEFAULT 'All Students';`;
 
 const BundleManagement: React.FC = () => {
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [configuredClasses, setConfiguredClasses] = useState<string[]>([]);
   const [seniorClasses, setSeniorClasses] = useState<string[]>([]);
   const [streams, setStreams] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedBundle, setExpandedBundle] = useState<number | null>(null);
   const [schemaMissing, setSchemaMissing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"walk-in" | "returning">(
+    "walk-in",
+  );
 
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -454,6 +500,13 @@ const BundleManagement: React.FC = () => {
   const [error, setError] = useState("");
 
   const [form, setForm] = useState<BundleFormState>(emptyForm);
+  const activeStudentStatus =
+    activeTab === "walk-in" ? "New Applicants Only" : "Returning Students Only";
+  const visibleBundles = bundles.filter(
+    (bundle) =>
+      bundle.applicable_student_status === activeStudentStatus ||
+      bundle.applicable_student_status === "All Students",
+  );
 
   const load = async () => {
     setLoading(true);
@@ -471,6 +524,7 @@ const BundleManagement: React.FC = () => {
       } catch {
         configuredClasses = [];
       }
+      setConfiguredClasses(configuredClasses);
       setSeniorClasses(
         [
           ...new Set(
@@ -495,7 +549,7 @@ const BundleManagement: React.FC = () => {
   }, []);
 
   const openCreate = () => {
-    setForm(emptyForm);
+    setForm({ ...emptyForm, applicableStudentStatus: activeStudentStatus });
     setError("");
     setShowCreate(true);
   };
@@ -508,6 +562,7 @@ const BundleManagement: React.FC = () => {
       basePrice: String(b.base_price),
       bundleType: b.bundle_type,
       applicableTo: b.applicable_to || "All Students",
+      applicableStudentStatus: b.applicable_student_status || "All Students",
       classCategory: b.class_category || "",
       targetClass: b.target_class || "",
       departmentStream: b.department_stream || "",
@@ -532,6 +587,7 @@ const BundleManagement: React.FC = () => {
       basePrice: parseFloat(form.basePrice),
       bundleType: form.bundleType,
       applicableTo: form.applicableTo,
+      applicableStudentStatus: form.applicableStudentStatus,
       classCategory: form.classCategory || null,
       targetClass:
         form.classCategory === "SENIOR" ? form.targetClass || null : null,
@@ -562,6 +618,7 @@ const BundleManagement: React.FC = () => {
       basePrice: parseFloat(form.basePrice),
       bundleType: form.bundleType,
       applicableTo: form.applicableTo,
+      applicableStudentStatus: form.applicableStudentStatus,
       classCategory: form.classCategory || null,
       targetClass:
         form.classCategory === "SENIOR" ? form.targetClass || null : null,
@@ -604,6 +661,30 @@ const BundleManagement: React.FC = () => {
         </button>
       </div>
 
+      <div className="flex border-b border-gray-200 mb-5" role="tablist">
+        {(
+          [
+            ["walk-in", "Walk-In Applicant Packages"],
+            ["returning", "Returning Student Packages"],
+          ] as const
+        ).map(([tab, label]) => (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-3 text-sm font-semibold border-b-2 ${
+              activeTab === tab
+                ? "border-primary-600 text-primary-700"
+                : "border-transparent text-gray-500 hover:text-gray-800"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {schemaMissing && (
         <div className="bg-warning-50 border border-warning-200 rounded-xl px-4 py-3 mb-5">
           <div className="flex items-start gap-3">
@@ -613,10 +694,9 @@ const BundleManagement: React.FC = () => {
                 Database migration required for bundle targeting
               </p>
               <p className="text-xs text-warning-600 mt-0.5 mb-2">
-                Bundle category and department stream columns are missing. Run
-                this SQL in your{" "}
-                <strong>Supabase dashboard → SQL Editor</strong> to persist
-                them:
+                Bundle targeting or residency columns are missing. Run this SQL
+                in your <strong>Supabase dashboard → SQL Editor</strong> to
+                persist them:
               </p>
               <pre className="bg-warning-100 text-warning-900 text-xs font-mono rounded-lg px-3 py-2 overflow-auto whitespace-pre select-all cursor-text border border-warning-200">
                 {MIGRATION_SQL}
@@ -645,9 +725,21 @@ const BundleManagement: React.FC = () => {
             Create First Bundle
           </button>
         </div>
+      ) : visibleBundles.length === 0 ? (
+        <div className="bg-white rounded-xl border border-dashed border-gray-200 p-12 text-center text-gray-400">
+          <Package className="w-12 h-12 mx-auto mb-3 opacity-30" />
+          <p className="font-medium">No packages in this section</p>
+          <button
+            onClick={openCreate}
+            className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700"
+          >
+            Create {activeTab === "walk-in" ? "Walk-In" : "Returning Student"}{" "}
+            Package
+          </button>
+        </div>
       ) : (
         <div className="space-y-3">
-          {bundles.map((b) => {
+          {visibleBundles.map((b) => {
             const isExpanded = expandedBundle === b.id;
             const itemsValue = b.items.reduce(
               (s, i) => s + Number(i.selling_price) * i.quantity,
@@ -666,16 +758,23 @@ const BundleManagement: React.FC = () => {
                         <span
                           className={`text-xs px-2 py-0.5 rounded-full ${b.bundle_type === "acceptance" ? "bg-warning-100 text-warning-700" : b.bundle_type === "registration" ? "bg-success-100 text-success-700" : "bg-gray-100 text-gray-600"}`}
                         >
-                          {b.bundle_type}
+                          {b.bundle_type === "returning_registration"
+                            ? "Returning Student Transition"
+                            : b.bundle_type}
                         </span>
                         {!b.is_active && (
                           <span className="text-xs bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full">
                             Inactive
                           </span>
                         )}
+                        {b.applicable_student_status && (
+                          <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
+                            {b.applicable_student_status}
+                          </span>
+                        )}
                         {b.applicable_to &&
                           b.applicable_to !== "All Students" && (
-                            <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
+                            <span className="text-xs bg-cyan-100 text-cyan-700 px-2 py-0.5 rounded-full">
                               {b.applicable_to}
                             </span>
                           )}
@@ -687,7 +786,12 @@ const BundleManagement: React.FC = () => {
                               ? "JSS1–3"
                               : b.class_category === "SENIOR"
                                 ? "SS1–3"
-                                : "Remedial"}
+                                : b.class_category === "REMEDIAL"
+                                  ? "Remedial"
+                                  : b.class_category.replace(
+                                      /([A-Z]+)([0-9]+)/,
+                                      "$1 $2",
+                                    )}
                           </span>
                         )}
                         {(b.target_class || b.department_stream) && (
@@ -810,6 +914,7 @@ const BundleManagement: React.FC = () => {
               error={error}
               saving={saving}
               inventory={inventory}
+              classes={configuredClasses}
               seniorClasses={seniorClasses}
               streams={streams}
               onSubmit={handleCreate}
@@ -838,6 +943,7 @@ const BundleManagement: React.FC = () => {
               error={error}
               saving={saving}
               inventory={inventory}
+              classes={configuredClasses}
               seniorClasses={seniorClasses}
               streams={streams}
               onSubmit={handleEdit}

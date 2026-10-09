@@ -142,6 +142,9 @@ const StudentManagement: React.FC<{
   const [registrationBundles, setRegistrationBundles] = useState<any[]>([]);
   const [selectedRegistrationBundle, setSelectedRegistrationBundle] =
     useState("");
+  const [selectedBundleItemIds, setSelectedBundleItemIds] = useState<number[]>(
+    [],
+  );
   const [bundleChargeSaving, setBundleChargeSaving] = useState(false);
   const [bundleChargeError, setBundleChargeError] = useState("");
 
@@ -158,12 +161,61 @@ const StudentManagement: React.FC<{
       setLedgerEntries(entries);
       setHistory(h);
       setRegistrationBundles(
-        bundles.filter(
-          (bundle: any) =>
-            bundle.bundle_type === "registration" && bundle.is_active,
-        ),
+        bundles.filter((bundle: any) => {
+          if (
+            !bundle.is_active ||
+            !["registration", "returning_registration"].includes(
+              bundle.bundle_type,
+            ) ||
+            (bundle.applicable_student_status !== "Returning Students Only" &&
+              bundle.applicable_student_status !== "All Students")
+          )
+            return false;
+          const categoryMap = settingsAPI.getClassCategoryMap();
+          const normalize = (value?: string | null) =>
+            String(value || "")
+              .replace(/[\s._-]+/g, "")
+              .toUpperCase();
+          const className = normalize(s.student_class);
+          const category = normalize(
+            categoryMap[s.student_class] ||
+              (/^(JSS|JHS)/i.test(s.student_class)
+                ? "JUNIOR"
+                : /^SS/i.test(s.student_class)
+                  ? "SENIOR"
+                  : ""),
+          );
+          const bundleCategory = normalize(bundle.class_category);
+          if (
+            bundleCategory &&
+            bundleCategory !== className &&
+            !className.startsWith(bundleCategory) &&
+            bundleCategory !== category
+          )
+            return false;
+          const targetClass = normalize(bundle.target_class);
+          if (targetClass && !className.startsWith(targetClass)) return false;
+          if (
+            bundle.department_stream &&
+            bundle.department_stream !== s.department_stream
+          )
+            return false;
+          const residency = s.student_status || "Day";
+          if (
+            bundle.applicable_to === "Day Only" &&
+            (s.student_status || "Day") !== "Day"
+          )
+            return false;
+          if (
+            bundle.applicable_to === "Boarding Only" &&
+            s.student_status !== "Boarding"
+          )
+            return false;
+          return true;
+        }),
       );
       setSelectedRegistrationBundle("");
+      setSelectedBundleItemIds([]);
       setBundleChargeError("");
     } catch (err) {
       console.error("Failed to load ledger:", err);
@@ -179,6 +231,8 @@ const StudentManagement: React.FC<{
       await bundlePaymentAPI.attachRegistrationBundleToStudent({
         studentId: selectedStudent.student_id,
         bundleId: Number(selectedRegistrationBundle),
+        includedItemIds: selectedBundleItemIds,
+        amount: registrationChargeAmount,
       });
       setLedgerEntries(
         await ledgerAPI.getStatement(selectedStudent.student_id),
@@ -189,6 +243,22 @@ const StudentManagement: React.FC<{
     }
     setBundleChargeSaving(false);
   };
+
+  const selectedBundle = registrationBundles.find(
+    (bundle: any) => bundle.id === Number(selectedRegistrationBundle),
+  );
+  const excludedBundleValue = selectedBundle
+    ? selectedBundle.items
+        .filter((item: any) => !selectedBundleItemIds.includes(item.item_id))
+        .reduce(
+          (sum: number, item: any) =>
+            sum + Number(item.selling_price) * Number(item.quantity),
+          0,
+        )
+    : 0;
+  const registrationChargeAmount = selectedBundle
+    ? Math.max(0, Number(selectedBundle.base_price) - excludedBundleValue)
+    : 0;
 
   const loadTotalOutstanding = () => {
     (studentFeeAPI as any)
@@ -1165,9 +1235,16 @@ const StudentManagement: React.FC<{
                 Add Registration Package Charge
                 <select
                   value={selectedRegistrationBundle}
-                  onChange={(e) =>
-                    setSelectedRegistrationBundle(e.target.value)
-                  }
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    const bundle = registrationBundles.find(
+                      (item: any) => item.id === Number(id),
+                    );
+                    setSelectedRegistrationBundle(id);
+                    setSelectedBundleItemIds(
+                      (bundle?.items || []).map((item: any) => item.item_id),
+                    );
+                  }}
                   className={`${inputCls} mt-1`}
                 >
                   <option value="">Select a registration package</option>
@@ -1178,10 +1255,51 @@ const StudentManagement: React.FC<{
                   ))}
                 </select>
               </label>
+              {selectedBundle && selectedBundle.items.length > 0 && (
+                <div className="w-full border border-gray-200 rounded-lg p-3 space-y-2">
+                  <p className="text-xs font-semibold uppercase text-gray-500">
+                    Package Contents
+                  </p>
+                  {selectedBundle.items.map((item: any) => (
+                    <label
+                      key={item.item_id}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedBundleItemIds.includes(item.item_id)}
+                        onChange={(e) =>
+                          setSelectedBundleItemIds((current) =>
+                            e.target.checked
+                              ? [...current, item.item_id]
+                              : current.filter((id) => id !== item.item_id),
+                          )
+                        }
+                      />
+                      <span className="flex-1">
+                        {item.item_name} × {item.quantity}
+                      </span>
+                      <span className="text-gray-500">
+                        {fmt(
+                          Number(item.selling_price) * Number(item.quantity),
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                  <div className="flex justify-between border-t pt-2 font-semibold text-sm">
+                    <span>Charge after exclusions</span>
+                    <span>{fmt(registrationChargeAmount)}</span>
+                  </div>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={attachRegistrationBundle}
-                disabled={!selectedRegistrationBundle || bundleChargeSaving}
+                disabled={
+                  !selectedRegistrationBundle ||
+                  bundleChargeSaving ||
+                  registrationChargeAmount <= 0
+                }
                 className="px-3 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 inline-flex items-center gap-1.5"
               >
                 <Plus className="w-4 h-4" />

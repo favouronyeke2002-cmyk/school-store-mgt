@@ -308,19 +308,19 @@ export const customerAPI = {
     lastName: string;
     parentPhone?: string;
   }) {
-    const firstName = data.firstName.trim().toLowerCase();
-    const lastName = data.lastName.trim().toLowerCase();
-    const parentPhone = data.parentPhone?.trim().toLowerCase() || null;
+    const firstName = data.firstName.trim();
+    const lastName = data.lastName.trim();
+    const parentPhone = data.parentPhone?.trim() || null;
 
     const findInTable = async (table: "students" | "applicants") => {
       let query = supabase
         .from(table)
         .select("*")
-        .eq("first_name_normalized", firstName)
-        .eq("last_name_normalized", lastName);
+        .ilike("first_name", firstName)
+        .ilike("last_name", lastName);
       query = parentPhone
-        ? query.eq("parent_phone_normalized", parentPhone)
-        : query.is("parent_phone_normalized", null);
+        ? query.eq("parent_phone", parentPhone)
+        : query.is("parent_phone", null);
 
       const { data: match, error } = await query.limit(1).maybeSingle();
       if (error) throw error;
@@ -528,45 +528,55 @@ export const studentAPI = {
       ...withIdentityStream,
       applicant_id: data.applicantId,
     };
-    // Try most-specific first, fall back on column-missing errors
-    let insertSuccess = false;
-    if (data.applicantId) {
-      const { error: e0 } = await supabase
-        .from("students")
-        .insert(withIdentityApplicant);
-      if (!e0) insertSuccess = true;
-    }
-    if (!insertSuccess) {
-      const { error: e1 } = await supabase
-        .from("students")
-        .insert(withIdentityStream);
-      if (!e1) insertSuccess = true;
-      else {
-        const { error: e2 } = await supabase
+    const hasExtendedFields =
+      Object.keys(identity).length > 0 ||
+      data.studentStatus !== undefined ||
+      data.departmentStream !== undefined ||
+      data.applicantId !== undefined;
+    if (!hasExtendedFields) {
+      const { error } = await supabase.from("students").insert(base);
+      if (error) return { success: false, error: error.message };
+    } else {
+      // Try most-specific first, fall back on column-missing errors
+      let insertSuccess = false;
+      if (data.applicantId) {
+        const { error: e0 } = await supabase
           .from("students")
-          .insert(withIdentityStatus);
-        if (!e2) insertSuccess = true;
+          .insert(withIdentityApplicant);
+        if (!e0) insertSuccess = true;
+      }
+      if (!insertSuccess) {
+        const { error: e1 } = await supabase
+          .from("students")
+          .insert(withIdentityStream);
+        if (!e1) insertSuccess = true;
         else {
-          const { error: e3 } = await supabase
+          const { error: e2 } = await supabase
             .from("students")
-            .insert(withIdentity);
-          if (!e3) insertSuccess = true;
+            .insert(withIdentityStatus);
+          if (!e2) insertSuccess = true;
           else {
-            const { error: e4 } = await supabase
+            const { error: e3 } = await supabase
               .from("students")
-              .insert(withStream);
-            if (!e4) insertSuccess = true;
+              .insert(withIdentity);
+            if (!e3) insertSuccess = true;
             else {
-              const { error: e5 } = await supabase
+              const { error: e4 } = await supabase
                 .from("students")
-                .insert(withStatus);
-              if (!e5) insertSuccess = true;
+                .insert(withStream);
+              if (!e4) insertSuccess = true;
               else {
-                const { error: e6 } = await supabase
+                const { error: e5 } = await supabase
                   .from("students")
-                  .insert(base);
-                if (e6) return { success: false, error: e6.message };
-                insertSuccess = true;
+                  .insert(withStatus);
+                if (!e5) insertSuccess = true;
+                else {
+                  const { error: e6 } = await supabase
+                    .from("students")
+                    .insert(base);
+                  if (e6) return { success: false, error: e6.message };
+                  insertSuccess = true;
+                }
               }
             }
           }
@@ -3576,6 +3586,46 @@ async function enrichMissingInventory(
   });
 }
 
+const normalizeBundleRecord = (bundle: any) => {
+  const legacyStatus = [
+    "New Applicants Only",
+    "Returning Students Only",
+  ].includes(bundle.applicable_to)
+    ? bundle.applicable_to
+    : null;
+  const legacyResidency =
+    bundle.student_type === "Day Only" ||
+    bundle.student_type === "Boarding Only"
+      ? bundle.student_type
+      : "All Students";
+  const bundleType =
+    bundle.bundle_type === "acceptance" || bundle.bundle_type === "custom"
+      ? bundle.bundle_type
+      : "registration";
+
+  return {
+    ...bundle,
+    bundle_type: bundleType,
+    applicable_student_status:
+      bundle.applicable_student_status ||
+      legacyStatus ||
+      (bundle.bundle_type === "returning_registration"
+        ? "Returning Students Only"
+        : bundle.bundle_type === "acceptance"
+          ? "New Applicants Only"
+          : "All Students"),
+    applicable_to:
+      bundle.applicable_student_status &&
+      ["All Students", "Day Only", "Boarding Only"].includes(
+        bundle.applicable_to,
+      )
+        ? bundle.applicable_to
+        : ["Day Only", "Boarding Only"].includes(bundle.applicable_to)
+          ? bundle.applicable_to
+          : legacyResidency,
+  };
+};
+
 export const bundleAPI = {
   async getAll() {
     const { data, error } = await supabase
@@ -3593,8 +3643,7 @@ export const bundleAPI = {
           mapBundleItems(b.bundle_items),
         );
         return {
-          ...b,
-          applicable_to: b.applicable_to || "All Students",
+          ...normalizeBundleRecord(b),
           class_category: b.class_category || cached?.class_category || null,
           target_class: b.target_class || cached?.target_class || null,
           department_stream:
@@ -3620,8 +3669,7 @@ export const bundleAPI = {
       mapBundleItems(data.bundle_items),
     );
     return {
-      ...data,
-      applicable_to: data.applicable_to || "All Students",
+      ...normalizeBundleRecord(data),
       class_category: data.class_category || cached?.class_category || null,
       target_class: data.target_class || cached?.target_class || null,
       department_stream:
@@ -3633,7 +3681,9 @@ export const bundleAPI = {
   async checkSchemaHasCategory(): Promise<boolean> {
     const { error } = await supabase
       .from("bundles")
-      .select("class_category, target_class, department_stream")
+      .select(
+        "class_category, target_class, department_stream, applicable_student_status, applicable_to",
+      )
       .limit(1);
     if (!error) return true;
     return !(
@@ -3646,8 +3696,13 @@ export const bundleAPI = {
     name: string;
     description?: string;
     basePrice: number;
-    bundleType: "acceptance" | "registration" | "custom";
+    bundleType:
+      | "acceptance"
+      | "registration"
+      | "returning_registration"
+      | "custom";
     applicableTo?: string;
+    applicableStudentStatus?: string;
     classCategory?: string | null;
     targetClass?: string | null;
     departmentStream?: string | null;
@@ -3658,8 +3713,12 @@ export const bundleAPI = {
       name: data.name,
       description: data.description || null,
       base_price: data.basePrice,
-      bundle_type: data.bundleType,
+      bundle_type:
+        data.bundleType === "acceptance" || data.bundleType === "custom"
+          ? data.bundleType
+          : "registration",
       applicable_to: data.applicableTo || "All Students",
+      applicable_student_status: data.applicableStudentStatus || "All Students",
     };
     const fullPayload = {
       ...basePayload,
@@ -3705,8 +3764,13 @@ export const bundleAPI = {
       name: string;
       description?: string;
       basePrice: number;
-      bundleType: "acceptance" | "registration" | "custom";
+      bundleType:
+        | "acceptance"
+        | "registration"
+        | "returning_registration"
+        | "custom";
       applicableTo?: string;
+      applicableStudentStatus?: string;
       classCategory?: string | null;
       targetClass?: string | null;
       departmentStream?: string | null;
@@ -3719,9 +3783,13 @@ export const bundleAPI = {
       name: data.name,
       description: data.description || null,
       base_price: data.basePrice,
-      bundle_type: data.bundleType,
+      bundle_type:
+        data.bundleType === "acceptance" || data.bundleType === "custom"
+          ? data.bundleType
+          : "registration",
       is_active: data.isActive ?? true,
       applicable_to: data.applicableTo || "All Students",
+      applicable_student_status: data.applicableStudentStatus || "All Students",
     };
     const fullPayload = {
       ...basePayload,
@@ -4016,8 +4084,15 @@ export const bundlePaymentAPI = {
   async attachRegistrationBundleToStudent(params: {
     studentId: string;
     bundleId: number;
+    includedItemIds?: number[];
+    amount?: number;
   }) {
-    const { studentId, bundleId } = params;
+    const {
+      studentId,
+      bundleId,
+      includedItemIds,
+      amount: adjustedAmount,
+    } = params;
     const [bundle, settings, studentResult] = await Promise.all([
       bundleAPI.getById(bundleId),
       settingsAPI.get(),
@@ -4028,7 +4103,12 @@ export const bundlePaymentAPI = {
         .single(),
     ]);
     if (studentResult.error) throw studentResult.error;
-    if (bundle.bundle_type !== "registration" || !bundle.is_active)
+    if (
+      !["registration", "returning_registration"].includes(
+        bundle.bundle_type,
+      ) ||
+      !bundle.is_active
+    )
       throw new Error("Select an active registration package.");
 
     const academicTerm = settings.current_term || "First Term";
@@ -4050,7 +4130,10 @@ export const bundlePaymentAPI = {
       );
     }
 
-    const amount = Number(bundle.base_price);
+    const selectedItems = (bundle.items || []).filter(
+      (item: any) => !includedItemIds || includedItemIds.includes(item.item_id),
+    );
+    const amount = Number(adjustedAmount ?? bundle.base_price);
     if (!Number.isFinite(amount) || amount <= 0)
       throw new Error("This registration package has no valid charge amount.");
     const transaction = await tryInsertTxn({
@@ -4062,7 +4145,7 @@ export const bundlePaymentAPI = {
       academic_term: academicTerm,
       target_class: studentResult.data.student_class,
       customer_name: studentResult.data.name,
-      notes: `Unpaid Registration Package — ${bundle.name}`,
+      notes: `Unpaid Registration Package — ${bundle.name}${includedItemIds ? ` — Items: ${selectedItems.map((item: any) => item.item_id).join(",")}` : ""}`,
     });
     const feeTypeName = `Registration Package — ${bundle.name}`;
     const { error: entryError } = await supabase.from("ledger_entries").insert({
@@ -4074,6 +4157,38 @@ export const bundlePaymentAPI = {
       academic_term: academicTerm,
     });
     if (entryError) throw entryError;
+
+    if (selectedItems.length > 0) {
+      const itemRows = selectedItems.map((item: any) => ({
+        transaction_id: transaction.transaction_id,
+        item_id: item.item_id,
+        item_name: item.item_name,
+        quantity: item.quantity,
+        unit_price: Number(item.selling_price) || 0,
+        total_price:
+          (Number(item.selling_price) || 0) * Number(item.quantity || 1),
+      }));
+      const { error: itemError } = await supabase
+        .from("transaction_items")
+        .insert(itemRows);
+      if (itemError) throw itemError;
+
+      const issuanceRows = selectedItems.map((item: any) => ({
+        student_id: studentId,
+        transaction_id: transaction.transaction_id,
+        item_id: item.item_id,
+        book_name: item.item_name,
+        item_name: item.item_name,
+        bundle_name: bundle.name,
+        quantity: item.quantity,
+        status: "unassigned",
+        stock_deducted: false,
+      }));
+      const { error: issuanceError } = await supabase
+        .from("student_book_issuances")
+        .insert(issuanceRows);
+      if (issuanceError) throw issuanceError;
+    }
 
     const { error: balanceError } = await supabase
       .from("students")
@@ -4087,9 +4202,9 @@ export const bundlePaymentAPI = {
     return { success: true, transactionId: transaction.transaction_id };
   },
 
-  // Process a bundle payment (acceptance or registration) for an applicant
+  // Process a bundle payment for an applicant or enrolled student.
   async processBundlePayment(params: {
-    applicantId: number;
+    applicantId?: number;
     studentId?: string;
     bundleId: number;
     shiftId: number;
@@ -4127,6 +4242,8 @@ export const bundlePaymentAPI = {
     if (!bundle) throw new Error("Bundle not found");
 
     const totalDue = Number(totalAmount ?? bundle.base_price);
+    const settings = await settingsAPI.get();
+    const academicTerm = settings.current_term || "First Term";
 
     // Validate partial payment floor
     if (amountPaid < totalDue && amountPaid < minPartialFloor) {
@@ -4191,6 +4308,7 @@ export const bundlePaymentAPI = {
       notes: `${bundle.name} - ${newTotalPaid >= amountDue ? "Full" : "Partial"} Payment`,
       customer_name: customerName,
       target_class: targetClass,
+      academic_term: academicTerm,
       balance_due: balanceDue > 0 ? balanceDue : 0,
     });
 
@@ -4294,10 +4412,12 @@ export const bundlePaymentAPI = {
     }));
 
     // Double-entry ledger for bundle/acceptance fee payment
-    if (txn.student_id || txn.applicant_id) {
+    const ledgerStudentId =
+      studentId || (applicantId ? `applicant_${applicantId}` : null);
+    if (ledgerStudentId) {
       try {
         await ledgerAPI.recordDoubleEntry({
-          studentId: txn.student_id || `applicant_${applicantId}`,
+          studentId: ledgerStudentId,
           transactionId: txn.transaction_id,
           feeTypeName: bundle.name || "Acceptance Fee",
           amount: amountPaid,
@@ -4306,7 +4426,7 @@ export const bundlePaymentAPI = {
         const remainingBalance = Math.max(0, amountDue - newTotalPaid);
         if (remainingBalance > 0) {
           await supabase.from("ledger_entries").insert({
-            student_id: txn.student_id || `applicant_${applicantId}`,
+            student_id: ledgerStudentId,
             transaction_id: txn.transaction_id,
             entry_type: "debit",
             fee_type_name: `${bundle.name} Remaining Balance`,
@@ -4812,7 +4932,11 @@ const studentBundleBalanceAPI = {
 
     // Filter to registration-type bundles only (exclude acceptance fees, store purchases)
     const registrationTxns = allTxns.filter((t: any) => {
-      if (t?.bundles?.bundle_type === "registration") return true;
+      if (
+        t?.bundles?.bundle_type === "registration" ||
+        t?.bundles?.bundle_type === "returning_registration"
+      )
+        return true;
       // Direct registration payments have no bundle_id — detect by notes pattern
       if (!t.bundle_id && t.notes?.includes("Registration Fee")) return true;
       return false;
