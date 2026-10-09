@@ -10,6 +10,7 @@ import {
   ExternalLink,
   CheckCircle,
   FileText,
+  Plus,
 } from "lucide-react";
 import {
   studentAPI,
@@ -17,6 +18,8 @@ import {
   settingsAPI,
   studentFeeAPI,
   ledgerAPI,
+  bundleAPI,
+  bundlePaymentAPI,
   seniorClassKey,
 } from "../../lib/api";
 import PendingItems from "../shared/PendingItems";
@@ -136,22 +139,55 @@ const StudentManagement: React.FC<{
   const [showLedger, setShowLedger] = useState(false);
   const [ledgerEntries, setLedgerEntries] = useState<any[]>([]);
   const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [registrationBundles, setRegistrationBundles] = useState<any[]>([]);
+  const [selectedRegistrationBundle, setSelectedRegistrationBundle] =
+    useState("");
+  const [bundleChargeSaving, setBundleChargeSaving] = useState(false);
+  const [bundleChargeError, setBundleChargeError] = useState("");
 
   const viewLedger = async (s: Student) => {
     setSelectedStudent(s);
     setShowLedger(true);
     setLedgerLoading(true);
     try {
-      const [entries, h] = await Promise.all([
+      const [entries, h, bundles] = await Promise.all([
         ledgerAPI.getStatement(s.student_id),
         studentAPI.getHistory(s.student_id),
+        bundleAPI.getAll(),
       ]);
       setLedgerEntries(entries);
       setHistory(h);
+      setRegistrationBundles(
+        bundles.filter(
+          (bundle: any) =>
+            bundle.bundle_type === "registration" && bundle.is_active,
+        ),
+      );
+      setSelectedRegistrationBundle("");
+      setBundleChargeError("");
     } catch (err) {
       console.error("Failed to load ledger:", err);
     }
     setLedgerLoading(false);
+  };
+
+  const attachRegistrationBundle = async () => {
+    if (!selectedStudent || !selectedRegistrationBundle) return;
+    setBundleChargeSaving(true);
+    setBundleChargeError("");
+    try {
+      await bundlePaymentAPI.attachRegistrationBundleToStudent({
+        studentId: selectedStudent.student_id,
+        bundleId: Number(selectedRegistrationBundle),
+      });
+      setLedgerEntries(
+        await ledgerAPI.getStatement(selectedStudent.student_id),
+      );
+      setSelectedRegistrationBundle("");
+    } catch (error) {
+      setBundleChargeError((error as Error).message);
+    }
+    setBundleChargeSaving(false);
   };
 
   const loadTotalOutstanding = () => {
@@ -1122,6 +1158,45 @@ const StudentManagement: React.FC<{
             {/* Pending items */}
             <div className="mb-4">
               <PendingItems studentId={selectedStudent.student_id} />
+            </div>
+
+            <div className="flex flex-wrap items-end gap-2 mb-4">
+              <label className="flex-1 min-w-56 text-sm font-medium text-gray-700">
+                Add Registration Package Charge
+                <select
+                  value={selectedRegistrationBundle}
+                  onChange={(e) =>
+                    setSelectedRegistrationBundle(e.target.value)
+                  }
+                  className={`${inputCls} mt-1`}
+                >
+                  <option value="">Select a registration package</option>
+                  {registrationBundles.map((bundle: any) => (
+                    <option key={bundle.id} value={bundle.id}>
+                      {bundle.name} — {fmt(Number(bundle.base_price))}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={attachRegistrationBundle}
+                disabled={!selectedRegistrationBundle || bundleChargeSaving}
+                className="px-3 py-2.5 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 inline-flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                {bundleChargeSaving ? "Posting…" : "Post Charge"}
+              </button>
+              {bundleChargeError && (
+                <p className="w-full text-sm text-danger-600">
+                  {bundleChargeError}
+                </p>
+              )}
+              {!registrationBundles.length && !ledgerLoading && (
+                <p className="w-full text-sm text-gray-500">
+                  No active registration packages are configured.
+                </p>
+              )}
             </div>
 
             {ledgerLoading ? (

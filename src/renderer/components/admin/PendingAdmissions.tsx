@@ -238,8 +238,8 @@ const PendingAdmissions: React.FC = () => {
 
     const newStudentId = result.studentId;
 
-    // ── STEP 2: Link applicant → student (also bridges transactions.student_id) ─
-    setEnrollStatus("Linking applicant record…");
+    // ── STEP 2: Link applicant, transfer payment history, and bill active fees ─
+    setEnrollStatus("Linking applicant and creating active-term fee bills…");
     const enrollmentResult = await applicantAPI.enroll(
       enrollTarget.id,
       newStudentId,
@@ -253,45 +253,6 @@ const PendingAdmissions: React.FC = () => {
       );
       setEnrollSaving(false);
       setEnrollStatus("");
-      return;
-    }
-
-    // ── STEP 3: Inherit standard class fees for the current term ─────────────
-    setEnrollStatus("Assigning class fees…");
-    try {
-      const settings = await settingsAPI.get();
-      const classFees = await feeTypeAPI.getByClass(enrollForm.class);
-      const housingStatus = enrollTarget.student_status || "Day";
-      const activeSession = settings.academic_session || "2026/2027";
-      const activeTerm = settings.current_term || "First Term";
-      const applicableFees = classFees.filter((f: any) => {
-        if (f.fee_category !== "standard") return false;
-        if (f.academic_session !== activeSession) return false;
-        if (f.term && f.term !== activeTerm) return false;
-        if (f.applicable_to === "Day" && housingStatus !== "Day") return false;
-        if (f.applicable_to === "Boarding" && housingStatus !== "Boarding")
-          return false;
-        return true;
-      });
-      for (const fee of applicableFees) {
-        const assignment = await feeTypeAPI.assignToStudents(
-          fee.id,
-          Number(fee.amount),
-          undefined,
-          newStudentId,
-          "standard",
-          fee.applicable_to,
-        );
-        if (!assignment.success) {
-          throw new Error(assignment.error || `Could not assign ${fee.name}`);
-        }
-      }
-    } catch (feeErr) {
-      setEnrollError(
-        `Student created, but active-term fees could not be assigned: ${(feeErr as Error).message}`,
-      );
-      setEnrollStatus("");
-      setEnrollSaving(false);
       return;
     }
 

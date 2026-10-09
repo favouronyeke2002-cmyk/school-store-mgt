@@ -412,13 +412,24 @@ export const studentAPI = {
     return { students: studentList, total: count || 0, page, pageSize };
   },
   async getAllUnpaginated(filters?: { search?: string; class?: string }) {
-    let query = supabase.from("students").select("*").order("name");
-    if (filters?.search) query = query.ilike("name", `%${filters.search}%`);
-    if (filters?.class && filters.class !== "all")
-      query = query.eq("student_class", filters.class);
-    const { data, error } = await query;
-    if (error) throw error;
-    return data || [];
+    const pageSize = 1000;
+    const students: any[] = [];
+    for (let from = 0; ; from += pageSize) {
+      let query = supabase
+        .from("students")
+        .select("*")
+        .order("name")
+        .order("student_id")
+        .range(from, from + pageSize - 1);
+      if (filters?.search) query = query.ilike("name", `%${filters.search}%`);
+      if (filters?.class && filters.class !== "all")
+        query = query.eq("student_class", filters.class);
+      const { data, error } = await query;
+      if (error) throw error;
+      students.push(...(data || []));
+      if (!data || data.length < pageSize) break;
+    }
+    return students;
   },
   async getClasses(): Promise<string[]> {
     // Always read from the master class list in settings, not from student records.
@@ -1495,6 +1506,47 @@ export const studentFeeAPI = {
     );
   },
 
+  async assignActiveTermFees(studentId: string) {
+    const settings = await settingsAPI.get();
+    const activeSession = settings.academic_session || "2026/2027";
+    const activeTerm = settings.current_term || "First Term";
+    const { data: student, error: studentError } = await supabase
+      .from("students")
+      .select("student_class, student_status")
+      .eq("student_id", studentId)
+      .single();
+    if (studentError) throw studentError;
+
+    const classFees = await feeTypeAPI.getByClass(student.student_class);
+    const applicableFees = classFees.filter((fee: any) => {
+      if (fee.fee_category !== "standard") return false;
+      if (fee.academic_session !== activeSession) return false;
+      if (fee.term && fee.term !== activeTerm) return false;
+      if (fee.applicable_to === "Day" && student.student_status !== "Day")
+        return false;
+      if (
+        fee.applicable_to === "Boarding" &&
+        student.student_status !== "Boarding"
+      )
+        return false;
+      return true;
+    });
+
+    for (const fee of applicableFees) {
+      const result = await feeTypeAPI.assignToStudents(
+        fee.id,
+        Number(fee.amount),
+        undefined,
+        studentId,
+        "standard",
+        fee.applicable_to,
+      );
+      if (!result.success)
+        throw new Error(result.error || `Could not assign ${fee.name}`);
+    }
+    return { success: true, count: applicableFees.length };
+  },
+
   // Full recalibration pass:
   //  A. Delete orphaned student_fee rows whose fee_type no longer exists.
   //  B. Delete STALE rows: fee_type exists but the student no longer matches its
@@ -1684,7 +1736,7 @@ export const studentFeeAPI = {
     const { data, error } = await supabase
       .from("student_fees")
       .select(
-        "*, students(name, student_class, admission_type, student_status), fee_types(name, academic_session, fee_category)",
+        "*, students(name, student_class, admission_type, student_status), fee_types(name, academic_session, fee_category, term)",
       )
       .order("created_at", { ascending: false });
     if (error) throw error;
@@ -1698,6 +1750,7 @@ export const studentFeeAPI = {
         student_status: sf.students?.student_status || "Day",
         fee_name: sf.fee_types?.name,
         academic_session: sf.fee_types?.academic_session,
+        term: sf.fee_types?.term || null,
         fee_category: sf.fee_types?.fee_category,
         balance: Number(sf.amount_due) - Number(sf.amount_paid),
       }))
@@ -3896,6 +3949,15 @@ export const applicantAPI = {
       };
     }
 
+    try {
+      await studentFeeAPI.assignActiveTermFees(studentId);
+    } catch (feeError) {
+      return {
+        success: false,
+        error: `Applicant linked, but active-term fee billing failed: ${(feeError as Error).message}`,
+      };
+    }
+
     // Auto-assign matching fees for the newly enrolled student
     if (options.autoAssignFees !== false) {
       try {
@@ -3951,6 +4013,80 @@ export const applicantAPI = {
 
 // ─── BUNDLE & APPLICANT PAYMENT TRANSACTIONS ───────────────────────────────────
 export const bundlePaymentAPI = {
+  async attachRegistrationBundleToStudent(params: {
+    studentId: string;
+    bundleId: number;
+  }) {
+    const { studentId, bundleId } = params;
+    const [bundle, settings, studentResult] = await Promise.all([
+      bundleAPI.getById(bundleId),
+      settingsAPI.get(),
+      supabase
+        .from("students")
+        .select("name, student_class, current_fees_owed")
+        .eq("student_id", studentId)
+        .single(),
+    ]);
+    if (studentResult.error) throw studentResult.error;
+    if (bundle.bundle_type !== "registration" || !bundle.is_active)
+      throw new Error("Select an active registration package.");
+
+    const academicTerm = settings.current_term || "First Term";
+    const { data: existing, error: existingError } = await supabase
+      .from("transactions")
+      .select("transaction_id, balance_due, academic_term")
+      .eq("student_id", studentId)
+      .eq("bundle_id", bundleId)
+      .eq("type", "BUNDLE_PURCHASE")
+      .gt("balance_due", 0);
+    if (existingError) throw existingError;
+    if (
+      (existing || []).some(
+        (transaction: any) => transaction.academic_term === academicTerm,
+      )
+    ) {
+      throw new Error(
+        "This student already has an unpaid charge for this package and term.",
+      );
+    }
+
+    const amount = Number(bundle.base_price);
+    if (!Number.isFinite(amount) || amount <= 0)
+      throw new Error("This registration package has no valid charge amount.");
+    const transaction = await tryInsertTxn({
+      student_id: studentId,
+      type: "BUNDLE_PURCHASE",
+      amount_paid: 0,
+      balance_due: amount,
+      bundle_id: bundleId,
+      academic_term: academicTerm,
+      target_class: studentResult.data.student_class,
+      customer_name: studentResult.data.name,
+      notes: `Unpaid Registration Package — ${bundle.name}`,
+    });
+    const feeTypeName = `Registration Package — ${bundle.name}`;
+    const { error: entryError } = await supabase.from("ledger_entries").insert({
+      student_id: studentId,
+      transaction_id: transaction.transaction_id,
+      entry_type: "debit",
+      fee_type_name: `${feeTypeName} Remaining Balance`,
+      amount,
+      academic_term: academicTerm,
+    });
+    if (entryError) throw entryError;
+
+    const { error: balanceError } = await supabase
+      .from("students")
+      .update({
+        current_fees_owed:
+          Number(studentResult.data.current_fees_owed || 0) + amount,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("student_id", studentId);
+    if (balanceError) throw balanceError;
+    return { success: true, transactionId: transaction.transaction_id };
+  },
+
   // Process a bundle payment (acceptance or registration) for an applicant
   async processBundlePayment(params: {
     applicantId: number;
@@ -4682,12 +4818,15 @@ const studentBundleBalanceAPI = {
       return false;
     });
 
-    // When a term is provided, only match that term — never fall back to another term's record,
-    // which could surface an old balance and mis-drive fee collection.
-    // When no term is provided (legacy/untagged flow), use the most recent record.
     const relevantTxn = currentTerm
-      ? registrationTxns.find((t: any) => t.academic_term === currentTerm)
-      : registrationTxns[0];
+      ? registrationTxns.find(
+          (t: any) =>
+            t.academic_term === currentTerm && Number(t.balance_due) > 0,
+        ) ||
+        registrationTxns.find((t: any) => Number(t.balance_due) > 0) ||
+        registrationTxns.find((t: any) => t.academic_term === currentTerm)
+      : registrationTxns.find((t: any) => Number(t.balance_due) > 0) ||
+        registrationTxns[0];
 
     if (!relevantTxn) {
       return {
@@ -4730,7 +4869,7 @@ const studentBundleBalanceAPI = {
     // Get current transaction to check balance
     const { data: txn, error: txnError } = await supabase
       .from("transactions")
-      .select("balance_due, amount_paid")
+      .select("balance_due, amount_paid, academic_term, bundles(name)")
       .eq("transaction_id", transactionId)
       .single();
     if (txnError || !txn) throw new Error("Transaction not found");
@@ -4747,6 +4886,7 @@ const studentBundleBalanceAPI = {
       type: "FEES_CASH_COLLECTION",
       amount_paid: amount,
       payment_mode: paymentMode,
+      academic_term: txn.academic_term,
       notes: `Bundle Installment Payment (Ref: Txn #${transactionId})`,
       customer_name: customerName,
       target_class: targetClass,
@@ -4789,28 +4929,48 @@ const studentBundleBalanceAPI = {
         );
     }
 
-    // Double-entry ledger for bundle installment payment
-    try {
-      await ledgerAPI.recordDoubleEntry({
-        studentId,
-        transactionId: installmentTxn.transaction_id,
-        feeTypeName: "Bundle Installment Payment",
-        amount,
-        paymentMode,
-      });
-      if (newBalance > 0) {
-        await supabase.from("ledger_entries").insert({
-          student_id: studentId,
-          transaction_id: installmentTxn.transaction_id,
-          entry_type: "debit",
-          fee_type_name: "Bundle Installment Remaining Balance",
-          amount: newBalance,
-          academic_term: null,
-        });
-      }
-    } catch (e) {
-      /* ledger write failure is non-fatal */
+    const feeName = `Registration Package — ${(txn as any).bundles?.name || "Transition Fee"}`;
+    const { data: outstandingEntries, error: outstandingError } = await supabase
+      .from("ledger_entries")
+      .select("id")
+      .eq("transaction_id", transactionId)
+      .eq("entry_type", "debit")
+      .ilike("fee_type_name", "%Remaining Balance%");
+    if (outstandingError) throw outstandingError;
+    const [outstandingEntry, ...duplicateOutstandingEntries] =
+      outstandingEntries || [];
+    if (outstandingEntry && newBalance > 0) {
+      const { error } = await supabase
+        .from("ledger_entries")
+        .update({ amount: newBalance })
+        .eq("id", outstandingEntry.id);
+      if (error) throw error;
+    } else if (outstandingEntry) {
+      const { error } = await supabase
+        .from("ledger_entries")
+        .delete()
+        .eq("id", outstandingEntry.id);
+      if (error) throw error;
     }
+    for (const duplicate of duplicateOutstandingEntries) {
+      const { error } = await supabase
+        .from("ledger_entries")
+        .delete()
+        .eq("id", duplicate.id);
+      if (error) throw error;
+    }
+    const { error: creditError } = await supabase
+      .from("ledger_entries")
+      .insert({
+        student_id: studentId,
+        transaction_id: installmentTxn.transaction_id,
+        entry_type: "credit",
+        fee_type_name: `${feeName} Payment`,
+        amount,
+        payment_mode: paymentMode,
+        academic_term: txn.academic_term || null,
+      });
+    if (creditError) throw creditError;
 
     return { success: true, newBalance };
   },
@@ -5344,7 +5504,7 @@ export const ledgerAPI = {
     const { data: transactions, error: transactionsError } = await supabase
       .from("transactions")
       .select(
-        "transaction_id, type, amount_paid, balance_due, bundle_id, target_class, payment_mode, status",
+        "transaction_id, type, amount_paid, balance_due, bundle_id, target_class, payment_mode, status, academic_term, bundles(name, bundle_type)",
       )
       .eq("applicant_id", applicantId);
     if (transactionsError) throw transactionsError;
@@ -5396,6 +5556,8 @@ export const ledgerAPI = {
     for (const transaction of validTransactions as any[]) {
       const transactionId = transaction.transaction_id;
       const entries = entriesByTransaction.get(transactionId) || [];
+      const registrationName =
+        (transaction as any).bundles?.name || "Transition Fee";
       const feeTypeName =
         transaction.type === "FORM_FEE"
           ? "Form Fee"
@@ -5403,7 +5565,7 @@ export const ledgerAPI = {
             ? "Acceptance Fee"
             : transaction.type === "BUNDLE_PURCHASE" ||
                 transaction.type === "REGISTRATION_PAYMENT"
-              ? "Registration Package"
+              ? `Registration Package — ${registrationName}`
               : transaction.type === "STORE_PURCHASE"
                 ? "Store Purchase"
                 : `Admissions Payment - ${transaction.type || "Other"}`;
@@ -5432,7 +5594,10 @@ export const ledgerAPI = {
         if (entry.fee_type_name !== explicitName) {
           const { error } = await supabase
             .from("ledger_entries")
-            .update({ fee_type_name: explicitName })
+            .update({
+              fee_type_name: explicitName,
+              academic_term: transaction.academic_term || null,
+            })
             .eq("id", entry.id);
           if (error) throw error;
         }
@@ -5458,6 +5623,7 @@ export const ledgerAPI = {
               entry_type: "debit",
               fee_type_name: `${feeTypeName} Remaining Balance`,
               amount: remainingBalance,
+              academic_term: transaction.academic_term || null,
             });
           }
           for (const duplicateEntry of duplicateBalanceEntries) {
@@ -5494,6 +5660,7 @@ export const ledgerAPI = {
             entry_type: entryType,
             fee_type_name: feeTypeName,
             amount,
+            academic_term: transaction.academic_term || null,
             payment_mode:
               entryType === "credit" ? transaction.payment_mode : null,
           });
@@ -5517,92 +5684,143 @@ export const ledgerAPI = {
       .eq("student_id", studentId)
       .order("created_at", { ascending: false });
     if (error) throw error;
-    if (data && data.length > 0) return data;
 
-    // Fallback: no ledger_entries rows yet — synthesize a statement from
-    // the transactions table so historical payments render immediately.
     const { data: txns, error: txnErr } = await supabase
       .from("transactions")
       .select(
-        "transaction_id, amount_paid, balance_due, payment_mode, timestamp, type, fee_types(name)",
+        "transaction_id, amount_paid, balance_due, payment_mode, timestamp, type, status, notes, academic_term, bundle_id, fee_types(name), bundles(name, bundle_type)",
       )
       .eq("student_id", studentId)
       .neq("status", "VOIDED")
       .order("timestamp", { ascending: false });
     if (txnErr) return data || [];
-    return (txns || [])
-      .map((t: any) => {
-        const feeName =
-          t.fee_types?.name ||
-          (t.type === "FORM_FEE"
-            ? "Form Fee"
-            : t.type === "ACCEPTANCE_FEE"
-              ? "Acceptance Fee"
-              : t.type === "STORE_PURCHASE"
-                ? "Store Purchase"
-                : t.type === "BUNDLE_PURCHASE" ||
-                    t.type === "REGISTRATION_PAYMENT"
-                  ? "Registration Package"
-                  : `Admissions Payment - ${t.type || "Other"}`);
-        const rows = [
-          {
-            id: `${t.transaction_id}-d`,
-            student_id: studentId,
-            transaction_id: t.transaction_id,
-            entry_type: "debit",
-            fee_type_name: feeName,
-            amount: Number(t.amount_paid),
-            payment_mode: null,
-            cashier_name: null,
-            academic_term: null,
-            created_at: t.timestamp,
-          },
-          {
-            id: `${t.transaction_id}-c`,
-            student_id: studentId,
-            transaction_id: t.transaction_id,
-            entry_type: "credit",
-            fee_type_name: feeName,
-            amount: Number(t.amount_paid),
-            payment_mode: t.payment_mode,
-            cashier_name: null,
-            academic_term: null,
-            created_at: t.timestamp,
-          },
-        ];
-        if (Number(t.balance_due) > 0) {
-          rows.push({
-            id: `${t.transaction_id}-balance`,
-            student_id: studentId,
-            transaction_id: t.transaction_id,
-            entry_type: "debit",
-            fee_type_name: `${feeName} Remaining Balance`,
-            amount: Number(t.balance_due),
-            payment_mode: null,
-            cashier_name: null,
-            academic_term: null,
-            created_at: t.timestamp,
-          } as any);
-        }
-        return rows;
-      })
-      .flat();
+
+    const { data: applicant } = await supabase
+      .from("applicants")
+      .select("id")
+      .eq("enrolled_student_id", studentId)
+      .maybeSingle();
+    let applicantTransactions: any[] = [];
+    if (applicant) {
+      const { data: linkedTransactions } = await supabase
+        .from("transactions")
+        .select(
+          "transaction_id, amount_paid, balance_due, payment_mode, timestamp, type, status, notes, academic_term, bundle_id, fee_types(name), bundles(name, bundle_type)",
+        )
+        .eq("applicant_id", applicant.id)
+        .neq("status", "VOIDED")
+        .order("timestamp", { ascending: false });
+      applicantTransactions = linkedTransactions || [];
+    }
+
+    const transactionsById = new Map<number, any>();
+    for (const transaction of [...(txns || []), ...applicantTransactions])
+      transactionsById.set(transaction.transaction_id, transaction);
+
+    const entries = [...(data || [])];
+    for (const transaction of transactionsById.values()) {
+      const transactionEntries = entries.filter(
+        (entry: any) => entry.transaction_id === transaction.transaction_id,
+      );
+      const feeName =
+        transaction.fee_types?.name ||
+        (transaction.type === "FORM_FEE"
+          ? "Form Fee"
+          : transaction.type === "ACCEPTANCE_FEE"
+            ? "Acceptance Fee"
+            : transaction.type === "STORE_PURCHASE"
+              ? "Store Purchase"
+              : transaction.type === "BUNDLE_PURCHASE" ||
+                  transaction.type === "REGISTRATION_PAYMENT"
+                ? `Registration Package — ${transaction.bundles?.name || "Transition Fee"}`
+                : `Admissions Payment - ${transaction.type || "Other"}`);
+      const hasEntry = (entryType: string) =>
+        transactionEntries.some((entry: any) => entry.entry_type === entryType);
+      const amountPaid = Number(transaction.amount_paid || 0);
+      const rowBase = {
+        student_id: studentId,
+        transaction_id: transaction.transaction_id,
+        academic_term: transaction.academic_term || null,
+        created_at: transaction.timestamp,
+        cashier_name: null,
+      };
+      const isBundleInstallment =
+        transaction.type === "FEES_CASH_COLLECTION" &&
+        String(transaction.notes || "").includes("Bundle Installment Payment");
+      if (amountPaid > 0 && !hasEntry("debit") && !isBundleInstallment) {
+        entries.push({
+          ...rowBase,
+          id: `${transaction.transaction_id}-d`,
+          entry_type: "debit",
+          fee_type_name: feeName,
+          amount: amountPaid,
+          payment_mode: null,
+        } as any);
+      }
+      if (amountPaid > 0 && !hasEntry("credit")) {
+        entries.push({
+          ...rowBase,
+          id: `${transaction.transaction_id}-c`,
+          entry_type: "credit",
+          fee_type_name: feeName,
+          amount: amountPaid,
+          payment_mode: transaction.payment_mode,
+        } as any);
+      }
+      const balanceDue = Number(transaction.balance_due || 0);
+      const hasBalanceEntry = transactionEntries.some(
+        (entry: any) =>
+          entry.entry_type === "debit" &&
+          /remaining balance|outstanding balance forward/i.test(
+            entry.fee_type_name || "",
+          ),
+      );
+      if (balanceDue > 0 && !hasBalanceEntry) {
+        entries.push({
+          ...rowBase,
+          id: `${transaction.transaction_id}-balance`,
+          entry_type: "debit",
+          fee_type_name: `${feeName} Remaining Balance`,
+          amount: balanceDue,
+          payment_mode: null,
+        } as any);
+      }
+    }
+    return entries.sort(
+      (a: any, b: any) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
   },
 
   async getAllStudentSummaries() {
-    const { data: students, error: stErr } = await supabase
-      .from("students")
-      .select("student_id, name, student_class")
-      .order("name");
-    if (stErr) throw stErr;
-    if (!students || students.length === 0) return [];
+    const pageSize = 1000;
+    const students: any[] = [];
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await supabase
+        .from("students")
+        .select("student_id, name, student_class")
+        .order("name")
+        .order("student_id")
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      students.push(...(data || []));
+      if (!data || data.length < pageSize) break;
+    }
+    if (students.length === 0) return [];
 
     const studentIds = students.map((s: any) => s.student_id);
-    const { data: entries, error: eErr } = await supabase
-      .from("ledger_entries")
-      .select("student_id, entry_type, amount")
-      .in("student_id", studentIds);
-    if (eErr) throw eErr;
+    const entries: any[] = [];
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await supabase
+        .from("ledger_entries")
+        .select("id, student_id, entry_type, amount")
+        .in("student_id", studentIds)
+        .order("id")
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      entries.push(...(data || []));
+      if (!data || data.length < pageSize) break;
+    }
 
     const summaryMap = new Map<
       string,

@@ -51,6 +51,7 @@ interface StudentFee {
   fee_name: string;
   fee_category: string;
   academic_session: string;
+  term: string | null;
   amount_due: number;
   amount_paid: number;
   balance: number;
@@ -638,9 +639,11 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
         });
       }
       const entry = map.get(sf.student_id)!;
-      const isCurrent =
-        currentSession && sf.academic_session === currentSession;
-      if (isCurrent) {
+      const isCurrentTerm =
+        currentSession &&
+        sf.academic_session === currentSession &&
+        (!sf.term || sf.term === currentTerm);
+      if (isCurrentTerm) {
         entry.currentTermBill += Number(sf.amount_due);
         entry.currentTermPaid += Number(sf.amount_paid);
       } else {
@@ -668,18 +671,20 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
     if (ledgerClass !== "all" && s.student_class !== ledgerClass) return false;
     if (ledgerTypeFilter !== "all" && s.student_status !== ledgerTypeFilter)
       return false;
-    if (ledgerStatus === "all") {
-      // All Balances intentionally includes fully settled (zero-balance) students.
-    } else if (ledgerStatus === "outstanding" && s.netBalance <= 0) {
-      return false;
-    } else if (ledgerStatus === "paid" && s.netBalance > 0) {
-      return false;
-    }
-    if (ledgerSearch) {
-      const q = ledgerSearch.toLowerCase();
+    const matchesBalance =
+      ledgerStatus === "all" ||
+      (ledgerStatus === "outstanding" && s.netBalance > 0) ||
+      (ledgerStatus === "paid" && s.netBalance <= 0);
+    if (!matchesBalance) return false;
+    const query = ledgerSearch.trim().toLowerCase();
+    if (query) {
       return (
-        s.student_name.toLowerCase().includes(q) ||
-        s.student_id.toLowerCase().includes(q)
+        String(s.student_name || "")
+          .toLowerCase()
+          .includes(query) ||
+        String(s.student_id || "")
+          .toLowerCase()
+          .includes(query)
       );
     }
     return true;
