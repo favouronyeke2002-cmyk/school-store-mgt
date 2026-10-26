@@ -1279,31 +1279,75 @@ export const feeTypeAPI = {
 
     let wipedAmount = 0;
     const studentsToUpdate = new Set<string>();
+    const zeroPaymentRows: any[] = [];
+    const paidRows: any[] = [];
 
     for (const sf of sfRows || []) {
-      const unpaidDebit = Math.max(
-        0,
-        Number(sf.amount_due) - Number(sf.amount_paid),
-      );
-      if (unpaidDebit > 0) {
+      const amountDue = Number(sf.amount_due || 0);
+      const amountPaid = Number(sf.amount_paid || 0);
+      if (amountPaid > 0) {
+        paidRows.push(sf);
+        const unpaidDebit = Math.max(0, amountDue - amountPaid);
+        if (unpaidDebit > 0) {
+          wipedAmount += unpaidDebit;
+          studentsToUpdate.add(sf.student_id);
+        }
+      } else {
+        zeroPaymentRows.push(sf);
+        const unpaidDebit = Math.max(0, amountDue);
         wipedAmount += unpaidDebit;
-        studentsToUpdate.add(sf.student_id);
+        if (unpaidDebit > 0) studentsToUpdate.add(sf.student_id);
       }
     }
 
-    // Hard-delete all student_fees for this fee type
-    await supabase.from("student_fees").delete().eq("fee_type_id", id);
+    for (const sf of paidRows) {
+      if (Number(sf.amount_due || 0) <= Number(sf.amount_paid || 0)) continue;
+      const { error: updateError } = await supabase
+        .from("student_fees")
+        .update({ amount_due: Number(sf.amount_paid) })
+        .eq("id", sf.id);
+      if (updateError)
+        return {
+          success: false,
+          error: updateError.message,
+          studentsAffected: 0,
+          wipedAmount: 0,
+        };
+    }
 
-    // Recalibrate each affected student's current_fees_owed
+    if (zeroPaymentRows.length > 0) {
+      const { error: unpaidDeleteError } = await supabase
+        .from("student_fees")
+        .delete()
+        .in(
+          "id",
+          zeroPaymentRows.map((row) => row.id),
+        );
+      if (unpaidDeleteError)
+        return {
+          success: false,
+          error: unpaidDeleteError.message,
+          studentsAffected: 0,
+          wipedAmount: 0,
+        };
+    }
+
     for (const studentId of studentsToUpdate) {
       await studentFeeAPI.syncStudentOwedBalance(studentId);
     }
 
-    // Delete from fee_types master
-    const { error: delErr } = await supabase
-      .from("fee_types")
-      .delete()
-      .eq("id", id);
+    // Deleting the fee type cascades to paid ledger rows, so archive instead.
+    const { error: delErr } =
+      paidRows.length > 0
+        ? await supabase
+            .from("fee_types")
+            .update({
+              fee_category: "archived",
+              applicable_to: "None",
+              class_filter: "__ARCHIVED__",
+            })
+            .eq("id", id)
+        : await supabase.from("fee_types").delete().eq("id", id);
     if (delErr)
       return {
         success: false,
@@ -2364,6 +2408,34 @@ export const transactionAPI = {
       .neq("status", "VOIDED");
     if (error) throw error;
     return data || [];
+  },
+  async getApplicantsWithRegistrationPayments(applicantIds: number[]) {
+    if (applicantIds.length === 0) return new Set<number>();
+    const { data, error } = await supabase
+      .from("transactions")
+      .select(
+        "applicant_id, type, amount_paid, status, notes, bundles(bundle_type)",
+      )
+      .in("applicant_id", applicantIds)
+      .in("type", ["BUNDLE_PURCHASE", "REGISTRATION_PAYMENT"])
+      .gt("amount_paid", 0);
+    if (error) throw error;
+    return new Set<number>(
+      (data || [])
+        .filter((transaction: any) => {
+          if (transaction.status === "VOIDED") return false;
+          const bundleType = transaction.bundles?.bundle_type;
+          const notes = String(transaction.notes || "").toLowerCase();
+          return (
+            transaction.type === "REGISTRATION_PAYMENT" ||
+            bundleType === "registration" ||
+            notes.includes("registration fee") ||
+            notes.includes("registration package")
+          );
+        })
+        .map((transaction: any) => Number(transaction.applicant_id))
+        .filter((id) => Number.isFinite(id)),
+    );
   },
   async getHistory(filters?: { shiftId?: number; studentId?: string }) {
     let query = supabase.from("transactions").select(`
@@ -3978,6 +4050,83 @@ export const applicantAPI = {
     if (error) return { success: false, error: error.message };
     return { success: true };
   },
+  async getApplicantsWithPaymentRecords(applicantIds: number[]) {
+    if (applicantIds.length === 0) return new Set<number>();
+    const [payments, transactions] = await Promise.all([
+      supabase
+        .from("applicant_payments")
+        .select("applicant_id")
+        .in("applicant_id", applicantIds),
+      supabase
+        .from("transactions")
+        .select("applicant_id")
+        .in("applicant_id", applicantIds),
+    ]);
+    if (payments.error) throw payments.error;
+    if (transactions.error) throw transactions.error;
+    return new Set<number>(
+      [...(payments.data || []), ...(transactions.data || [])]
+        .map((record: any) => Number(record.applicant_id))
+        .filter((id) => Number.isFinite(id)),
+    );
+  },
+  async getPaymentHistory(id: number) {
+    const [payments, transactions] = await Promise.all([
+      supabase
+        .from("applicant_payments")
+        .select(
+          "id, amount_due, amount_paid, created_at, updated_at, bundles(name), fee_types(name)",
+        )
+        .eq("applicant_id", id),
+      supabase
+        .from("transactions")
+        .select(
+          "transaction_id, type, amount_paid, payment_mode, timestamp, notes, balance_due, status, bundles(name), fee_types(name)",
+        )
+        .eq("applicant_id", id)
+        .order("timestamp", { ascending: false }),
+    ]);
+    if (payments.error) throw payments.error;
+    if (transactions.error) throw transactions.error;
+
+    const paymentRows = (payments.data || []).map((payment: any) => ({
+      id: `application-${payment.id}`,
+      feeType:
+        payment.fee_types?.name ||
+        payment.bundles?.name ||
+        "Application Payment",
+      amountPaid: Number(payment.amount_paid || 0),
+      paymentMethod: null,
+      reference: `Application payment #${payment.id}`,
+      date: payment.updated_at || payment.created_at,
+      remainingBalance: Math.max(
+        0,
+        Number(payment.amount_due || 0) - Number(payment.amount_paid || 0),
+      ),
+      status: null,
+    }));
+    const transactionRows = (transactions.data || []).map(
+      (transaction: any) => ({
+        id: `transaction-${transaction.transaction_id}`,
+        feeType:
+          transaction.fee_types?.name ||
+          transaction.bundles?.name ||
+          transaction.notes ||
+          String(transaction.type || "Payment").replace(/_/g, " "),
+        amountPaid: Number(transaction.amount_paid || 0),
+        paymentMethod: transaction.payment_mode || null,
+        reference: `Receipt #${transaction.transaction_id}`,
+        date: transaction.timestamp,
+        remainingBalance: Number(transaction.balance_due || 0),
+        status: transaction.status || null,
+      }),
+    );
+    return [...paymentRows, ...transactionRows].sort(
+      (first, second) =>
+        new Date(second.date || 0).getTime() -
+        new Date(first.date || 0).getTime(),
+    );
+  },
   async enroll(
     id: number,
     studentId: string,
@@ -4017,13 +4166,15 @@ export const applicantAPI = {
       };
     }
 
-    try {
-      await studentFeeAPI.assignActiveTermFees(studentId);
-    } catch (feeError) {
-      return {
-        success: false,
-        error: `Applicant linked, but active-term fee billing failed: ${(feeError as Error).message}`,
-      };
+    if (options.autoAssignFees !== false) {
+      try {
+        await studentFeeAPI.assignActiveTermFees(studentId);
+      } catch (feeError) {
+        return {
+          success: false,
+          error: `Applicant linked, but active-term fee billing failed: ${(feeError as Error).message}`,
+        };
+      }
     }
 
     // Auto-assign matching fees for the newly enrolled student
@@ -4041,6 +4192,33 @@ export const applicantAPI = {
     return { success: true };
   },
   async delete(id: number) {
+    const [payments, transactions] = await Promise.all([
+      supabase
+        .from("applicant_payments")
+        .select("id")
+        .eq("applicant_id", id)
+        .limit(1),
+      supabase
+        .from("transactions")
+        .select("transaction_id")
+        .eq("applicant_id", id)
+        .limit(1),
+    ]);
+    if (payments.error || transactions.error)
+      return {
+        success: false,
+        error: payments.error?.message || transactions.error?.message,
+      };
+    if (
+      (payments.data || []).length > 0 ||
+      (transactions.data || []).length > 0
+    )
+      return {
+        success: false,
+        error:
+          "This applicant has payment records and must be archived instead.",
+      };
+
     // Clean up pending fulfillment records before deleting the applicant
     const { error: issuanceError } = await supabase
       .from("student_book_issuances")
@@ -5104,6 +5282,62 @@ Object.assign(studentFeeAPI, studentBundleBalanceAPI);
 
 // ─── EXPENSES ─────────────────────────────────────────────────────────────────
 export const expenseAPI = {
+  async getCategories() {
+    const { data, error } = await supabase
+      .from("expense_categories")
+      .select("id, name")
+      .order("name", { ascending: true });
+    if (error) throw error;
+    return data || [];
+  },
+
+  async createCategory(name: string) {
+    const { data, error } = await supabase
+      .from("expense_categories")
+      .insert({ name: name.trim() })
+      .select("id, name")
+      .single();
+    if (error) return { success: false, error: error.message };
+    return { success: true, category: data };
+  },
+
+  async updateCategory(id: number, name: string, previousName: string) {
+    const trimmedName = name.trim();
+    const { data: duplicate, error: duplicateError } = await supabase
+      .from("expense_categories")
+      .select("id")
+      .ilike("name", trimmedName)
+      .neq("id", id)
+      .maybeSingle();
+    if (duplicateError)
+      return { success: false, error: duplicateError.message };
+    if (duplicate)
+      return {
+        success: false,
+        error: "A category with this name already exists",
+      };
+    const { error: expenseError } = await supabase
+      .from("expenses")
+      .update({ category: trimmedName })
+      .eq("category", previousName);
+    if (expenseError) return { success: false, error: expenseError.message };
+    const { error } = await supabase
+      .from("expense_categories")
+      .update({ name: trimmedName })
+      .eq("id", id);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  },
+
+  async deleteCategory(id: number) {
+    const { error } = await supabase
+      .from("expense_categories")
+      .delete()
+      .eq("id", id);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  },
+
   // Add a new expense record
   async addExpense(params: {
     shiftId?: number;
@@ -5233,6 +5467,30 @@ export const expenseAPI = {
   // Delete an expense record
   async deleteExpense(id: number) {
     const { error } = await supabase.from("expenses").delete().eq("id", id);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  },
+
+  async updateExpense(
+    id: number,
+    expense: {
+      category: string;
+      amount: number;
+      paymentMode: "Cash Drawer" | "Bank Transfer";
+      description?: string;
+      date: string;
+    },
+  ) {
+    const { error } = await supabase
+      .from("expenses")
+      .update({
+        category: expense.category,
+        amount: expense.amount,
+        payment_mode: expense.paymentMode,
+        description: expense.description || null,
+        created_at: new Date(`${expense.date}T12:00:00`).toISOString(),
+      })
+      .eq("id", id);
     if (error) return { success: false, error: error.message };
     return { success: true };
   },

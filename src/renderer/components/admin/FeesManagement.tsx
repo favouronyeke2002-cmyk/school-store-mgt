@@ -2679,9 +2679,9 @@ const FeesManagement: React.FC<Props> = ({ focusStudentId }) => {
                     Wipe all unpaid debits across all student ledgers
                   </div>
                   <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                    Hard-deletes all unpaid charges for this fee across every
-                    student ledger, reduces each affected student's debt balance
-                    automatically, and deletes this fee type completely.
+                    Removes unpaid balances and zero-payment records for this
+                    fee. Recorded payments and completed fee history are kept,
+                    and each affected student's debt balance is recalculated.
                   </p>
                 </div>
               </label>

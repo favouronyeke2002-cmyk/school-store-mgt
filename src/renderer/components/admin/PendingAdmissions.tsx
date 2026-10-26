@@ -8,6 +8,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Users,
+  Eye,
+  Archive,
+  Trash2,
 } from "lucide-react";
 import {
   applicantAPI,
@@ -39,8 +42,26 @@ interface Applicant {
   created_at: string;
 }
 
+interface ApplicantPayment {
+  id: string;
+  feeType: string;
+  amountPaid: number;
+  paymentMethod: string | null;
+  reference: string;
+  date: string | null;
+  remainingBalance: number;
+  status: string | null;
+}
+
 const PendingAdmissions: React.FC = () => {
   const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [paidRegistrationApplicants, setPaidRegistrationApplicants] = useState<
+    Set<number>
+  >(new Set());
+  const [applicantsWithPayments, setApplicantsWithPayments] = useState<
+    Set<number>
+  >(new Set());
+  const [paymentLookupFailed, setPaymentLookupFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<
     "pending" | "eligible" | "enrolled" | "withdrawn" | "all"
@@ -58,6 +79,7 @@ const PendingAdmissions: React.FC = () => {
     name: "",
   });
   const [enrollSaving, setEnrollSaving] = useState(false);
+  const [assignStandardFees, setAssignStandardFees] = useState(false);
   const [enrollError, setEnrollError] = useState("");
   const [enrollStatus, setEnrollStatus] = useState("");
   const [enrollingBalance, setEnrollingBalance] = useState(0);
@@ -78,6 +100,10 @@ const PendingAdmissions: React.FC = () => {
   // Delete modal
   const [showDelete, setShowDelete] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Applicant | null>(null);
+  const [paymentTarget, setPaymentTarget] = useState<Applicant | null>(null);
+  const [paymentHistory, setPaymentHistory] = useState<ApplicantPayment[]>([]);
+  const [paymentHistoryLoading, setPaymentHistoryLoading] = useState(false);
+  const [paymentHistoryError, setPaymentHistoryError] = useState("");
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -110,13 +136,35 @@ const PendingAdmissions: React.FC = () => {
         status: statusFilter !== "all" ? statusFilter : undefined,
         search,
       })
-      .then((data) => {
-        // When showing "All Statuses", hide enrolled applicants — they've been processed
-        setApplicants(
+      .then(async (data) => {
+        // Keep completed and archived applicants out of the active queue.
+        const visibleApplicants =
           statusFilter === "all"
-            ? data.filter((a: Applicant) => a.status !== "enrolled")
-            : data,
-        );
+            ? data.filter(
+                (a: Applicant) =>
+                  a.status !== "enrolled" && a.status !== "withdrawn",
+              )
+            : data;
+        setApplicants(visibleApplicants);
+        setPaidRegistrationApplicants(new Set());
+        setApplicantsWithPayments(new Set());
+        setPaymentLookupFailed(false);
+        try {
+          const applicantIds = visibleApplicants.map(
+            (applicant: Applicant) => applicant.id,
+          );
+          const [paidApplicants, paymentApplicants] = await Promise.all([
+            transactionAPI.getApplicantsWithRegistrationPayments(applicantIds),
+            applicantAPI.getApplicantsWithPaymentRecords(applicantIds),
+          ]);
+          setPaidRegistrationApplicants(paidApplicants);
+          setApplicantsWithPayments(paymentApplicants);
+        } catch (error) {
+          console.error(error);
+          setPaidRegistrationApplicants(new Set());
+          setApplicantsWithPayments(new Set());
+          setPaymentLookupFailed(true);
+        }
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -127,7 +175,9 @@ const PendingAdmissions: React.FC = () => {
   }, [statusFilter, search]);
 
   const openEnroll = (a: Applicant) => {
+    if (!paidRegistrationApplicants.has(a.id)) return;
     setEnrollTarget(a);
+    setAssignStandardFees(false);
     setEnrollForm({
       studentId: "",
       class: a.proposed_class || classes[0] || "",
@@ -197,6 +247,10 @@ const PendingAdmissions: React.FC = () => {
   const handleEnroll = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!enrollTarget) return;
+    if (!paidRegistrationApplicants.has(enrollTarget.id)) {
+      setEnrollError("A confirmed registration payment is required to enroll");
+      return;
+    }
     if (!enrollForm.class || !enrollForm.name) {
       setEnrollError("Class and name are required");
       return;
@@ -244,7 +298,7 @@ const PendingAdmissions: React.FC = () => {
       enrollTarget.id,
       newStudentId,
       {
-        autoAssignFees: false,
+        autoAssignFees: assignStandardFees,
       },
     );
     if (!enrollmentResult.success) {
@@ -264,26 +318,47 @@ const PendingAdmissions: React.FC = () => {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    await applicantAPI.delete(deleteTarget.id);
+    const result = await applicantAPI.delete(deleteTarget.id);
+    if (!result.success) {
+      setStatusError(result.error || "Failed to delete applicant");
+      setShowDelete(false);
+      setDeleteTarget(null);
+      return;
+    }
     setShowDelete(false);
     setDeleteTarget(null);
     load();
   };
 
-  const markLeftSchool = async (applicant: Applicant) => {
+  const archiveApplicant = async (applicant: Applicant) => {
     if (
       !window.confirm(
-        `Mark ${applicant.full_name} as withdrawn / left school? Payment history will be retained.`,
+        `Archive ${applicant.full_name}'s application? It will leave the active queue and all payment records will be retained.`,
       )
     )
       return;
     setStatusError("");
     const result = await applicantAPI.markWithdrawn(applicant.id);
     if (!result.success) {
-      setStatusError(result.error || "Failed to update applicant status");
+      setStatusError(result.error || "Failed to archive application");
       return;
     }
     load();
+  };
+
+  const openPaymentHistory = async (applicant: Applicant) => {
+    setPaymentTarget(applicant);
+    setPaymentHistory([]);
+    setPaymentHistoryError("");
+    setPaymentHistoryLoading(true);
+    try {
+      setPaymentHistory(await applicantAPI.getPaymentHistory(applicant.id));
+    } catch (error) {
+      console.error(error);
+      setPaymentHistoryError("Failed to load payment history");
+    } finally {
+      setPaymentHistoryLoading(false);
+    }
   };
 
   const paginatedApplicants = applicants.slice(
@@ -316,7 +391,7 @@ const PendingAdmissions: React.FC = () => {
             <option value="eligible">Ready to Enroll</option>
             <option value="pending">Pending Payment</option>
             <option value="enrolled">Enrolled</option>
-            <option value="withdrawn">Withdrawn / Left School</option>
+            <option value="withdrawn">Archived / Cancelled</option>
           </select>
         </div>
       </div>
@@ -426,8 +501,8 @@ const PendingAdmissions: React.FC = () => {
                         </span>
                       ) : a.status === "withdrawn" ? (
                         <span className="flex items-center gap-1 text-gray-500 text-xs font-bold">
-                          <AlertCircle className="w-3.5 h-3.5" /> Withdrawn /
-                          Left School
+                          <Archive className="w-3.5 h-3.5" /> Archived /
+                          Cancelled
                         </span>
                       ) : (
                         <span className="flex items-center gap-1 text-warning-600 text-xs font-bold">
@@ -439,36 +514,60 @@ const PendingAdmissions: React.FC = () => {
                       {new Date(a.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      {a.status === "eligible" && (
-                        <button
-                          onClick={() => openEnroll(a)}
-                          className="px-3 py-1.5 bg-success-600 text-white rounded-lg text-xs font-semibold hover:bg-success-700 mr-1"
-                        >
-                          Enroll
-                        </button>
-                      )}
+                      {a.status === "eligible" &&
+                        paidRegistrationApplicants.has(a.id) && (
+                          <button
+                            onClick={() => openEnroll(a)}
+                            className="px-3 py-1.5 bg-success-600 text-white rounded-lg text-xs font-semibold hover:bg-success-700 mr-1"
+                          >
+                            Enroll
+                          </button>
+                        )}
+                      {a.status === "eligible" &&
+                        !paidRegistrationApplicants.has(a.id) && (
+                          <span className="text-xs font-semibold text-warning-700 bg-warning-50 px-2 py-1 rounded">
+                            Pending Payment
+                          </span>
+                        )}
                       {a.status === "enrolled" && a.enrolled_student_id && (
                         <span className="text-xs text-gray-500 mr-1">
                           {a.enrolled_student_name} ({a.enrolled_student_class})
                         </span>
                       )}
-                      {a.status !== "enrolled" && a.status !== "withdrawn" && (
-                        <button
-                          onClick={() => void markLeftSchool(a)}
-                          className="px-2 py-1 text-xs text-warning-700 hover:bg-warning-50 rounded"
-                        >
-                          Mark Left School
-                        </button>
-                      )}
                       <button
-                        onClick={() => {
-                          setDeleteTarget(a);
-                          setShowDelete(true);
-                        }}
-                        className="px-2 py-1 text-xs text-danger-600 hover:bg-danger-50 rounded"
+                        onClick={() => void openPaymentHistory(a)}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs text-primary-700 hover:bg-primary-50 rounded"
                       >
-                        Delete
+                        <Eye className="w-3.5 h-3.5" /> View Payments
                       </button>
+                      {a.status !== "enrolled" &&
+                        a.status !== "withdrawn" &&
+                        (paymentLookupFailed ? (
+                          <button
+                            disabled
+                            title="Payment records could not be checked"
+                            className="px-2 py-1 text-xs text-gray-400 rounded cursor-not-allowed"
+                          >
+                            Checking Failed
+                          </button>
+                        ) : applicantsWithPayments.has(a.id) ? (
+                          <button
+                            onClick={() => void archiveApplicant(a)}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs text-warning-700 hover:bg-warning-50 rounded"
+                          >
+                            <Archive className="w-3.5 h-3.5" /> Archive / Cancel
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setDeleteTarget(a);
+                              setShowDelete(true);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs text-danger-600 hover:bg-danger-50 rounded"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Delete
+                          </button>
+                        ))}
                     </td>
                   </tr>
                 ))}
@@ -659,6 +758,18 @@ const PendingAdmissions: React.FC = () => {
                   </select>
                 </div>
               )}
+              <label className="flex items-start gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={assignStandardFees}
+                  onChange={(e) => setAssignStandardFees(e.target.checked)}
+                  className="mt-0.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                />
+                <span>
+                  Assign all standard term fees for this target class
+                  automatically
+                </span>
+              </label>
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
@@ -680,6 +791,120 @@ const PendingAdmissions: React.FC = () => {
         </div>
       )}
 
+      {/* Applicant Payment History Modal */}
+      {paymentTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <div>
+                <h2 className="text-lg font-bold">Applicant Payments</h2>
+                <p className="text-sm text-gray-500">
+                  {paymentTarget.full_name}
+                </p>
+              </div>
+              <button
+                onClick={() => setPaymentTarget(null)}
+                className="text-gray-400 hover:text-gray-600"
+                aria-label="Close payment history"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {paymentHistoryError && (
+              <div className="mx-5 mt-4 bg-danger-50 text-danger-700 rounded-lg px-3 py-2 text-sm">
+                {paymentHistoryError}
+              </div>
+            )}
+            <div className="overflow-auto p-5">
+              <table className="w-full min-w-[900px] text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-600">
+                      Fee Type
+                    </th>
+                    <th className="text-right px-3 py-2 font-semibold text-gray-600">
+                      Amount Paid
+                    </th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-600">
+                      Payment Method
+                    </th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-600">
+                      Reference / Receipt No
+                    </th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-600">
+                      Date
+                    </th>
+                    <th className="text-right px-3 py-2 font-semibold text-gray-600">
+                      Remaining Balance
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paymentHistoryLoading ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="text-center py-12 text-gray-400"
+                      >
+                        Loading payment history...
+                      </td>
+                    </tr>
+                  ) : paymentHistory.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="text-center py-12 text-gray-400"
+                      >
+                        No payment records found
+                      </td>
+                    </tr>
+                  ) : (
+                    paymentHistory.map((payment) => (
+                      <tr key={payment.id} className="border-t">
+                        <td className="px-3 py-3">
+                          <div>{payment.feeType}</div>
+                          {payment.status &&
+                            payment.status.toUpperCase() !== "ACTIVE" && (
+                              <span className="text-xs text-gray-400">
+                                {payment.status}
+                              </span>
+                            )}
+                        </td>
+                        <td className="px-3 py-3 text-right font-medium">
+                          {fmt(payment.amountPaid)}
+                        </td>
+                        <td className="px-3 py-3">
+                          {payment.paymentMethod || "—"}
+                        </td>
+                        <td className="px-3 py-3 font-mono text-xs">
+                          {payment.reference}
+                        </td>
+                        <td className="px-3 py-3">
+                          {payment.date
+                            ? new Date(payment.date).toLocaleString()
+                            : "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {fmt(payment.remainingBalance)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end px-5 py-3 border-t">
+              <button
+                onClick={() => setPaymentTarget(null)}
+                className="px-4 py-2 bg-gray-100 rounded-lg text-sm font-medium hover:bg-gray-200"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete Modal */}
       {showDelete && deleteTarget && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -689,8 +914,8 @@ const PendingAdmissions: React.FC = () => {
             </div>
             <h2 className="text-lg font-bold mb-2">Delete Applicant?</h2>
             <p className="text-sm text-gray-500 mb-5">
-              Delete <strong>{deleteTarget.full_name}</strong>? This cannot be
-              undone.
+              Permanently delete <strong>{deleteTarget.full_name}</strong>? The
+              applicant has no linked payment records. This cannot be undone.
             </p>
             <div className="flex gap-3">
               <button
