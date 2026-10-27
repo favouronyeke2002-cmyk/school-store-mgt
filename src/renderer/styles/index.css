@@ -218,6 +218,75 @@ body {
   @apply animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600;
 }
 
+.debtors-print {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: landscape;
+    margin: 12mm;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .debtors-print,
+  .debtors-print * {
+    visibility: visible !important;
+  }
+
+  .debtors-print {
+    display: block !important;
+    position: absolute !important;
+    inset: 0;
+    width: 100%;
+    color: #111827;
+    background: white;
+    font-family: Arial, sans-serif;
+    font-size: 10pt;
+  }
+
+  .debtors-print h1 {
+    margin: 0 0 8px;
+    font-size: 20pt;
+  }
+
+  .debtors-print p {
+    margin: 4px 0;
+  }
+
+  .debtors-print table {
+    width: 100%;
+    margin-top: 16px;
+    border-collapse: collapse;
+    table-layout: auto;
+  }
+
+  .debtors-print th,
+  .debtors-print td {
+    border: 1px solid #6b7280;
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .debtors-print th {
+    background: #e5e7eb !important;
+    font-weight: 700;
+    print-color-adjust: exact;
+  }
+
+  .debtors-print tr {
+    break-inside: avoid;
+  }
+
+  .debtors-print .receipt-check-cell {
+    min-width: 150px;
+  }
+}
+
 /* Flash animation for alerts */
 @keyframes flash {
   0%, 100% { opacity: 1; }

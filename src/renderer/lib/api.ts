@@ -1646,6 +1646,188 @@ export const studentFeeAPI = {
       balance: Number(sf.amount_due) - Number(sf.amount_paid),
     }));
   },
+  async getOutstandingBreakdown(studentIds: string[]) {
+    const breakdowns = new Map<
+      string,
+      Map<string, { name: string; balance: number }>
+    >();
+    const batchSize = 200;
+
+    for (
+      let batchStart = 0;
+      batchStart < studentIds.length;
+      batchStart += batchSize
+    ) {
+      const batch = studentIds.slice(batchStart, batchStart + batchSize);
+      const feeRows: any[] = [];
+      for (let offset = 0; ; offset += 1000) {
+        const { data, error } = await supabase
+          .from("student_fees")
+          .select("student_id, amount_due, amount_paid, fee_types(name)")
+          .in("student_id", batch)
+          .range(offset, offset + 999);
+        if (error) throw error;
+        feeRows.push(...(data || []));
+        if (!data || data.length < 1000) break;
+      }
+
+      for (const fee of feeRows) {
+        const balance = Math.max(
+          0,
+          Number(fee.amount_due || 0) - Number(fee.amount_paid || 0),
+        );
+        if (balance <= 0) continue;
+        const name = String(fee.fee_types?.name || "Fee").trim();
+        const key = name.toLowerCase();
+        const studentBreakdown =
+          breakdowns.get(fee.student_id) ||
+          new Map<string, { name: string; balance: number }>();
+        const existing = studentBreakdown.get(key);
+        studentBreakdown.set(key, {
+          name,
+          balance: balance + (existing?.balance || 0),
+        });
+        breakdowns.set(fee.student_id, studentBreakdown);
+      }
+
+      const ledgerRows: any[] = [];
+      for (let offset = 0; ; offset += 1000) {
+        const { data, error } = await supabase
+          .from("ledger_entries")
+          .select(
+            "student_id, transaction_id, entry_type, fee_type_name, amount",
+          )
+          .in("student_id", batch)
+          .range(offset, offset + 999);
+        if (error) throw error;
+        ledgerRows.push(...(data || []));
+        if (!data || data.length < 1000) break;
+      }
+
+      const ledgerBalances = new Map<
+        string,
+        Map<string, { name: string; balance: number }>
+      >();
+      for (const entry of ledgerRows) {
+        const entryName = String(entry.fee_type_name || "").trim();
+        if (!entryName || entryName.startsWith("Class Fee — ")) continue;
+        const name = entryName.replace(
+          /\s+(Remaining Balance|Outstanding Balance Forward)$/i,
+          "",
+        );
+        const key = name.toLowerCase();
+        const studentBalances =
+          ledgerBalances.get(entry.student_id) ||
+          new Map<string, { name: string; balance: number }>();
+        const existing = studentBalances.get(key);
+        studentBalances.set(key, {
+          name: existing?.name || name,
+          balance:
+            (existing?.balance || 0) +
+            (entry.entry_type === "debit" ? 1 : -1) *
+              Number(entry.amount || 0),
+        });
+        ledgerBalances.set(entry.student_id, studentBalances);
+      }
+
+      const { data: applicants, error: applicantsError } = await supabase
+        .from("applicants")
+        .select("id, enrolled_student_id")
+        .in("enrolled_student_id", batch);
+      if (applicantsError) throw applicantsError;
+      const studentByApplicantId = new Map(
+        (applicants || []).map((applicant: any) => [
+          applicant.id,
+          applicant.enrolled_student_id,
+        ]),
+      );
+      const transactionSelect =
+        "transaction_id, student_id, applicant_id, amount_paid, balance_due, type, status, fee_types(name), bundles(name)";
+      const { data: studentTransactions, error: studentTransactionsError } =
+        await supabase
+          .from("transactions")
+          .select(transactionSelect)
+          .in("student_id", batch)
+          .neq("status", "VOIDED");
+      if (studentTransactionsError) throw studentTransactionsError;
+      let applicantTransactions: any[] = [];
+      if (studentByApplicantId.size > 0) {
+        const { data, error } = await supabase
+          .from("transactions")
+          .select(transactionSelect)
+          .in("applicant_id", Array.from(studentByApplicantId.keys()))
+          .neq("status", "VOIDED");
+        if (error) throw error;
+        applicantTransactions = data || [];
+      }
+
+      const transactions = new Map<number, any>();
+      for (const transaction of [
+        ...(studentTransactions || []),
+        ...applicantTransactions,
+      ]) {
+        transactions.set(transaction.transaction_id, transaction);
+      }
+      for (const transaction of transactions.values()) {
+        const studentId =
+          transaction.student_id ||
+          studentByApplicantId.get(transaction.applicant_id);
+        const balanceDue = Number(transaction.balance_due || 0);
+        if (!studentId || balanceDue <= 0) continue;
+        const hasBalanceEntry = ledgerRows.some(
+          (entry) =>
+            entry.transaction_id === transaction.transaction_id &&
+            entry.entry_type === "debit" &&
+            /remaining balance|outstanding balance forward/i.test(
+              entry.fee_type_name || "",
+            ),
+        );
+        if (hasBalanceEntry) continue;
+
+        const feeName =
+          transaction.fee_types?.name ||
+          (transaction.type === "FORM_FEE"
+            ? "Form Fee"
+            : transaction.type === "ACCEPTANCE_FEE"
+              ? "Acceptance Fee"
+              : transaction.type === "STORE_PURCHASE"
+                ? "Store Purchase"
+                : transaction.type === "BUNDLE_PURCHASE" ||
+                    transaction.type === "REGISTRATION_PAYMENT"
+                  ? `Registration Package — ${transaction.bundles?.name || "Transition Fee"}`
+                  : `Admissions Payment - ${transaction.type || "Other"}`);
+        const name = `${feeName} Remaining Balance`;
+        const key = name.toLowerCase();
+        const studentBalances =
+          ledgerBalances.get(studentId) ||
+          new Map<string, { name: string; balance: number }>();
+        const existing = studentBalances.get(key);
+        studentBalances.set(key, {
+          name: existing?.name || name,
+          balance: (existing?.balance || 0) + balanceDue,
+        });
+        ledgerBalances.set(studentId, studentBalances);
+      }
+
+      for (const [studentId, studentLedgerBalances] of ledgerBalances) {
+        const studentBreakdown =
+          breakdowns.get(studentId) ||
+          new Map<string, { name: string; balance: number }>();
+        for (const [key, ledgerFee] of studentLedgerBalances) {
+          if (studentBreakdown.has(key) || ledgerFee.balance <= 0) continue;
+          studentBreakdown.set(key, ledgerFee);
+        }
+        breakdowns.set(studentId, studentBreakdown);
+      }
+    }
+
+    return Object.fromEntries(
+      Array.from(breakdowns, ([studentId, fees]) => [
+        studentId,
+        Array.from(fees.values()).sort((a, b) => a.name.localeCompare(b.name)),
+      ]),
+    );
+  },
   // Compute the true balance for one student directly from student_fees rows
   async calculateStudentBalance(studentId: string): Promise<number> {
     const { data, error } = await supabase

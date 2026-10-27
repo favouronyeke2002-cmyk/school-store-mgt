@@ -10,9 +10,12 @@ import {
   AlertCircle,
   ExternalLink,
   CheckCircle,
+  Download,
   FileText,
   Plus,
+  Printer,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import {
   studentAPI,
   feeTypeAPI,
@@ -49,6 +52,14 @@ interface FeeType {
   fee_category: string;
   class_filter: string | null;
   academic_session: string;
+}
+interface DebtorReportRow {
+  studentId: string;
+  fullName: string;
+  studentClass: string;
+  studentType: "Day" | "Boarding";
+  feeName: string;
+  outstandingAmount: number;
 }
 
 const DEFAULT_CLASSES = [
@@ -101,6 +112,15 @@ const StudentManagement: React.FC<{
     "SS3",
   ]);
   const [feeTypes, setFeeTypes] = useState<FeeType[]>([]);
+  const [showDebtorExport, setShowDebtorExport] = useState(false);
+  const [exportClass, setExportClass] = useState("all");
+  const [exportFeeHead, setExportFeeHead] = useState("all");
+  const [debtorReportRows, setDebtorReportRows] = useState<DebtorReportRow[]>(
+    [],
+  );
+  const [debtorReportLoading, setDebtorReportLoading] = useState(false);
+  const [debtorReportError, setDebtorReportError] = useState("");
+  const [debtorReportReady, setDebtorReportReady] = useState(false);
 
   const [showModal, setShowModal] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
@@ -613,6 +633,140 @@ const StudentManagement: React.FC<{
     }
   };
 
+  const loadDebtorReport = async (): Promise<DebtorReportRow[] | null> => {
+    setDebtorReportLoading(true);
+    setDebtorReportError("");
+    try {
+      const reportStudents = await studentAPI.getAllUnpaginated({
+        class: exportClass,
+      });
+      const breakdowns = await studentFeeAPI.getOutstandingBreakdown(
+        reportStudents.map((student: Student) => student.student_id),
+      );
+      const selectedFeeHead =
+        exportFeeHead === "all"
+          ? null
+          : feeTypes.find((fee) => fee.name.trim() === exportFeeHead);
+      if (exportFeeHead !== "all" && !selectedFeeHead)
+        throw new Error("The selected fee head is no longer available.");
+      const feeHeadName = selectedFeeHead?.name.trim() || null;
+      const rows = reportStudents.flatMap((student: Student) =>
+        (breakdowns[student.student_id] || [])
+          .filter((fee: FeeBreakdownItem) => {
+            const normalizedName = fee.name
+              .replace(/^Arrears B\/F — /i, "")
+              .toLowerCase();
+            const normalizedHead = feeHeadName?.toLowerCase();
+            return (
+              fee.balance > 0 &&
+              (!normalizedHead ||
+                normalizedName === normalizedHead ||
+                normalizedName.startsWith(`${normalizedHead} (`))
+            );
+          })
+          .map((fee: FeeBreakdownItem) => ({
+            studentId: student.student_id,
+            fullName: student.name,
+            studentClass: student.student_class,
+            studentType: student.student_status || "Day",
+            feeName: fee.name,
+            outstandingAmount: fee.balance,
+          })),
+      );
+      setDebtorReportRows(rows);
+      setDebtorReportReady(true);
+      return rows;
+    } catch (error) {
+      console.error("Failed to load debtors list:", error);
+      setDebtorReportError(
+        error instanceof Error ? error.message : "Could not load debtors list",
+      );
+      setDebtorReportRows([]);
+      setDebtorReportReady(false);
+      return null;
+    } finally {
+      setDebtorReportLoading(false);
+    }
+  };
+
+  const exportDebtors = async (format: "xlsx" | "csv") => {
+    const rows = await loadDebtorReport();
+    if (!rows?.length) return;
+    const headers = [
+      "Student ID",
+      "Full Name",
+      "Class",
+      "Type",
+      "Specific Fee Owed",
+      "Outstanding Amount",
+    ];
+    const csvSafe = (value: string) =>
+      /^[\t\r\n=+\-@]/.test(value) ? `'${value}` : value;
+    const worksheet =
+      format === "csv"
+        ? XLSX.utils.aoa_to_sheet([
+            headers,
+            ...rows.map((row) => [
+              csvSafe(row.studentId),
+              csvSafe(row.fullName),
+              csvSafe(row.studentClass),
+              row.studentType,
+              csvSafe(row.feeName),
+              row.outstandingAmount,
+            ]),
+          ])
+        : XLSX.utils.json_to_sheet(
+            rows.map((row) => ({
+              "Student ID": row.studentId,
+              "Full Name": row.fullName,
+              Class: row.studentClass,
+              Type: row.studentType,
+              "Specific Fee Owed": row.feeName,
+              "Outstanding Amount": row.outstandingAmount,
+            })),
+          );
+    worksheet["!cols"] = [
+      { wch: 16 },
+      { wch: 28 },
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 28 },
+      { wch: 20 },
+    ];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Debtors");
+    const date = new Date().toISOString().slice(0, 10);
+    try {
+      XLSX.writeFile(
+        workbook,
+        `debtors-list-${date}.${format}`,
+        format === "csv" ? { bookType: "csv" } : undefined,
+      );
+    } catch (error) {
+      console.error("Failed to export debtors list:", error);
+      setDebtorReportError(
+        error instanceof Error
+          ? error.message
+          : "Could not export debtors list",
+      );
+    }
+  };
+
+  const printDebtorChecklist = async () => {
+    const rows = await loadDebtorReport();
+    if (!rows?.length) return;
+    window.setTimeout(() => window.print(), 100);
+  };
+
+  const exportFeeHeadNames = Array.from(
+    new Set(
+      feeTypes
+        .filter((fee) => fee.fee_category !== "archived")
+        .map((fee) => fee.name.trim())
+        .filter(Boolean),
+    ),
+  ).sort((a, b) => a.localeCompare(b));
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
@@ -622,25 +776,41 @@ const StudentManagement: React.FC<{
             {total} students · {fmt(totalOutstanding)} outstanding
           </p>
         </div>
-        <button
-          onClick={() => {
-            setFormData({
-              studentId: "",
-              firstName: "",
-              lastName: "",
-              studentClass: "",
-              departmentStream: "",
-              selectedFeeIds: [],
-              admissionType: "Returning",
-              studentStatus: "Day",
-            });
-            setFormError("");
-            setShowModal(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-semibold"
-        >
-          <UserPlus className="w-4 h-4" /> Add Student
-        </button>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setExportClass(selectedClass);
+              setExportFeeHead("all");
+              setDebtorReportRows([]);
+              setDebtorReportError("");
+              setDebtorReportReady(false);
+              setShowDebtorExport(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 bg-white text-gray-700 rounded-lg hover:bg-gray-50 font-semibold"
+          >
+            <FileText className="w-4 h-4" /> Export / Print Debtors List
+          </button>
+          <button
+            onClick={() => {
+              setFormData({
+                studentId: "",
+                firstName: "",
+                lastName: "",
+                studentClass: "",
+                departmentStream: "",
+                selectedFeeIds: [],
+                admissionType: "Returning",
+                studentStatus: "Day",
+              });
+              setFormError("");
+              setShowModal(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-semibold"
+          >
+            <UserPlus className="w-4 h-4" /> Add Student
+          </button>
+        </div>
       </div>
 
       {
@@ -897,6 +1067,190 @@ const StudentManagement: React.FC<{
           )}
         </>
       }
+
+      {showDebtorExport && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="debtors-export-title"
+            className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-auto"
+          >
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <h2 id="debtors-export-title" className="text-xl font-bold">
+                  Export / Print Debtors List
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Only unpaid fee balances are included. Print opens your
+                  browser&apos;s print dialog, where you can save as PDF.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDebtorExport(false)}
+                aria-label="Close debtors list"
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4 mb-5">
+              <label className="block text-sm font-medium text-gray-700">
+                Class
+                <select
+                  value={exportClass}
+                  onChange={(event) => {
+                    setExportClass(event.target.value);
+                    setDebtorReportRows([]);
+                    setDebtorReportReady(false);
+                  }}
+                  className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg bg-white"
+                >
+                  <option value="all">All Classes</option>
+                  {classes.map((className) => (
+                    <option key={className} value={className}>
+                      {className}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-sm font-medium text-gray-700">
+                Fee Head
+                <select
+                  value={exportFeeHead}
+                  onChange={(event) => {
+                    setExportFeeHead(event.target.value);
+                    setDebtorReportRows([]);
+                    setDebtorReportReady(false);
+                  }}
+                  className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg bg-white"
+                >
+                  <option value="all">All Fee Heads</option>
+                  {exportFeeHeadNames.map((feeName) => (
+                    <option key={feeName} value={feeName}>
+                      {feeName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {debtorReportError && (
+              <div
+                role="alert"
+                className="bg-danger-50 text-danger-700 text-sm rounded-lg px-4 py-3 mb-4"
+              >
+                {debtorReportError}
+              </div>
+            )}
+            {debtorReportRows.length > 0 && (
+              <p className="text-sm text-gray-600 mb-4">
+                {debtorReportRows.length} outstanding fee{" "}
+                {debtorReportRows.length === 1 ? "item" : "items"} ·{" "}
+                {fmt(
+                  debtorReportRows.reduce(
+                    (totalAmount, row) =>
+                      totalAmount + row.outstandingAmount,
+                    0,
+                  ),
+                )}{" "}
+                outstanding
+              </p>
+            )}
+            {!debtorReportLoading &&
+              !debtorReportError &&
+              debtorReportRows.length === 0 && (
+                <p className="text-sm text-gray-500 mb-4">
+                  {debtorReportReady
+                    ? "No active debts found for the selected filters."
+                    : "Choose filters, then export or print the matching active debts."}
+                </p>
+              )}
+            <div className="flex flex-wrap justify-end gap-2 pt-4 border-t">
+              <button
+                type="button"
+                onClick={() => setShowDebtorExport(false)}
+                className="px-4 py-2 border rounded-lg text-gray-700 hover:bg-gray-50"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportDebtors("csv")}
+                disabled={debtorReportLoading}
+                className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                <Download className="w-4 h-4" />
+                {debtorReportLoading ? "Preparing..." : "Export CSV"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportDebtors("xlsx")}
+                disabled={debtorReportLoading}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+              >
+                <Download className="w-4 h-4" />
+                {debtorReportLoading ? "Preparing..." : "Export Excel"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void printDebtorChecklist()}
+                disabled={debtorReportLoading}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 disabled:opacity-50"
+              >
+                <Printer className="w-4 h-4" />
+                {debtorReportLoading
+                  ? "Preparing..."
+                  : "Print Cashier Checklist"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <section className="debtors-print" aria-label="Cashier debt checklist">
+        <h1>Cashier Debtors Checklist</h1>
+        <p>Generated: {new Date().toLocaleDateString()}</p>
+        <p>
+          Class: {exportClass === "all" ? "All Classes" : exportClass} | Fee
+          Head: {exportFeeHead === "all" ? "All Fee Heads" : exportFeeHead}
+        </p>
+        <p>
+          Active debts: {debtorReportRows.length} fee items | Total outstanding:{" "}
+          {fmt(
+            debtorReportRows.reduce(
+              (sum, row) => sum + row.outstandingAmount,
+              0,
+            ),
+          )}
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Student ID</th>
+              <th>Full Name</th>
+              <th>Class</th>
+              <th>Type</th>
+              <th>Specific Fee Owed</th>
+              <th>Outstanding</th>
+              <th>Receipt checked / reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            {debtorReportRows.map((row, index) => (
+              <tr key={`${row.studentId}-${row.feeName}-${index}`}>
+                <td>{row.studentId}</td>
+                <td>{row.fullName}</td>
+                <td>{row.studentClass}</td>
+                <td>{row.studentType}</td>
+                <td>{row.feeName}</td>
+                <td>{fmt(row.outstandingAmount)}</td>
+                <td className="receipt-check-cell"></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
 
       {/* Add Student Modal */}
       {showModal && (
