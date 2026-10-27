@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Trash2,
   Pencil,
   X,
@@ -35,6 +36,11 @@ interface Student {
   current_fees_owed: number;
   admission_type?: "Returning" | "New";
   student_status?: "Day" | "Boarding";
+}
+type FeeHeadFilter = "all" | "tuition" | "hostel" | "registration";
+interface FeeBreakdownItem {
+  name: string;
+  balance: number;
 }
 interface FeeType {
   id: number;
@@ -75,6 +81,17 @@ const StudentManagement: React.FC<{
   const [statusFilter, setStatusFilter] = useState<"all" | "Day" | "Boarding">(
     "all",
   );
+  const [feeHeadFilter, setFeeHeadFilter] = useState<FeeHeadFilter>("all");
+  const [expandedFeeStudent, setExpandedFeeStudent] = useState<string | null>(
+    null,
+  );
+  const [feeBreakdowns, setFeeBreakdowns] = useState<
+    Record<string, FeeBreakdownItem[]>
+  >({});
+  const [loadingFeeBreakdown, setLoadingFeeBreakdown] = useState<string | null>(
+    null,
+  );
+  const [feeBreakdownError, setFeeBreakdownError] = useState("");
 
   const [classes, setClasses] = useState<string[]>(DEFAULT_CLASSES);
   const [streams, setStreams] = useState<string[]>([]);
@@ -125,6 +142,7 @@ const StudentManagement: React.FC<{
         search,
         class: selectedClass,
         studentStatus: statusFilter !== "all" ? statusFilter : undefined,
+        feeHead: feeHeadFilter === "all" ? undefined : feeHeadFilter,
         page,
         pageSize,
       })
@@ -269,7 +287,20 @@ const StudentManagement: React.FC<{
 
   useEffect(() => {
     load();
-  }, [search, selectedClass, statusFilter, page]);
+  }, [search, selectedClass, statusFilter, feeHeadFilter, page]);
+
+  useEffect(() => {
+    const refreshBalances = () => {
+      load();
+      loadTotalOutstanding();
+    };
+    window.addEventListener("pos:transaction-updated", refreshBalances);
+    window.addEventListener("pos:transaction-voided", refreshBalances);
+    return () => {
+      window.removeEventListener("pos:transaction-updated", refreshBalances);
+      window.removeEventListener("pos:transaction-voided", refreshBalances);
+    };
+  }, [search, selectedClass, statusFilter, feeHeadFilter, page]);
 
   // Reload the global outstanding total on mount and whenever a student is created/deleted
   useEffect(() => {
@@ -506,6 +537,82 @@ const StudentManagement: React.FC<{
 
   const filteredStudents = students;
 
+  const toggleFeeBreakdown = async (student: Student) => {
+    if (expandedFeeStudent === student.student_id) {
+      setExpandedFeeStudent(null);
+      setFeeBreakdownError("");
+      return;
+    }
+
+    setExpandedFeeStudent(student.student_id);
+    setFeeBreakdownError("");
+    if (feeBreakdowns[student.student_id]) return;
+
+    setLoadingFeeBreakdown(student.student_id);
+    try {
+      const [fees, entries] = await Promise.all([
+        studentFeeAPI.getForStudent(student.student_id),
+        ledgerAPI.getStatement(student.student_id),
+      ]);
+      const itemized = new Map<string, FeeBreakdownItem>();
+      for (const fee of fees) {
+        const balance = Math.max(
+          0,
+          Number(fee.amount_due || 0) - Number(fee.amount_paid || 0),
+        );
+        if (balance <= 0) continue;
+        const name = String(fee.fee_name || "Fee");
+        const key = name.trim().toLowerCase();
+        const existing = itemized.get(key);
+        itemized.set(key, {
+          name,
+          balance: balance + (existing?.balance || 0),
+        });
+      }
+
+      const feeNames = new Set(itemized.keys());
+      const ledgerBalances = new Map<
+        string,
+        { name: string; balance: number }
+      >();
+      for (const entry of entries) {
+        const entryName = String(entry.fee_type_name || "").trim();
+        if (!entryName || entryName.startsWith("Class Fee — ")) continue;
+        const name = entryName.replace(
+          /\s+(Remaining Balance|Outstanding Balance Forward)$/i,
+          "",
+        );
+        const key = name.toLowerCase();
+        if (feeNames.has(key)) continue;
+        const existing = ledgerBalances.get(key) || { name, balance: 0 };
+        existing.balance +=
+          (entry.entry_type === "debit" ? 1 : -1) *
+          Number(entry.amount || 0);
+        ledgerBalances.set(key, existing);
+      }
+      for (const [key, ledgerFee] of ledgerBalances) {
+        if (ledgerFee.balance > 0) {
+          itemized.set(key, {
+            name: ledgerFee.name,
+            balance: ledgerFee.balance,
+          });
+        }
+      }
+      setFeeBreakdowns((previous) => ({
+        ...previous,
+        [student.student_id]: Array.from(itemized.values()).sort((a, b) =>
+          a.name.localeCompare(b.name),
+        ),
+      }));
+    } catch (error) {
+      setFeeBreakdownError(
+        error instanceof Error ? error.message : "Could not load fee breakdown",
+      );
+    } finally {
+      setLoadingFeeBreakdown(null);
+    }
+  };
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
@@ -565,6 +672,24 @@ const StudentManagement: React.FC<{
                   </option>
                 ))}
               </select>
+              <label className="flex items-center gap-2 text-sm text-gray-600">
+                <span>Filter by Fee Head</span>
+                <select
+                  aria-label="Filter by Fee Head"
+                  value={feeHeadFilter}
+                  onChange={(e) => {
+                    setFeeHeadFilter(e.target.value as FeeHeadFilter);
+                    setPage(1);
+                    setExpandedFeeStudent(null);
+                  }}
+                  className="px-3 py-2 border rounded-md text-sm bg-white"
+                >
+                  <option value="all">All Fees</option>
+                  <option value="tuition">Tuition Only</option>
+                  <option value="hostel">Hostel Only</option>
+                  <option value="registration">Registration / Levy</option>
+                </select>
+              </label>
               <div className="flex gap-1">
                 {(["all", "Day", "Boarding"] as const).map((s) => (
                   <button
@@ -628,68 +753,120 @@ const StudentManagement: React.FC<{
                     </tr>
                   ) : (
                     filteredStudents.map((s) => (
-                      <tr
-                        key={s.student_id}
-                        className="border-t hover:bg-gray-50"
-                      >
-                        <td className="px-4 py-3 font-mono text-sm">
-                          {s.student_id}
-                        </td>
-                        <td className="px-4 py-3 font-medium">{s.name}</td>
-                        <td className="px-4 py-3">
-                          <span className="px-2 py-1 bg-primary-100 text-primary-800 rounded text-xs">
-                            {s.student_class}
-                          </span>
-                          {s.department_stream && (
-                            <span className="text-xs text-gray-500">
-                              · {s.department_stream}
+                      <React.Fragment key={s.student_id}>
+                        <tr className="border-t hover:bg-gray-50">
+                          <td className="px-4 py-3 font-mono text-sm">
+                            {s.student_id}
+                          </td>
+                          <td className="px-4 py-3 font-medium">{s.name}</td>
+                          <td className="px-4 py-3">
+                            <span className="px-2 py-1 bg-primary-100 text-primary-800 rounded text-xs">
+                              {s.student_class}
                             </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1">
-                            <span
-                              className={`px-2 py-0.5 rounded text-xs ${(s.admission_type || "Returning") === "Returning" ? "bg-gray-100 text-gray-700" : "bg-warning-100 text-warning-700"}`}
+                            {s.department_stream && (
+                              <span className="text-xs text-gray-500">
+                                · {s.department_stream}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1">
+                              <span
+                                className={`px-2 py-0.5 rounded text-xs ${(s.admission_type || "Returning") === "Returning" ? "bg-gray-100 text-gray-700" : "bg-warning-100 text-warning-700"}`}
+                              >
+                                {s.admission_type || "Returning"}
+                              </span>
+                              <span
+                                className={`px-2 py-0.5 rounded text-xs ${(s.student_status || "Day") === "Boarding" ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-600"}`}
+                              >
+                                {s.student_status || "Day"}
+                              </span>
+                              <PendingItems
+                                studentId={s.student_id}
+                                variant="badge"
+                              />
+                            </div>
+                          </td>
+                          <td
+                            className={`px-4 py-3 text-right font-semibold ${s.current_fees_owed > 0 ? "text-danger-600" : "text-success-600"}`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => toggleFeeBreakdown(s)}
+                              aria-expanded={expandedFeeStudent === s.student_id}
+                              aria-label={`Show itemized fees for ${s.name}`}
+                              className="inline-flex items-center gap-1 rounded px-1 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-400"
                             >
-                              {s.admission_type || "Returning"}
-                            </span>
-                            <span
-                              className={`px-2 py-0.5 rounded text-xs ${(s.student_status || "Day") === "Boarding" ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-600"}`}
+                              {fmt(s.current_fees_owed)}
+                              {expandedFeeStudent === s.student_id ? (
+                                <ChevronDown className="w-4 h-4" />
+                              ) : (
+                                <ChevronRight className="w-4 h-4" />
+                              )}
+                            </button>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button
+                              onClick={() => viewLedger(s)}
+                              className="px-3 py-1.5 text-sm bg-primary-100 text-primary-700 rounded hover:bg-primary-200 inline-flex items-center gap-1 font-medium"
                             >
-                              {s.student_status || "Day"}
-                            </span>
-                            <PendingItems
-                              studentId={s.student_id}
-                              variant="badge"
-                            />
-                          </div>
-                        </td>
-                        <td
-                          className={`px-4 py-3 text-right font-semibold ${s.current_fees_owed > 0 ? "text-danger-600" : "text-success-600"}`}
-                        >
-                          {fmt(s.current_fees_owed)}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <button
-                            onClick={() => viewLedger(s)}
-                            className="px-3 py-1.5 text-sm bg-primary-100 text-primary-700 rounded hover:bg-primary-200 inline-flex items-center gap-1 font-medium"
-                          >
-                            <FileText className="w-3.5 h-3.5" /> Ledger
-                          </button>
-                          <button
-                            onClick={() => openEditStudent(s)}
-                            className="px-2 py-1 text-sm bg-gray-100 rounded mx-1 hover:bg-gray-200 inline-flex items-center gap-1"
-                          >
-                            <Pencil className="w-3 h-3" /> Edit
-                          </button>
-                          <button
-                            onClick={() => openDeleteConfirm(s)}
-                            className="px-2 py-1 text-sm bg-danger-100 text-danger-700 rounded hover:bg-danger-200"
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
+                              <FileText className="w-3.5 h-3.5" /> Ledger
+                            </button>
+                            <button
+                              onClick={() => openEditStudent(s)}
+                              className="px-2 py-1 text-sm bg-gray-100 rounded mx-1 hover:bg-gray-200 inline-flex items-center gap-1"
+                            >
+                              <Pencil className="w-3 h-3" /> Edit
+                            </button>
+                            <button
+                              onClick={() => openDeleteConfirm(s)}
+                              className="px-2 py-1 text-sm bg-danger-100 text-danger-700 rounded hover:bg-danger-200"
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                        {expandedFeeStudent === s.student_id && (
+                          <tr className="bg-gray-50 border-t">
+                            <td colSpan={6} className="px-6 py-4">
+                              <div className="max-w-3xl ml-auto">
+                                <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                                  Outstanding fee breakdown
+                                </h3>
+                                {loadingFeeBreakdown === s.student_id ? (
+                                  <p className="text-sm text-gray-500">
+                                    Loading fee items...
+                                  </p>
+                                ) : feeBreakdownError ? (
+                                  <p className="text-sm text-danger-600">
+                                    {feeBreakdownError}
+                                  </p>
+                                ) : feeBreakdowns[s.student_id]?.length ? (
+                                  <div className="rounded-lg border bg-white divide-y">
+                                    {feeBreakdowns[s.student_id].map((fee) => (
+                                      <div
+                                        key={fee.name}
+                                        className="flex items-center justify-between px-4 py-2.5 text-sm"
+                                      >
+                                        <span className="text-gray-700">
+                                          {fee.name}
+                                        </span>
+                                        <span className="font-semibold text-danger-600">
+                                          {fmt(fee.balance)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-sm text-gray-500">
+                                    No active unpaid fee items found.
+                                  </p>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     ))
                   )}
                 </tbody>

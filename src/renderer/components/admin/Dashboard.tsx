@@ -73,7 +73,11 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const handleVoid = () => { loadData(); };
     window.addEventListener('pos:transaction-voided', handleVoid);
-    return () => window.removeEventListener('pos:transaction-voided', handleVoid);
+    window.addEventListener('pos:transaction-updated', handleVoid);
+    return () => {
+      window.removeEventListener('pos:transaction-voided', handleVoid);
+      window.removeEventListener('pos:transaction-updated', handleVoid);
+    };
   }, [period]);
 
   if (loading) return (
