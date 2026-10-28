@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Printer, Save, CheckCircle, Ban, AlertTriangle } from "lucide-react";
 import { transactionAPI, expenseAPI, settingsAPI } from "../../lib/api";
+import PaginationControls from "../shared/PaginationControls";
 
 // ─── Receipt printer (mirrors CashierPOS) ────────────────────────────────────
 function printReceipt(html: string) {
@@ -185,6 +186,8 @@ interface Transaction {
 // ─── Component ────────────────────────────────────────────────────────────────
 const TransactionHistory: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -290,6 +293,7 @@ const TransactionHistory: React.FC = () => {
   }, []);
 
   const searchTransactions = async () => {
+    setPage(1);
     setLoading(true);
     try {
       const [txnData, expenseData] = await Promise.all([
@@ -445,6 +449,11 @@ const TransactionHistory: React.FC = () => {
     }
     return items;
   }, [details, selected, editType]);
+
+  const visibleTransactions = useMemo(
+    () => transactions.slice((page - 1) * pageSize, page * pageSize),
+    [transactions, page, pageSize],
+  );
 
   // ── Admin save changes ────────────────────────────────────────────────────
   const isVoided =
@@ -775,7 +784,7 @@ const TransactionHistory: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                transactions.map((t) => {
+                visibleTransactions.map((t) => {
                   const isVoid =
                     t.is_voided === true ||
                     t.status === "voided" ||
@@ -892,6 +901,17 @@ const TransactionHistory: React.FC = () => {
           </table>
         </div>
       </div>
+      <PaginationControls
+        page={page}
+        pageSize={pageSize}
+        total={transactions.length}
+        itemLabel="transactions"
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+      />
 
       {/* ── Transaction Details Modal ─────────────────────────────────────── */}
       {selected && details && (

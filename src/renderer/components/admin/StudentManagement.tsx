@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import {
-  ChevronLeft,
   ChevronRight,
   ChevronDown,
   Trash2,
@@ -27,6 +26,7 @@ import {
   seniorClassKey,
 } from "../../lib/api";
 import PendingItems from "../shared/PendingItems";
+import PaginationControls from "../shared/PaginationControls";
 
 const fmt = (n: number) =>
   `₦${(n || 0).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -86,7 +86,7 @@ const StudentManagement: React.FC<{
   const [students, setStudents] = useState<Student[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const pageSize = 15;
+  const [pageSize, setPageSize] = useState(25);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedClass, setSelectedClass] = useState("all");
@@ -308,7 +308,7 @@ const StudentManagement: React.FC<{
 
   useEffect(() => {
     load();
-  }, [search, selectedClass, statusFilter, feeHeadFilter, page]);
+  }, [search, selectedClass, statusFilter, feeHeadFilter, page, pageSize]);
 
   useEffect(() => {
     const refreshBalances = () => {
@@ -321,7 +321,7 @@ const StudentManagement: React.FC<{
       window.removeEventListener("pos:transaction-updated", refreshBalances);
       window.removeEventListener("pos:transaction-voided", refreshBalances);
     };
-  }, [search, selectedClass, statusFilter, feeHeadFilter, page]);
+  }, [search, selectedClass, statusFilter, feeHeadFilter, page, pageSize]);
 
   // Reload the global outstanding total on mount and whenever a student is created/deleted
   useEffect(() => {
@@ -391,8 +391,6 @@ const StudentManagement: React.FC<{
       selectedFeeIds: matching.map((ft) => ft.id),
     }));
   }, [formData.studentClass, formData.studentStatus, showModal, feeTypes]);
-
-  const totalPages = Math.ceil(total / pageSize);
 
   const computeFeesOwed = () =>
     formData.selectedFeeIds.reduce((sum, id) => {
@@ -1054,27 +1052,17 @@ const StudentManagement: React.FC<{
             </div>
           </div>
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-3 mt-4">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1}
-                className="p-2 rounded-lg bg-white border hover:bg-gray-50 disabled:opacity-30"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span className="text-sm text-gray-500 font-medium">
-                Page {page} of {totalPages} ({total} students)
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-                className="p-2 rounded-lg bg-white border hover:bg-gray-50 disabled:opacity-30"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          )}
+          <PaginationControls
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            itemLabel="students"
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+          />
         </>
       }
 

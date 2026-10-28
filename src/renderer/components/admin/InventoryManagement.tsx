@@ -671,6 +671,7 @@ import {
   Clock3,
 } from "lucide-react";
 import { inventoryAPI, categoryAPI, studentAPI } from "../../lib/api";
+import PaginationControls from "../shared/PaginationControls";
 
 const fmt = (n: number) =>
   `₦${(n || 0).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -731,6 +732,8 @@ const generateBarcode = () =>
 
 const InventoryManagement: React.FC = () => {
   const [inventory, setInventory] = useState<Item[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [categories, setCategories] = useState<Category[]>([]);
   const [availableClasses, setAvailableClasses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -797,8 +800,18 @@ const InventoryManagement: React.FC = () => {
   };
 
   useEffect(() => {
+    setPage(1);
     reload();
   }, [search, lowStock, catFilter, showArchived]);
+
+  useEffect(() => {
+    setPage((currentPage) =>
+      Math.min(
+        currentPage,
+        Math.max(1, Math.ceil(inventory.length / pageSize)),
+      ),
+    );
+  }, [inventory.length, pageSize]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1158,7 +1171,9 @@ const InventoryManagement: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                inventory.map((item) => (
+                inventory
+                  .slice((page - 1) * pageSize, page * pageSize)
+                  .map((item) => (
                   <tr
                     key={item.item_id}
                     className={`border-t transition-colors ${item.is_active === false ? "bg-gray-50 opacity-60" : item.stock_quantity <= 0 ? "bg-danger-50" : item.stock_quantity <= 10 ? "bg-warning-50" : "hover:bg-gray-50"}`}
@@ -1254,6 +1269,17 @@ const InventoryManagement: React.FC = () => {
           </table>
         </div>
       </div>
+      <PaginationControls
+        page={page}
+        pageSize={pageSize}
+        total={inventory.length}
+        itemLabel="items"
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+      />
 
       {/* Add Item Modal */}
       {showAdd && (
