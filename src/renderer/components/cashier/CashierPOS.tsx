@@ -28,6 +28,7 @@ import {
   PowerOff,
   Wallet,
   AlertCircle,
+  Loader2,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useShift } from "../../context/ShiftContext";
@@ -57,6 +58,7 @@ interface Student {
   student_id: string;
   name: string;
   student_class: string;
+  student_status?: "Day" | "Boarding";
   current_fees_owed: number;
   admission_type?: "Returning" | "New";
   tags?: string[];
@@ -89,6 +91,7 @@ interface StudentFee {
   amount_paid: number;
   balance: number;
   fee_category: string;
+  discount_amount?: number;
 }
 interface Category {
   id: number;
@@ -308,6 +311,11 @@ function buildReceiptHtml(
     txn.balance_due && txn.balance_due > 0
       ? `<div class="divider"></div><div class="row bold total-row"><span>TOTAL PAID:</span><span>${fmt(total)}</span></div><div class="row bold balance-row"><span>BALANCE DUE:</span><span>${fmt(txn.balance_due)}</span></div>`
       : "";
+  const discountAmount = Number(txn.discount_amount || 0);
+  const discountHtml =
+    discountAmount > 0
+      ? `<div class="row"><span>Original Bill:</span><span>${fmt(Number(txn.original_bill_amount ?? total + discountAmount))}</span></div><div class="row"><span>Discount / Concession:</span><span>-${fmt(discountAmount)}</span></div>`
+      : "";
 
   return `<!DOCTYPE html><html><head><title>Receipt</title>
   <style>
@@ -344,6 +352,7 @@ function buildReceiptHtml(
   ${txn.remaining_balance != null ? `<div class="row"><span>Remaining Balance:</span><span>${fmt(Number(txn.remaining_balance))}</span></div>` : ""}
   ${balanceDueHtml}
   <div class="divider2"></div>
+  ${discountHtml}
   <div class="row bold large"><span>TOTAL:</span><span>${fmt(total)}</span></div>
   <div class="row"><span>Payment:</span><span>${txn.payment_mode === "POS_Transfer" ? "POS / Transfer" : "Cash"}</span></div>
   <div class="divider"></div>
@@ -1852,7 +1861,7 @@ const BundlePaymentModal: React.FC<{
               className="flex-1 py-2.5 bg-success-600 text-white rounded-xl text-sm font-semibold hover:bg-success-700 disabled:opacity-50"
             >
               {processing
-                ? "Processing…"
+                ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</>
                 : `Pay ${fmt(parseFloat(amount) || 0)}`}
             </button>
           </div>
@@ -2351,7 +2360,7 @@ const RegistrationFlowModal: React.FC<{
             className="flex-1 py-2.5 bg-success-600 text-white rounded-xl text-sm font-semibold hover:bg-success-700 disabled:opacity-50"
           >
             {processing
-              ? "Processing…"
+              ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</>
               : `Complete Registration (${fmt(total)})`}
           </button>
         </div>
@@ -3053,7 +3062,7 @@ const WalkInRegistrationFeeModal: React.FC<{
               className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50"
             >
               {processing
-                ? "Processing…"
+                ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</>
                 : !stockLoaded &&
                     isBundleMode &&
                     (matchedBundle!.items?.length || 0) > 0
@@ -3143,7 +3152,7 @@ const WalkInFormModal: React.FC<{
             disabled={processing}
             className="flex-1 py-2.5 bg-warning-500 text-white rounded-xl text-sm font-semibold hover:bg-warning-600 disabled:opacity-50"
           >
-            {processing ? "Processing…" : "Confirm ₦3,000"}
+            {processing ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</> : "Confirm ₦3,000"}
           </button>
         </div>
       </div>
@@ -3298,7 +3307,7 @@ const WalkInBundleModal: React.FC<{
             disabled={processing}
             className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50"
           >
-            {processing ? "Processing…" : `Confirm ${fmt(bundle.base_price)}`}
+            {processing ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</> : `Confirm ${fmt(bundle.base_price)}`}
           </button>
         </div>
       </div>
@@ -3310,6 +3319,24 @@ const WalkInBundleModal: React.FC<{
 const CashierPOS: React.FC = () => {
   const { user, logout } = useAuth();
   const { activeShift, isStaleShift, openShift, closeShift } = useShift();
+  const checkoutLocks = useRef(new Set<string>());
+  const checkoutKeys = useRef(new Map<string, string>());
+  const beginCheckout = (scope: string, fingerprint: string) => {
+    if (checkoutLocks.current.has(scope)) return null;
+    checkoutLocks.current.add(scope);
+    const cacheKey = `${scope}:${fingerprint}`;
+    const id = checkoutKeys.current.get(cacheKey) || crypto.randomUUID();
+    checkoutKeys.current.set(cacheKey, id);
+    return id;
+  };
+  const finishCheckout = (
+    scope: string,
+    fingerprint: string,
+    committed: boolean,
+  ) => {
+    checkoutLocks.current.delete(scope);
+    if (committed) checkoutKeys.current.delete(`${scope}:${fingerprint}`);
+  };
 
   const [tab, setTab] = useState<SideTab>("sale");
   const [saleMode, setSaleMode] = useState<SaleMode>("store");
@@ -3409,6 +3436,9 @@ const CashierPOS: React.FC = () => {
   const [quickEditName, setQuickEditName] = useState("");
   const [quickEditClass, setQuickEditClass] = useState("");
   const [quickEditStream, setQuickEditStream] = useState("");
+  const [quickEditStudentStatus, setQuickEditStudentStatus] = useState<
+    "Day" | "Boarding"
+  >("Day");
   const [quickEditSaving, setQuickEditSaving] = useState(false);
   const [quickEditError, setQuickEditError] = useState("");
 
@@ -3739,6 +3769,15 @@ const CashierPOS: React.FC = () => {
   const handleStorePurchase = async () => {
     if (!selectedStudent || !activeShift || cart.length === 0 || loading)
       return;
+    const request = JSON.stringify({
+      studentId: selectedStudent.student_id,
+      shiftId: activeShift.id,
+      cart,
+      paymentMode,
+    });
+    const clientTransactionId = beginCheckout("store", request);
+    if (!clientTransactionId) return;
+    let committed = false;
     setLoading(true);
     try {
       const result = await transactionAPI.createPurchase(
@@ -3748,8 +3787,11 @@ const CashierPOS: React.FC = () => {
         paymentMode,
         selectedStudent.name,
         selectedStudent.student_class,
+        clientTransactionId,
+        user?.username,
       );
       if (result.success) {
+        committed = true;
         const receiptTxn = {
           transaction_id: result.transaction_id,
           timestamp: new Date().toISOString(),
@@ -3782,8 +3824,10 @@ const CashierPOS: React.FC = () => {
       } else setErrorMsg("Transaction failed: " + (result as any).error);
     } catch (e) {
       setErrorMsg("Error: " + (e as Error).message);
+    } finally {
+      finishCheckout("store", request, committed);
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleFeesPayment = async () => {
@@ -3801,15 +3845,19 @@ const CashierPOS: React.FC = () => {
       );
       return;
     }
+    const request = JSON.stringify({
+      studentFeeId: selectedFee.id,
+      studentId: selectedStudent.student_id,
+      shiftId: activeShift.id,
+      amount,
+      discount,
+      paymentMode: feesPayMode,
+    });
+    const clientTransactionId = beginCheckout("fee", request);
+    if (!clientTransactionId) return;
+    let committed = false;
     setLoading(true);
     try {
-      if (discount > 0) {
-        await studentFeeAPI.applyDiscount(
-          selectedFee.id,
-          selectedStudent.student_id,
-          discount,
-        );
-      }
       const result = await studentFeeAPI.recordPayment(
         selectedFee.id,
         amount,
@@ -3819,8 +3867,12 @@ const CashierPOS: React.FC = () => {
         selectedStudent.name,
         selectedStudent.student_class,
         user?.username,
+        discount,
+        Number(selectedFee.amount_due) + Number(selectedFee.discount_amount || 0),
+        clientTransactionId,
       );
       if (result.success) {
+        committed = true;
         const updated = await studentAPI.getById(selectedStudent.student_id);
         if (updated) setSelectedStudent(updated);
         const receipTxn = {
@@ -3830,8 +3882,15 @@ const CashierPOS: React.FC = () => {
           student_class: selectedStudent.student_class,
           payment_mode: feesPayMode,
           fee_type_name: selectedFee.fee_name,
+          discount_amount: discount,
+          original_bill_amount:
+            Number(selectedFee.amount_due) +
+            Number(selectedFee.discount_amount || 0),
           previous_balance: selectedFee.balance,
-          remaining_balance: Math.max(0, selectedFee.balance - amount),
+          remaining_balance: Math.max(
+            0,
+            selectedFee.balance - discount - amount,
+          ),
         };
         setLastTxn({
           isFees: true,
@@ -3850,8 +3909,10 @@ const CashierPOS: React.FC = () => {
       } else setErrorMsg("Failed to process payment");
     } catch (e) {
       setErrorMsg((e as Error).message);
+    } finally {
+      finishCheckout("fee", request, committed);
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   // Bundle balance payment handler
@@ -3874,6 +3935,16 @@ const CashierPOS: React.FC = () => {
       );
       return;
     }
+    const request = JSON.stringify({
+      transactionId: bundlePaymentInfo.transactionId,
+      studentId: selectedStudent.student_id,
+      shiftId: activeShift.id,
+      amount,
+      paymentMode: feesPayMode,
+    });
+    const clientTransactionId = beginCheckout("bundle-balance", request);
+    if (!clientTransactionId) return;
+    let committed = false;
     setBundleBalanceProcessing(true);
     setErrorMsg("");
     try {
@@ -3885,8 +3956,10 @@ const CashierPOS: React.FC = () => {
         paymentMode: feesPayMode,
         customerName: selectedStudent.name,
         targetClass: selectedStudent.student_class,
+        clientTransactionId,
       });
       if (result.success) {
+        committed = true;
         const receiptTxn = {
           transaction_id: Date.now(),
           timestamp: new Date().toISOString(),
@@ -3922,8 +3995,10 @@ const CashierPOS: React.FC = () => {
       }
     } catch (e) {
       setErrorMsg((e as Error).message);
+    } finally {
+      finishCheckout("bundle-balance", request, committed);
+      setBundleBalanceProcessing(false);
     }
-    setBundleBalanceProcessing(false);
   };
 
   const handleShiftCloseRequest = async () => {
@@ -3973,11 +4048,38 @@ const CashierPOS: React.FC = () => {
     setQuickEditSaving(true);
     setQuickEditError("");
     try {
-      await studentAPI.update(selectedStudent.student_id, {
-        name: quickEditName.trim(),
-        studentClass: quickEditClass,
-        departmentStream: quickEditStream || null,
-      });
+      const prevClass = selectedStudent.student_class;
+      const prevStatus = selectedStudent.student_status || "Day";
+      const classChanged = prevClass !== quickEditClass;
+      const statusChanged = prevStatus !== quickEditStudentStatus;
+      await studentAPI.update(
+        selectedStudent.student_id,
+        {
+          name: quickEditName.trim(),
+          studentClass: quickEditClass,
+          departmentStream: quickEditStream || null,
+          studentStatus: quickEditStudentStatus,
+        },
+        { syncFees: false },
+      );
+      const updatedStudent = await studentAPI.getById(
+        selectedStudent.student_id,
+      );
+      if (!updatedStudent) throw new Error("Unable to reload the student.");
+      if (updatedStudent.student_status !== quickEditStudentStatus) {
+        throw new Error(
+          "Student type could not be updated. Check that the student status field is available.",
+        );
+      }
+      if (classChanged || statusChanged) {
+        await studentFeeAPI.handleMidTermSwap({
+          studentId: selectedStudent.student_id,
+          prevClass,
+          newClass: quickEditClass,
+          prevStatus,
+          newStatus: quickEditStudentStatus,
+        });
+      }
       const refreshed = await studentAPI.getById(selectedStudent.student_id);
       if (refreshed) selectStudent(refreshed);
       setShowQuickEditStudent(false);
@@ -4050,6 +4152,17 @@ const CashierPOS: React.FC = () => {
     payMode: "Cash" | "POS_Transfer",
   ) => {
     if (!selectedStudent || !activeShift) return;
+    const request = JSON.stringify({
+      studentId: selectedStudent.student_id,
+      shiftId: activeShift.id,
+      registrationFeeId,
+      feeAmount,
+      selectedItems,
+      payMode,
+    });
+    const clientTransactionId = beginCheckout("registration", request);
+    if (!clientTransactionId) return;
+    let committed = false;
     setRegProcessing(true);
     setRegError("");
     try {
@@ -4062,8 +4175,11 @@ const CashierPOS: React.FC = () => {
         payMode,
         selectedStudent.name,
         selectedStudent.student_class,
+        clientTransactionId,
+        user?.username,
       );
       if (result.success) {
+        committed = true;
         setShowRegistration(false);
         // Build receipt data
         const receiptTxn = {
@@ -4109,8 +4225,10 @@ const CashierPOS: React.FC = () => {
       }
     } catch (e) {
       setRegError((e as Error).message);
+    } finally {
+      finishCheckout("registration", request, committed);
+      setRegProcessing(false);
     }
-    setRegProcessing(false);
   };
 
   // Shift log reprint
@@ -4344,6 +4462,14 @@ const CashierPOS: React.FC = () => {
 
   const handleWalkInFormConfirm = async (mode: "Cash" | "POS_Transfer") => {
     if (!walkInApplicant || !activeShift) return;
+    const request = JSON.stringify({
+      applicantId: walkInApplicant.id,
+      shiftId: activeShift.id,
+      mode,
+    });
+    const clientTransactionId = beginCheckout("walkin-form", request);
+    if (!clientTransactionId) return;
+    let committed = false;
     setWalkInModalProcessing(true);
     setWalkInModalError("");
     try {
@@ -4351,8 +4477,10 @@ const CashierPOS: React.FC = () => {
         applicantId: walkInApplicant.id,
         shiftId: activeShift.id,
         paymentMode: mode,
+        clientTransactionId,
       });
       if (result.success) {
+        committed = true;
         setShowWalkInForm(false);
         const receiptTxn = {
           transaction_id: result.transactionId,
@@ -4383,14 +4511,26 @@ const CashierPOS: React.FC = () => {
       }
     } catch (e) {
       setWalkInModalError((e as Error).message);
+    } finally {
+      finishCheckout("walkin-form", request, committed);
+      setWalkInModalProcessing(false);
     }
-    setWalkInModalProcessing(false);
   };
 
   const handleWalkInAcceptanceConfirm = async (
     mode: "Cash" | "POS_Transfer",
   ) => {
     if (!walkInApplicant || !walkInAcceptanceBundle || !activeShift) return;
+    const request = JSON.stringify({
+      applicantId: walkInApplicant.id,
+      bundleId: walkInAcceptanceBundle.id,
+      shiftId: activeShift.id,
+      amountPaid: walkInAcceptanceBundle.base_price,
+      mode,
+    });
+    const clientTransactionId = beginCheckout("walkin-acceptance", request);
+    if (!clientTransactionId) return;
+    let committed = false;
     setWalkInModalProcessing(true);
     setWalkInModalError("");
     try {
@@ -4404,8 +4544,10 @@ const CashierPOS: React.FC = () => {
         customerName: walkInApplicant.full_name,
         targetClass: walkInApplicant.proposed_class || undefined,
         studentTags: getAssignedTags(walkInApplicant),
+        clientTransactionId,
       });
       if (result.success) {
+        committed = true;
         setShowWalkInAcceptance(false);
         const receiptTxn = {
           transaction_id: result.transactionId,
@@ -4431,8 +4573,10 @@ const CashierPOS: React.FC = () => {
       }
     } catch (e) {
       setWalkInModalError((e as Error).message);
+    } finally {
+      finishCheckout("walkin-acceptance", request, committed);
+      setWalkInModalProcessing(false);
     }
-    setWalkInModalProcessing(false);
   };
 
   const handleWalkInRegistrationConfirm = async (
@@ -4443,6 +4587,18 @@ const CashierPOS: React.FC = () => {
     selectedBundleItems?: Bundle["items"],
   ) => {
     if (!walkInApplicant || !activeShift) return;
+    const request = JSON.stringify({
+      applicantId: walkInApplicant.id,
+      shiftId: activeShift.id,
+      mode,
+      total,
+      coachingIncluded,
+      balanceDue,
+      selectedBundleItems,
+    });
+    const clientTransactionId = beginCheckout("walkin-registration", request);
+    if (!clientTransactionId) return;
+    let committed = false;
     setWalkInModalProcessing(true);
     setWalkInModalError("");
     try {
@@ -4492,8 +4648,10 @@ const CashierPOS: React.FC = () => {
         studentTags: getAssignedTags(walkInApplicant),
         balanceDue,
         bundleItems,
+        clientTransactionId,
       });
       if (result.success) {
+        committed = true;
         setShowWalkInRegistration(false);
         const receiptTxn = {
           transaction_id: result.transactionId,
@@ -4520,8 +4678,10 @@ const CashierPOS: React.FC = () => {
       }
     } catch (e) {
       setWalkInModalError((e as Error).message);
+    } finally {
+      finishCheckout("walkin-registration", request, committed);
+      setWalkInModalProcessing(false);
     }
-    setWalkInModalProcessing(false);
   };
 
   // Bundle payment handler
@@ -4548,6 +4708,30 @@ const CashierPOS: React.FC = () => {
         ? schoolSettings?.min_acceptance_partial_floor || 5000
         : schoolSettings?.min_partial_payment_floor || 30000;
 
+    const request = JSON.stringify({
+      applicantId: walkInApplicant?.id,
+      studentId: selectedStudent?.student_id,
+      bundleId: selectedBundle.id,
+      shiftId: activeShift.id,
+      amount,
+      dynamicBundleTotal,
+      paymentMode,
+      items: purchasedBundleItems,
+      targetClass:
+        walkInApplicant?.proposed_class ||
+        selectedStudent?.student_class ||
+        undefined,
+      studentTags: walkInApplicant
+        ? getAssignedTags(walkInApplicant)
+        : [
+            selectedStudent?.student_class,
+            selectedStudent?.department_stream,
+            classCategoryMap[selectedStudent?.student_class || ""],
+          ].filter(Boolean),
+    });
+    const clientTransactionId = beginCheckout("bundle", request);
+    if (!clientTransactionId) return;
+    let committed = false;
     setBundleProcessing(true);
     setBundleError("");
     try {
@@ -4573,8 +4757,10 @@ const CashierPOS: React.FC = () => {
               classCategoryMap[selectedStudent?.student_class || ""],
             ].filter(Boolean),
         items: purchasedBundleItems,
+        clientTransactionId,
       });
       if (result.success) {
+        committed = true;
         setShowBundlePayment(false);
         const receiptTxn = {
           transaction_id: result.transactionId,
@@ -4612,8 +4798,10 @@ const CashierPOS: React.FC = () => {
       }
     } catch (e) {
       setBundleError((e as Error).message);
+    } finally {
+      finishCheckout("bundle", request, committed);
+      setBundleProcessing(false);
     }
-    setBundleProcessing(false);
   };
 
   const handleReturningBundleAction = (bundle: Bundle) => {
@@ -4789,6 +4977,7 @@ const CashierPOS: React.FC = () => {
           setQuickEditName={setQuickEditName}
           setQuickEditClass={setQuickEditClass}
           setQuickEditStream={setQuickEditStream}
+          setQuickEditStudentStatus={setQuickEditStudentStatus}
           setQuickEditError={setQuickEditError}
           setHistoryDrawerTarget={setHistoryDrawerTarget}
           setSaleMode={setSaleMode}
@@ -4939,6 +5128,7 @@ const CashierPOS: React.FC = () => {
             <div className="flex gap-3">
               <button
                 onClick={() => setShowCheckout(false)}
+                disabled={loading}
                 className="flex-1 py-3 bg-gray-100 rounded-xl font-medium hover:bg-gray-200"
               >
                 Cancel
@@ -4948,7 +5138,7 @@ const CashierPOS: React.FC = () => {
                 disabled={loading}
                 className="flex-1 py-3 bg-success-600 text-white rounded-xl font-bold hover:bg-success-700 disabled:opacity-50"
               >
-                {loading ? "Processing…" : "Confirm & Charge"}
+                {loading ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</> : "Confirm & Charge"}
               </button>
             </div>
           </div>
@@ -5071,6 +5261,27 @@ const CashierPOS: React.FC = () => {
                     </select>
                   </div>
                 )}
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">
+                  Student Type *
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setQuickEditStudentStatus("Day")}
+                    className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${quickEditStudentStatus === "Day" ? "bg-primary-600 border-primary-600 text-white" : "bg-white border-gray-200 text-gray-600 hover:border-primary-400"}`}
+                  >
+                    Day Student
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuickEditStudentStatus("Boarding")}
+                    className={`py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${quickEditStudentStatus === "Boarding" ? "bg-purple-600 border-purple-600 text-white" : "bg-white border-gray-200 text-gray-600 hover:border-purple-400"}`}
+                  >
+                    Boarding Student
+                  </button>
+                </div>
+              </div>
               <div className="flex gap-3 pt-2">
                 <button
                   onClick={() => setShowQuickEditStudent(false)}
@@ -5487,7 +5698,7 @@ const CashierPOS: React.FC = () => {
                   className="w-full py-3 bg-success-600 text-white font-bold rounded-xl hover:bg-success-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {bundleBalanceProcessing
-                    ? "Processing…"
+                    ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</>
                     : `Record ${bundleBalanceAmount ? fmt(parseFloat(bundleBalanceAmount)) : ""} Payment`}
                 </button>
               </div>

@@ -8,6 +8,7 @@ import {
   ChevronRight,
   CreditCard,
   FileText,
+  Loader2,
   Package,
   Pencil,
   Plus,
@@ -82,6 +83,7 @@ const CashierSalePage: React.FC<any> = (props) => {
     setQuickEditName,
     setQuickEditClass,
     setQuickEditStream,
+    setQuickEditStudentStatus,
     setQuickEditError,
     setHistoryDrawerTarget,
     setSaleMode,
@@ -575,6 +577,9 @@ const CashierSalePage: React.FC<any> = (props) => {
                     setQuickEditName(selectedStudent.name);
                     setQuickEditClass(selectedStudent.student_class);
                     setQuickEditStream(selectedStudent.department_stream || "");
+                    setQuickEditStudentStatus(
+                      selectedStudent.student_status || "Day",
+                    );
                     setQuickEditError("");
                     setShowQuickEditStudent(true);
                   }}
@@ -992,7 +997,7 @@ const CashierSalePage: React.FC<any> = (props) => {
                             className="w-full py-4 bg-success-600 text-white font-bold rounded-xl hover:bg-success-700 disabled:opacity-50 disabled:cursor-not-allowed text-lg"
                           >
                             {props.loading
-                              ? "Processing…"
+                              ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</>
                               : `Record ${feesAmount ? fmt(amt) : ""} Payment`}
                           </button>
                         );

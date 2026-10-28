@@ -465,10 +465,11 @@ export const studentAPI = {
     const studentList = data || [];
     if (studentList.length > 0) {
       const ids = studentList.map((s: any) => s.student_id);
-      const { data: feeRows } = await supabase
+      const { data: feeRows, error: feeRowsError } = await supabase
         .from("student_fees")
-        .select("student_id, amount_due, amount_paid")
+        .select("student_id, amount_due, amount_paid, discount_amount")
         .in("student_id", ids);
+      if (feeRowsError) throw feeRowsError;
       const { data: openingBalances, error: openingBalanceError } =
         await supabase
           .from("ledger_entries")
@@ -477,11 +478,17 @@ export const studentAPI = {
           .eq("entry_type", "debit");
       if (openingBalanceError) throw openingBalanceError;
       const balanceMap = new Map<string, number>();
+      const discountMap = new Map<string, number>();
       for (const sf of feeRows || []) {
         const bal = Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid));
         balanceMap.set(
           sf.student_id,
           (balanceMap.get(sf.student_id) || 0) + bal,
+        );
+        discountMap.set(
+          sf.student_id,
+          (discountMap.get(sf.student_id) || 0) +
+            Number(sf.discount_amount || 0),
         );
       }
       for (const entry of openingBalances || []) {
@@ -503,6 +510,7 @@ export const studentAPI = {
           current_fees_owed: balanceMap.has(s.student_id)
             ? (balanceMap.get(s.student_id) as number)
             : Number(s.current_fees_owed || 0),
+          discount_amount: discountMap.get(s.student_id) || 0,
         })),
         total: count || 0,
         page,
@@ -686,14 +694,7 @@ export const studentAPI = {
 
     // Automatically assign matching Fee Types to new student's ledger (no manual clicks needed)
     if (options.autoAssignFees !== false) {
-      try {
-        await studentFeeAPI.autoAssignFeesForStudent(id);
-      } catch (e) {
-        console.warn(
-          "Auto-assign fees on student creation non-fatal error:",
-          e,
-        );
-      }
+      await studentFeeAPI.autoAssignFeesForStudent(id);
     }
 
     return { success: true, studentId: id };
@@ -707,13 +708,15 @@ export const studentAPI = {
       studentStatus?: "Day" | "Boarding";
       departmentStream?: string | null;
     },
+    options: { syncFees?: boolean } = {},
   ) {
     // Fetch previous student record to detect class or status changes (mid-term swaps)
-    const { data: prevStudent } = await supabase
+    const { data: prevStudent, error: previousStudentError } = await supabase
       .from("students")
       .select("student_class, student_status")
       .eq("student_id", id)
       .maybeSingle();
+    if (previousStudentError) throw previousStudentError;
 
     const base = {
       name: data.name,
@@ -745,34 +748,22 @@ export const studentAPI = {
     }
 
     // Automatically handle Mid-Term Swap if class or housing status changed
-    if (prevStudent) {
+    if (prevStudent && options.syncFees !== false) {
       const classChanged = prevStudent.student_class !== data.studentClass;
       const statusChanged =
         data.studentStatus !== undefined &&
         prevStudent.student_status !== data.studentStatus;
       if (classChanged || statusChanged) {
-        try {
-          await studentFeeAPI.handleMidTermSwap({
-            studentId: id,
-            prevClass: prevStudent.student_class,
-            newClass: data.studentClass,
-            prevStatus: prevStudent.student_status,
-            newStatus: data.studentStatus,
-          });
-        } catch (swapErr) {
-          console.warn("Mid-term fee swap failed (non-fatal):", swapErr);
-        }
+        await studentFeeAPI.handleMidTermSwap({
+          studentId: id,
+          prevClass: prevStudent.student_class,
+          newClass: data.studentClass,
+          prevStatus: prevStudent.student_status,
+          newStatus: data.studentStatus,
+        });
       }
     }
 
-    return { success: true };
-  },
-  async updateFees(id: string, fees: number) {
-    const { error } = await supabase
-      .from("students")
-      .update({ current_fees_owed: fees, updated_at: new Date().toISOString() })
-      .eq("student_id", id);
-    if (error) throw error;
     return { success: true };
   },
   async delete(id: string) {
@@ -1239,6 +1230,7 @@ export const feeTypeAPI = {
       if (e2) throw e2;
     }
 
+    const affectedStudentIds = new Set<string>();
     const oldAmount = Number(previousFee.amount || 0);
     const amountDelta = Number(data.amount) - oldAmount;
     if (data.amountScope === "retroactive" && amountDelta !== 0) {
@@ -1250,6 +1242,7 @@ export const feeTypeAPI = {
 
       const rows = assignedRows || [];
       for (const row of rows) {
+        affectedStudentIds.add(row.student_id);
         const { error: adjustmentError } = await supabase
           .from("student_fees")
           .update({
@@ -1267,9 +1260,6 @@ export const feeTypeAPI = {
         amountDelta > 0 ? "debit" : "credit",
       );
 
-      for (const studentId of new Set(rows.map((row: any) => row.student_id))) {
-        await studentFeeAPI.syncStudentOwedBalance(studentId);
-      }
     }
 
     // ── Prune stale assignments ────────────────────────────────────────────
@@ -1277,72 +1267,87 @@ export const feeTypeAPI = {
     // delete any UNPAID student_fees rows for students who no longer qualify
     // under the new criteria.  Fully-paid (or over-paid) rows are preserved
     // as historical payment records.
-    try {
-      const newClassFilter = data.classFilter || null;
-      const newApplicableTo = data.applicableTo || "All Students";
-      const newFeeCategory = data.feeCategory || "standard";
+    const newClassFilter = data.classFilter || null;
+    const newApplicableTo = data.applicableTo || "All Students";
+    const newFeeCategory = data.feeCategory || "standard";
+    const { data: assignedRows, error: assignedRowsError } = await supabase
+      .from("student_fees")
+      .select(
+        "id, student_id, amount_due, amount_paid, students(student_class, student_status, admission_type)",
+      )
+      .eq("fee_type_id", id);
+    if (assignedRowsError) throw assignedRowsError;
 
-      // Fetch all existing ledger rows for this fee with student attributes joined
-      const { data: assignedRows } = await supabase
+    const staleIds: number[] = [];
+    for (const sf of assignedRows || []) {
+      if (Number(sf.amount_due) <= Number(sf.amount_paid)) continue;
+      const student = sf.students as any;
+      if (!student) {
+        staleIds.push(sf.id);
+        affectedStudentIds.add(sf.student_id);
+        continue;
+      }
+
+      if (newClassFilter) {
+        const classList = newClassFilter
+          .split(",")
+          .map((className: string) => className.trim());
+        if (!classList.includes(student.student_class)) {
+          staleIds.push(sf.id);
+          affectedStudentIds.add(sf.student_id);
+          continue;
+        }
+      }
+      if (newApplicableTo === "Day" && student.student_status !== "Day") {
+        staleIds.push(sf.id);
+        affectedStudentIds.add(sf.student_id);
+        continue;
+      }
+      if (
+        newApplicableTo === "Boarding" &&
+        student.student_status !== "Boarding"
+      ) {
+        staleIds.push(sf.id);
+        affectedStudentIds.add(sf.student_id);
+        continue;
+      }
+      if (newFeeCategory === "standard" && student.admission_type === "New") {
+        staleIds.push(sf.id);
+        affectedStudentIds.add(sf.student_id);
+      }
+    }
+
+    if (staleIds.length > 0) {
+      const { error: deleteError } = await supabase
         .from("student_fees")
-        .select(
-          "id, student_id, amount_due, amount_paid, students(student_class, student_status, admission_type)",
-        )
-        .eq("fee_type_id", id);
+        .delete()
+        .in("id", staleIds);
+      if (deleteError) throw deleteError;
+    }
 
-      // Only touch rows that are still (at least partially) unpaid
-      const unpaid = (assignedRows || []).filter(
-        (sf: any) => Number(sf.amount_due) > Number(sf.amount_paid),
-      );
-
-      const staleIds: number[] = [];
-      for (const sf of unpaid) {
-        const s = sf.students as any;
-        if (!s) {
-          staleIds.push(sf.id);
-          continue;
-        } // student deleted — orphan
-
-        // Class scope changed: student must be in the new class list
-        if (newClassFilter) {
-          const classList = newClassFilter
-            .split(",")
-            .map((c: string) => c.trim());
-          if (!classList.includes(s.student_class)) {
-            staleIds.push(sf.id);
-            continue;
-          }
-        }
-
-        // Housing-tier scope changed
-        if (newApplicableTo === "Day" && s.student_status !== "Day") {
-          staleIds.push(sf.id);
-          continue;
-        }
-        if (newApplicableTo === "Boarding" && s.student_status !== "Boarding") {
-          staleIds.push(sf.id);
-          continue;
-        }
-
-        // Category changed to standard → New-admission students no longer qualify
-        if (newFeeCategory === "standard" && s.admission_type === "New") {
-          staleIds.push(sf.id);
-          continue;
-        }
-      }
-
-      if (staleIds.length > 0) {
-        await supabase.from("student_fees").delete().in("id", staleIds);
-      }
-    } catch {
-      // Best-effort — the fee type row itself was already saved successfully
+    for (const studentId of affectedStudentIds) {
+      await ledgerAPI.syncStudentFeeBalances(studentId);
+      await studentFeeAPI.syncStudentOwedBalance(studentId);
     }
 
     return { success: true };
   },
   async delete(id: number) {
+    const { data: assignedFees, error: assignedFeesError } = await supabase
+      .from("student_fees")
+      .select("student_id")
+      .eq("fee_type_id", id);
+    if (assignedFeesError) throw assignedFeesError;
+
     const { error } = await supabase.from("fee_types").delete().eq("id", id);
     if (error) throw error;
+
+    for (const studentId of new Set(
+      (assignedFees || []).map((fee: any) => fee.student_id),
+    )) {
+      await ledgerAPI.syncStudentFeeBalances(studentId);
+      await studentFeeAPI.syncStudentOwedBalance(studentId);
+    }
     return { success: true };
   },
   async archiveFeeType(
@@ -1481,11 +1486,12 @@ export const feeTypeAPI = {
     feeCategory: "standard" | "registration" = "standard",
     applicableTo?: string,
   ) {
-    const { data: ft } = await supabase
+    const { data: ft, error: feeTypeError } = await supabase
       .from("fee_types")
       .select("*")
       .eq("id", feeTypeId)
       .maybeSingle();
+    if (feeTypeError) throw feeTypeError;
     if (!ft || ft.fee_category === "archived") {
       return {
         success: false,
@@ -1494,9 +1500,7 @@ export const feeTypeAPI = {
       };
     }
 
-    let query = supabase
-      .from("students")
-      .select("student_id, current_fees_owed");
+    let query = supabase.from("students").select("student_id");
 
     if (specificStudentId) {
       query = query.eq("student_id", specificStudentId);
@@ -1521,15 +1525,17 @@ export const feeTypeAPI = {
         query = query.eq("student_status", "Boarding");
     }
 
-    const { data: students } = await query;
+    const { data: students, error: studentsError } = await query;
+    if (studentsError) throw studentsError;
     if (!students || students.length === 0) return { success: true, count: 0 };
 
     // SAFEGUARD: check which students already have this fee type assigned
     // so we never double-increment current_fees_owed
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from("student_fees")
       .select("student_id")
       .eq("fee_type_id", feeTypeId);
+    if (existingError) throw existingError;
     const alreadyAssigned = new Set(
       (existing || []).map((sf: any) => sf.student_id),
     );
@@ -1544,87 +1550,60 @@ export const feeTypeAPI = {
       onConflict: "student_id,fee_type_id",
       ignoreDuplicates: true,
     });
-    if (error) return { success: false, error: error.message };
+    if (error) throw error;
 
-    // Only increment current_fees_owed for genuinely NEW assignments
-    let newCount = 0;
-    for (const s of students) {
-      if (!alreadyAssigned.has(s.student_id)) {
-        const newOwed = Number(s.current_fees_owed || 0) + amount;
-        await supabase
-          .from("students")
-          .update({
-            current_fees_owed: newOwed,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("student_id", s.student_id);
-        newCount++;
-      }
+    const newlyAssigned = students.filter(
+      (student: any) => !alreadyAssigned.has(student.student_id),
+    );
+    for (const student of students) {
+      await ledgerAPI.syncStudentFeeBalances(student.student_id);
+      await studentFeeAPI.syncStudentOwedBalance(student.student_id);
     }
 
-    return { success: true, count: newCount };
+    return { success: true, count: newlyAssigned.length };
   },
 };
 
 // ─── STUDENT FEE LEDGER ───────────────────────────────────────────────────────
 export const studentFeeAPI = {
-  async remove(sfId: number, studentId: string, balanceToSubtract: number) {
+  async remove(sfId: number, studentId: string) {
     const { error } = await supabase
       .from("student_fees")
       .delete()
       .eq("id", sfId);
-    if (error) return { success: false, error: error.message };
-    const { data: student } = await supabase
-      .from("students")
-      .select("current_fees_owed")
-      .eq("student_id", studentId)
-      .single();
-    if (student) {
-      const newOwed = Math.max(
-        0,
-        Number(student.current_fees_owed || 0) - balanceToSubtract,
-      );
-      await supabase
-        .from("students")
-        .update({
-          current_fees_owed: newOwed,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("student_id", studentId);
-    }
+    if (error) throw error;
+    await ledgerAPI.syncStudentFeeBalances(studentId);
+    await studentFeeAPI.syncStudentOwedBalance(studentId);
     return { success: true };
   },
   async applyDiscount(sfId: number, studentId: string, discountAmount: number) {
-    const { data: sf } = await supabase
+    const { data: sf, error: feeError } = await supabase
       .from("student_fees")
-      .select("amount_due")
+      .select("student_id, amount_due, amount_paid, discount_amount")
       .eq("id", sfId)
       .single();
+    if (feeError) throw feeError;
     if (!sf) return { success: false, error: "Fee record not found" };
+    if (sf.student_id !== studentId)
+      throw new Error("Discount must be applied to this student's fee.");
+    if (!Number.isFinite(discountAmount) || discountAmount <= 0)
+      return { success: false, error: "Discount must be greater than zero" };
+    if (discountAmount > Number(sf.amount_due) - Number(sf.amount_paid))
+      return {
+        success: false,
+        error: "Discount cannot exceed the remaining fee balance",
+      };
     const newAmountDue = Math.max(0, Number(sf.amount_due) - discountAmount);
     const { error } = await supabase
       .from("student_fees")
-      .update({ amount_due: newAmountDue })
+      .update({
+        amount_due: newAmountDue,
+        discount_amount: Number(sf.discount_amount || 0) + discountAmount,
+      })
       .eq("id", sfId);
-    if (error) return { success: false, error: error.message };
-    const { data: student } = await supabase
-      .from("students")
-      .select("current_fees_owed")
-      .eq("student_id", studentId)
-      .single();
-    if (student) {
-      const newOwed = Math.max(
-        0,
-        Number(student.current_fees_owed || 0) - discountAmount,
-      );
-      await supabase
-        .from("students")
-        .update({
-          current_fees_owed: newOwed,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("student_id", studentId);
-    }
+    if (error) throw error;
+    await ledgerAPI.syncStudentFeeBalances(studentId);
+    await studentFeeAPI.syncStudentOwedBalance(studentId);
     return { success: true };
   },
   async getForStudent(studentId: string) {
@@ -2141,10 +2120,15 @@ export const studentFeeAPI = {
     customerName?: string,
     targetClass?: string,
     cashierName?: string,
+    discountAmount = 0,
+    originalBillAmount?: number,
+    clientTransactionId = crypto.randomUUID(),
   ) {
     const { data: sf, error: feeError } = await supabase
       .from("student_fees")
-      .select("student_id, amount_due, amount_paid, fee_type_id, fee_types(name)")
+      .select(
+        "student_id, amount_due, amount_paid, discount_amount, fee_type_id, fee_types(name)",
+      )
       .eq("id", studentFeeId)
       .single();
     if (feeError) throw feeError;
@@ -2153,56 +2137,71 @@ export const studentFeeAPI = {
       throw new Error("Payment must be allocated to this student's fee head");
     if (!Number.isFinite(amount) || amount <= 0)
       throw new Error("Payment amount must be greater than zero.");
+    if (!Number.isFinite(discountAmount) || discountAmount < 0)
+      throw new Error("Discount must be a valid non-negative amount.");
+    if (
+      originalBillAmount != null &&
+      (!Number.isFinite(originalBillAmount) || originalBillAmount < 0)
+    )
+      throw new Error("Original bill amount must be a valid non-negative amount.");
     const balance = Number(sf.amount_due) - Number(sf.amount_paid);
-    if (amount > balance + 0.01)
+    if (discountAmount > balance + 0.01)
+      throw new Error("Discount cannot exceed the remaining fee balance.");
+    if (amount > balance - discountAmount + 0.01)
       throw new Error(
-        `Cannot pay ₦${amount.toLocaleString("en-NG")} — balance is only ₦${balance.toLocaleString("en-NG")}`,
+        `Cannot pay ₦${amount.toLocaleString("en-NG")} — balance after discount is only ₦${(balance - discountAmount).toLocaleString("en-NG")}`,
       );
 
-    const txn = await tryInsertTxn({
-      student_id: studentId,
-      shift_id: shiftId,
-      type: "FEES_CASH_COLLECTION",
-      amount_paid: amount,
-      payment_mode: paymentMode,
-      fee_type_id: sf.fee_type_id,
-      customer_name: customerName,
-      target_class: targetClass,
-    });
-    const { error: feeUpdateError } = await supabase
-      .from("student_fees")
-      .update({ amount_paid: Number(sf.amount_paid) + amount })
-      .eq("id", studentFeeId);
-    if (feeUpdateError) throw feeUpdateError;
-
-    const { data: student } = await supabase
-      .from("students")
-      .select("current_fees_owed")
-      .eq("student_id", studentId)
-      .single();
-    if (student)
-      await supabase
-        .from("students")
-        .update({
-          current_fees_owed: Math.max(
-            0,
-            Number(student.current_fees_owed) - amount,
-          ),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("student_id", studentId);
-
-    // Double-entry ledger: write both debit (charge) and credit (payment)
     const feeTypeName = (sf as any).fee_types?.name || "Fee Payment";
-    await ledgerAPI.recordDoubleEntry({
-      studentId,
-      transactionId: txn.transaction_id,
-      feeTypeName,
-      amount,
-      paymentMode,
-      cashierName,
+    await commitCashierCheckout({
+      clientTransactionId,
+      request: {
+        kind: "FEE_PAYMENT",
+        studentFeeId,
+        studentId,
+        shiftId,
+        amount,
+        discountAmount,
+        paymentMode,
+      },
+      transaction: {
+        student_id: studentId,
+        shift_id: shiftId,
+        type: "FEES_CASH_COLLECTION",
+        amount_paid: amount,
+        discount_amount: discountAmount,
+        original_bill_amount:
+          originalBillAmount ?? Number(sf.amount_due) + discountAmount,
+        payment_mode: paymentMode,
+        fee_type_id: sf.fee_type_id,
+        customer_name: customerName || null,
+        target_class: targetClass || null,
+      },
+      feeUpdate: {
+        id: studentFeeId,
+        expected_amount_due: Number(sf.amount_due),
+        expected_amount_paid: Number(sf.amount_paid),
+        amount_due: Number(sf.amount_due) - discountAmount,
+        amount_paid: Number(sf.amount_paid) + amount,
+        discount_amount: Number(sf.discount_amount || 0) + discountAmount,
+      },
+      ledgerEntries: [
+        {
+          student_id: studentId,
+          entry_type: "debit",
+          fee_type_name: feeTypeName,
+          amount,
+        },
+        {
+          student_id: studentId,
+          entry_type: "credit",
+          fee_type_name: feeTypeName,
+          amount,
+          payment_mode: paymentMode,
+          cashier_name: cashierName || null,
+        },
+      ],
     });
-    await studentFeeAPI.syncStudentOwedBalance(studentId);
 
     return { success: true };
   },
@@ -2431,12 +2430,11 @@ export const studentFeeAPI = {
         amount_due: Number(ft.amount),
         amount_paid: 0,
       });
-      if (!insErr) {
-        added++;
-        addedNames.push(ft.name);
-        existingFeeTypeIds.add(ft.id);
-        existingTermFeeNames.add((ft.name || "").trim().toLowerCase());
-      }
+      if (insErr) throw insErr;
+      added++;
+      addedNames.push(ft.name);
+      existingFeeTypeIds.add(ft.id);
+      existingTermFeeNames.add((ft.name || "").trim().toLowerCase());
     }
 
     await ledgerAPI.syncStudentFeeBalances(studentId);
@@ -2532,7 +2530,10 @@ export const studentFeeAPI = {
     }
 
     // 3. Find matching fees for the NEW class and status
-    const { data: allFeeTypes } = await supabase.from("fee_types").select("*");
+    const { data: allFeeTypes, error: feeTypesError } = await supabase
+      .from("fee_types")
+      .select("*");
+    if (feeTypesError) throw feeTypesError;
 
     const status = newStatus || prevStatus || "Day";
 
@@ -2547,7 +2548,11 @@ export const studentFeeAPI = {
 
       if (oldPaid <= 0) {
         // Unpaid: cleanly remove
-        await supabase.from("student_fees").delete().eq("id", oldSF.id);
+        const { error: deleteError } = await supabase
+          .from("student_fees")
+          .delete()
+          .eq("id", oldSF.id);
+        if (deleteError) throw deleteError;
         unassignedFees.push(oldFeeName);
       } else {
         // Paid or partially paid:
@@ -2572,41 +2577,54 @@ export const studentFeeAPI = {
           return true;
         });
 
-        if (matchingNewFT) {
-          // Check if student already has matchingNewFT
-          const { data: existingNewSF } = await supabase
+        if (!matchingNewFT) {
+          throw new Error(
+            `Could not find a matching fee for ${oldFeeName} in ${newClass} (${status}).`,
+          );
+        }
+
+        // Check if student already has matchingNewFT
+        const { data: existingNewSF, error: existingFeeError } = await supabase
+          .from("student_fees")
+          .select("*")
+          .eq("student_id", studentId)
+          .eq("fee_type_id", matchingNewFT.id)
+          .maybeSingle();
+        if (existingFeeError) throw existingFeeError;
+
+        const creditToApply = oldPaid;
+        transferredCredit += creditToApply;
+
+        if (existingNewSF) {
+          // Add transferred credit to existing row
+          const { error: updateError } = await supabase
             .from("student_fees")
-            .select("*")
-            .eq("student_id", studentId)
-            .eq("fee_type_id", matchingNewFT.id)
-            .maybeSingle();
-
-          const creditToApply = oldPaid;
-          transferredCredit += creditToApply;
-
-          if (existingNewSF) {
-            // Add transferred credit to existing row
-            await supabase
-              .from("student_fees")
-              .update({
-                amount_paid:
-                  Number(existingNewSF.amount_paid || 0) + creditToApply,
-              })
-              .eq("id", existingNewSF.id);
-          } else {
-            // Attach new fee type with credit transferred
-            await supabase.from("student_fees").insert({
+            .update({
+              amount_paid:
+                Number(existingNewSF.amount_paid || 0) + creditToApply,
+            })
+            .eq("id", existingNewSF.id);
+          if (updateError) throw updateError;
+        } else {
+          // Attach new fee type with credit transferred
+          const { error: insertError } = await supabase
+            .from("student_fees")
+            .insert({
               student_id: studentId,
               fee_type_id: matchingNewFT.id,
               amount_due: Number(matchingNewFT.amount),
               amount_paid: creditToApply,
             });
-            attachedFees.push(matchingNewFT.name);
-          }
+          if (insertError) throw insertError;
+          attachedFees.push(matchingNewFT.name);
         }
 
         // Delete the old fee record now that credit is safely transferred
-        await supabase.from("student_fees").delete().eq("id", oldSF.id);
+        const { error: deleteError } = await supabase
+          .from("student_fees")
+          .delete()
+          .eq("id", oldSF.id);
+        if (deleteError) throw deleteError;
         unassignedFees.push(
           `${oldFeeName} (₦${creditToApply.toLocaleString()} credit transferred)`,
         );
@@ -2649,6 +2667,57 @@ export const studentFeeAPI = {
 };
 
 // ─── TRANSACTION INSERT HELPER ────────────────────────────────────────────────
+type CashierCheckoutCommit = {
+  clientTransactionId: string;
+  request: Record<string, unknown>;
+  transaction: Record<string, unknown>;
+  items?: Record<string, unknown>[];
+  issuances?: Record<string, unknown>[];
+  stockChanges?: Record<string, unknown>[];
+  ledgerEntries?: Record<string, unknown>[];
+  feeUpdate?: Record<string, unknown> | null;
+  applicantPayment?: Record<string, unknown> | null;
+  ledgerUpdates?: Record<string, unknown>[];
+  markApplicantEligible?: number | null;
+  performedBy?: string;
+};
+
+async function commitCashierCheckout(
+  checkout: CashierCheckoutCommit,
+): Promise<{
+  transactionId: number;
+  duplicate: boolean;
+  transaction: Record<string, unknown>;
+}> {
+  const { data, error } = await supabase.rpc("commit_cashier_checkout", {
+    p_client_transaction_id: checkout.clientTransactionId,
+    p_request: checkout.request,
+    p_transaction: checkout.transaction,
+    p_items: checkout.items || [],
+    p_issuances: checkout.issuances || [],
+    p_stock_changes: checkout.stockChanges || [],
+    p_ledger_entries: checkout.ledgerEntries || [],
+    p_fee_update: checkout.feeUpdate || null,
+    p_applicant_payment: checkout.applicantPayment || null,
+    p_ledger_updates: checkout.ledgerUpdates || [],
+    p_mark_applicant_eligible: checkout.markApplicantEligible || null,
+    p_performed_by: checkout.performedBy || "Cashier",
+  });
+  if (error) throw error;
+  const result = data as {
+    transaction_id?: number;
+    duplicate?: boolean;
+    transaction?: Record<string, unknown>;
+  } | null;
+  if (!result?.transaction_id)
+    throw new Error("Checkout was committed without returning a transaction ID.");
+  return {
+    transactionId: result.transaction_id,
+    duplicate: Boolean(result.duplicate),
+    transaction: result.transaction || {},
+  };
+}
+
 // Tries to stamp customer_name + target_class + academic_term into the row; if the columns don't
 // exist yet in the live DB it retries without them (graceful fallback).
 async function tryInsertTxn(
@@ -2762,6 +2831,7 @@ export const transactionAPI = {
         shift_id: t.shift_id,
         type: t.type,
         amount_paid: t.amount_paid,
+        discount_amount: Number(t.discount_amount || 0),
         payment_mode: t.payment_mode,
         timestamp: t.timestamp,
         student_name: finalName,
@@ -2851,6 +2921,7 @@ export const transactionAPI = {
         shift_id: t.shift_id,
         type: t.type,
         amount_paid: t.amount_paid,
+        discount_amount: Number(t.discount_amount || 0),
         payment_mode: t.payment_mode,
         timestamp: t.timestamp,
         fee_type_name: t.fee_types?.name || t.fee_type || "",
@@ -3453,6 +3524,8 @@ export const transactionAPI = {
     paymentMode: string,
     customerName?: string,
     targetClass?: string,
+    clientTransactionId = crypto.randomUUID(),
+    cashierName?: string,
   ) {
     const total = cart.reduce((s, i) => s + i.selling_price * i.quantity, 0);
 
@@ -3462,106 +3535,69 @@ export const transactionAPI = {
       cart.map((i) => i.item_id),
     );
     const inStockCart = cart.filter((i) => (liveStock[i.item_id] ?? 0) > 0);
-    const outOfStockCart = cart.filter((i) => (liveStock[i.item_id] ?? 0) <= 0);
-
-    let txnId: number | null = null;
-    const insertTxn = async (useFallback: boolean) => {
-      const row: any = {
-        student_id: studentId,
-        shift_id: shiftId,
-        type: "STORE_PURCHASE",
-        amount_paid: total,
-        payment_mode: paymentMode,
-      };
-      if (!useFallback) {
-        row.customer_name = customerName || null;
-        row.target_class = targetClass || null;
-      }
-      const { data, error } = await supabase
-        .from("transactions")
-        .insert(row)
-        .select("transaction_id")
-        .single();
-      if (error && !useFallback) return null;
-      if (error) return null;
-      return (data as any)?.transaction_id ?? null;
-    };
-
-    txnId = await insertTxn(false);
-    if (txnId === null) txnId = await insertTxn(true);
-    if (txnId === null)
-      return { success: false, error: "Failed to create transaction" };
-
     // Insert ONLY in-stock items into transaction_items
     const itemRows = inStockCart.map((i) => ({
-      transaction_id: txnId,
       item_id: i.item_id,
       item_name: i.item_name,
       quantity: i.quantity,
       unit_price: i.selling_price,
       total_price: i.selling_price * i.quantity,
     }));
-    if (itemRows.length > 0) {
-      const { error: itemsError } = await supabase
-        .from("transaction_items")
-        .insert(itemRows);
-      if (itemsError) return { success: false, error: itemsError.message };
-    }
-
-    // Decrement inventory for in-stock items only
-    for (const item of inStockCart)
-      await inventoryAPI.changeStock(
-        item.item_id,
-        -item.quantity,
-        "SALE",
-        `Store purchase transaction #${txnId}`,
-      );
+    // The atomic checkout RPC writes line items and inventory movements.
 
     // Track ALL items in student_book_issuances for fulfillment tracking.
     // In-stock items are marked stock_deducted=true and status=assigned.
     // Out-of-stock items are stock_deducted=false and status=unassigned.
-    if (cart.length > 0 && studentId) {
-      const allIssuanceRows = cart.map((i) => {
-        const available = liveStock[i.item_id] ?? 0;
-        const wasInStock = available > 0;
-        return {
-          student_id: studentId,
-          transaction_id: txnId,
-          item_id: i.item_id,
-          book_name: i.item_name,
-          item_name: i.item_name,
-          bundle_name: "Store Purchase",
-          quantity: i.quantity,
-          status: wasInStock ? "assigned" : "unassigned",
-          stock_deducted: wasInStock,
-        };
-      });
-      const { error: issuanceErr } = await supabase
-        .from("student_book_issuances")
-        .insert(allIssuanceRows);
-      if (issuanceErr)
-        console.error(
-          "[student_book_issuances] insert failed (store purchase):",
-          issuanceErr.message,
-          issuanceErr.details,
-          { rows: allIssuanceRows },
-        );
-    }
+    const issuanceRows = cart.map((item) => {
+      const wasInStock = (liveStock[item.item_id] ?? 0) > 0;
+      return {
+        student_id: studentId,
+        item_id: item.item_id,
+        book_name: item.item_name,
+        item_name: item.item_name,
+        bundle_name: "Store Purchase",
+        quantity: item.quantity,
+        status: wasInStock ? "assigned" : "unassigned",
+        stock_deducted: wasInStock,
+      };
+    });
 
-    // Double-entry ledger for store purchase
-    if (studentId) {
-      try {
-        await ledgerAPI.recordDoubleEntry({
-          studentId,
-          transactionId: txnId,
-          feeTypeName: "Store Purchase",
+    const { transactionId: txnId } = await commitCashierCheckout({
+      clientTransactionId,
+      request: { kind: "STORE_PURCHASE", studentId, shiftId, cart, paymentMode },
+      transaction: {
+        student_id: studentId,
+        shift_id: shiftId,
+        type: "STORE_PURCHASE",
+        amount_paid: total,
+        payment_mode: paymentMode,
+        customer_name: customerName || null,
+        target_class: targetClass || null,
+      },
+      items: itemRows,
+      issuances: issuanceRows,
+      stockChanges: inStockCart.map(({ item_id, quantity }) => ({
+        item_id,
+        quantity,
+      })),
+      ledgerEntries: [
+        {
+          student_id: studentId,
+          entry_type: "debit",
+          fee_type_name: "Store Purchase",
           amount: total,
-          paymentMode,
-        });
-      } catch (e) {
-        /* ledger write failure is non-fatal */
-      }
-    }
+        },
+        {
+          student_id: studentId,
+          entry_type: "credit",
+          fee_type_name: "Store Purchase",
+          amount: total,
+          payment_mode: paymentMode,
+          cashier_name: cashierName || null,
+        },
+      ],
+      performedBy: cashierName,
+    });
 
     return {
       success: true,
@@ -3571,6 +3607,132 @@ export const transactionAPI = {
         quantity: i.quantity,
       })),
     };
+  },
+
+  async createRegistration(
+    studentId: string,
+    shiftId: number,
+    registrationFeeId: number | null,
+    feeAmount: number,
+    selectedItems: {
+      item_id: number;
+      item_name: string;
+      selling_price: number;
+      quantity: number;
+    }[],
+    paymentMode: string,
+    customerName?: string,
+    targetClass?: string,
+    clientTransactionId = crypto.randomUUID(),
+    cashierName?: string,
+  ) {
+    if (!Number.isFinite(feeAmount) || feeAmount < 0)
+      throw new Error("Registration fee must be a valid non-negative amount.");
+
+    let feeUpdate: Record<string, unknown> | null = null;
+    let feeTypeName = "Registration Package";
+    let feeTypeId: number | null = null;
+    if (registrationFeeId !== null && feeAmount > 0) {
+      const { data: studentFee, error: feeError } = await supabase
+        .from("student_fees")
+        .select(
+          "id, student_id, amount_due, amount_paid, discount_amount, fee_type_id, fee_types(name)",
+        )
+        .eq("student_id", studentId)
+        .eq("fee_type_id", registrationFeeId)
+        .maybeSingle();
+      if (feeError) throw feeError;
+      if (!studentFee)
+        throw new Error("The selected registration fee is not assigned to this student.");
+      const remaining =
+        Number(studentFee.amount_due) - Number(studentFee.amount_paid);
+      if (feeAmount > remaining + 0.01)
+        throw new Error("Registration payment exceeds the outstanding fee balance.");
+      feeTypeId = studentFee.fee_type_id;
+      feeTypeName = (studentFee as any).fee_types?.name || feeTypeName;
+      feeUpdate = {
+        id: studentFee.id,
+        expected_amount_due: Number(studentFee.amount_due),
+        expected_amount_paid: Number(studentFee.amount_paid),
+        amount_due: Number(studentFee.amount_due),
+        amount_paid: Number(studentFee.amount_paid) + feeAmount,
+        discount_amount: Number(studentFee.discount_amount || 0),
+      };
+    }
+
+    const itemTotal = selectedItems.reduce(
+      (sum, item) => sum + Number(item.selling_price) * Number(item.quantity),
+      0,
+    );
+    const total = feeAmount + itemTotal;
+    if (total <= 0) throw new Error("Registration checkout total must be greater than zero.");
+    const itemRows = selectedItems.map((item) => ({
+      item_id: item.item_id,
+      item_name: item.item_name,
+      quantity: item.quantity,
+      unit_price: Number(item.selling_price),
+      total_price: Number(item.selling_price) * Number(item.quantity),
+    }));
+    const issuanceRows = selectedItems.map((item) => ({
+      student_id: studentId,
+      item_id: item.item_id,
+      book_name: item.item_name,
+      item_name: item.item_name,
+      bundle_name: "Registration Package",
+      quantity: item.quantity,
+      status: "assigned",
+      stock_deducted: true,
+    }));
+    const { transactionId } = await commitCashierCheckout({
+      clientTransactionId,
+      request: {
+        kind: "STUDENT_REGISTRATION",
+        studentId,
+        shiftId,
+        registrationFeeId,
+        feeAmount,
+        selectedItems,
+        paymentMode,
+      },
+      transaction: {
+        student_id: studentId,
+        shift_id: shiftId,
+        type: "BUNDLE_PURCHASE",
+        amount_paid: total,
+        payment_mode: paymentMode,
+        fee_type_id: feeTypeId,
+        customer_name: customerName || null,
+        target_class: targetClass || null,
+        notes: `Registration Package — ${feeTypeName}`,
+        balance_due: 0,
+        academic_term: (await settingsAPI.get()).current_term || "First Term",
+      },
+      items: itemRows,
+      issuances: issuanceRows,
+      stockChanges: selectedItems.map((item) => ({
+        item_id: item.item_id,
+        quantity: item.quantity,
+      })),
+      feeUpdate,
+      ledgerEntries: [
+        {
+          student_id: studentId,
+          entry_type: "debit",
+          fee_type_name: feeTypeName,
+          amount: total,
+        },
+        {
+          student_id: studentId,
+          entry_type: "credit",
+          fee_type_name: feeTypeName,
+          amount: total,
+          payment_mode: paymentMode,
+          cashier_name: cashierName || null,
+        },
+      ],
+      performedBy: cashierName,
+    });
+    return { success: true, transactionId, total };
   },
 
   async getForStudent(studentId: string) {
@@ -4787,7 +4949,7 @@ export const bundlePaymentAPI = {
       settingsAPI.get(),
       supabase
         .from("students")
-        .select("name, student_class, current_fees_owed")
+          .select("name, student_class")
         .eq("student_id", studentId)
         .single(),
     ]);
@@ -4879,15 +5041,7 @@ export const bundlePaymentAPI = {
       if (issuanceError) throw issuanceError;
     }
 
-    const { error: balanceError } = await supabase
-      .from("students")
-      .update({
-        current_fees_owed:
-          Number(studentResult.data.current_fees_owed || 0) + amount,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("student_id", studentId);
-    if (balanceError) throw balanceError;
+    await studentFeeAPI.syncStudentOwedBalance(studentId);
     return { success: true, transactionId: transaction.transaction_id };
   },
 
@@ -4904,6 +5058,7 @@ export const bundlePaymentAPI = {
     customerName?: string;
     targetClass?: string;
     studentTags?: string[];
+    clientTransactionId?: string;
     items?: {
       item_id: number;
       item_name: string;
@@ -4924,6 +5079,7 @@ export const bundlePaymentAPI = {
       targetClass,
       studentTags = [],
       items,
+      clientTransactionId = crypto.randomUUID(),
     } = params;
 
     // Get bundle details
@@ -4946,30 +5102,18 @@ export const bundlePaymentAPI = {
     let paymentRecordId: number | null = null;
 
     if (applicantId) {
-      const { data: existingPayment } = await supabase
+      const { data: existingPayment, error: existingPaymentError } = await supabase
         .from("applicant_payments")
         .select("*")
         .eq("applicant_id", applicantId)
         .eq("bundle_id", bundleId)
         .maybeSingle();
+      if (existingPaymentError) throw existingPaymentError;
 
       if (existingPayment) {
         paymentRecordId = existingPayment.id;
         amountDue = Number(existingPayment.amount_due);
         alreadyPaid = Number(existingPayment.amount_paid);
-      } else {
-        const { data: newPayment, error: createError } = await supabase
-          .from("applicant_payments")
-          .insert({
-            applicant_id: applicantId,
-            bundle_id: bundleId,
-            amount_due: totalDue,
-            amount_paid: 0,
-          })
-          .select("id")
-          .single();
-        if (createError) throw createError;
-        paymentRecordId = newPayment.id;
       }
     }
 
@@ -4986,21 +5130,6 @@ export const bundlePaymentAPI = {
         ? "ACCEPTANCE_FEE"
         : "BUNDLE_PURCHASE";
     const balanceDue = amountDue - newTotalPaid;
-    const txn = await tryInsertTxn({
-      applicant_id: applicantId,
-      student_id: studentId || null,
-      shift_id: shiftId,
-      type: txnType,
-      amount_paid: amountPaid,
-      payment_mode: paymentMode,
-      bundle_id: bundleId,
-      notes: `${bundle.name} - ${newTotalPaid >= amountDue ? "Full" : "Partial"} Payment`,
-      customer_name: customerName,
-      target_class: targetClass,
-      academic_term: academicTerm,
-      balance_due: balanceDue > 0 ? balanceDue : 0,
-    });
-
     // Filter bundle items by targetClass if student class is specified
     const requestedItems = items === undefined ? bundle.items || [] : items;
     const applicableBundleItems = requestedItems.filter((item: any) =>
@@ -5023,20 +5152,9 @@ export const bundlePaymentAPI = {
       })
       .filter((item: any) => item.quantity > 0);
 
-    // Decrement bundle items from inventory
-    for (const item of inStockItems) {
-      await inventoryAPI.changeStock(
-        item.item_id,
-        -item.quantity,
-        "SALE",
-        `Bundle transaction #${txn.transaction_id}`,
-      );
-    }
-
     // Persist ALL applicable physical bundle items in transaction_items with selling prices
     // This logs the physical items directly to the student's store purchase history and drives the behind-the-scenes revenue split.
     const allItemRows = applicableBundleItems.map((item: any) => ({
-      transaction_id: txn.transaction_id,
       item_id: item.item_id,
       item_name: item.item_name,
       quantity: item.quantity,
@@ -5044,9 +5162,6 @@ export const bundlePaymentAPI = {
       total_price:
         (Number(item.selling_price) || 0) * (Number(item.quantity) || 1),
     }));
-    if (allItemRows.length > 0)
-      await supabase.from("transaction_items").insert(allItemRows);
-
     // Track ALL applicable bundle items in student_book_issuances for fulfillment tracking.
     // In-stock items are marked stock_deducted=true (already decremented above).
     // Out-of-stock items are stock_deducted=false (will be decremented at fulfillment).
@@ -5056,7 +5171,6 @@ export const bundlePaymentAPI = {
       return {
         applicant_id: applicantId || null,
         student_id: studentId || null,
-        transaction_id: txn.transaction_id,
         item_id: item.item_id,
         book_name: item.item_name,
         item_name: item.item_name,
@@ -5066,35 +5180,6 @@ export const bundlePaymentAPI = {
         stock_deducted: wasInStock,
       };
     });
-    if (allIssuanceRows.length > 0) {
-      const { error: issuanceErr } = await supabase
-        .from("student_book_issuances")
-        .insert(allIssuanceRows);
-      if (issuanceErr)
-        console.error(
-          "[student_book_issuances] insert failed (bundle payment):",
-          issuanceErr.message,
-          issuanceErr.details,
-          { rows: allIssuanceRows },
-        );
-    }
-
-    // Update applicant_payments
-    if (applicantId && paymentRecordId) {
-      await supabase
-        .from("applicant_payments")
-        .update({
-          amount_paid: newTotalPaid,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", paymentRecordId);
-    }
-
-    // If payment meets threshold, mark applicant as eligible
-    if (applicantId && newTotalPaid >= minPartialFloor) {
-      await applicantAPI.markEligible(applicantId);
-    }
-
     const receiptItems = inStockItems.map((item: any) => ({
       item_name: item.item_name,
       quantity: item.quantity,
@@ -5103,38 +5188,108 @@ export const bundlePaymentAPI = {
     // Double-entry ledger for bundle/acceptance fee payment
     const ledgerStudentId =
       studentId || (applicantId ? `applicant_${applicantId}` : null);
-    if (ledgerStudentId) {
-      try {
-        await ledgerAPI.recordDoubleEntry({
-          studentId: ledgerStudentId,
-          transactionId: txn.transaction_id,
-          feeTypeName: bundle.name || "Acceptance Fee",
-          amount: amountPaid,
-          paymentMode: paymentMode,
-        });
-        const remainingBalance = Math.max(0, amountDue - newTotalPaid);
-        if (remainingBalance > 0) {
-          await supabase.from("ledger_entries").insert({
+    const remainingBalance = Math.max(0, amountDue - newTotalPaid);
+    const ledgerEntries = ledgerStudentId
+      ? [
+          {
             student_id: ledgerStudentId,
-            transaction_id: txn.transaction_id,
             entry_type: "debit",
-            fee_type_name: `${bundle.name} Remaining Balance`,
-            amount: remainingBalance,
-            academic_term: null,
-          });
-        }
-      } catch (e) {
-        /* ledger write failure is non-fatal */
-      }
+            fee_type_name: bundle.name || "Acceptance Fee",
+            amount: amountPaid,
+          },
+          {
+            student_id: ledgerStudentId,
+            entry_type: "credit",
+            fee_type_name: bundle.name || "Acceptance Fee",
+            amount: amountPaid,
+            payment_mode: paymentMode,
+          },
+          ...(remainingBalance > 0
+            ? [
+                {
+                  student_id: ledgerStudentId,
+                  entry_type: "debit",
+                  fee_type_name: `${bundle.name} Remaining Balance`,
+                  amount: remainingBalance,
+                },
+              ]
+            : []),
+        ]
+      : [];
+    const checkoutResult = await commitCashierCheckout({
+      clientTransactionId,
+      request: {
+        kind: "BUNDLE_PAYMENT",
+        applicantId,
+        studentId,
+        bundleId,
+        shiftId,
+        amountPaid,
+        amountDue,
+        paymentMode,
+        items: requestedItems,
+        targetClass,
+        studentTags,
+      },
+      transaction: {
+        applicant_id: applicantId ?? null,
+        student_id: studentId || null,
+        shift_id: shiftId,
+        type: txnType,
+        amount_paid: amountPaid,
+        payment_mode: paymentMode,
+        bundle_id: bundleId,
+        notes: `${bundle.name} - ${newTotalPaid >= amountDue ? "Full" : "Partial"} Payment`,
+        customer_name: customerName || null,
+        target_class: targetClass || null,
+        academic_term: academicTerm,
+        balance_due: remainingBalance,
+      },
+      items: allItemRows,
+      issuances: allIssuanceRows,
+      stockChanges: inStockItems.map(({ item_id, quantity }) => ({
+        item_id,
+        quantity,
+      })),
+      ledgerEntries,
+      applicantPayment:
+        applicantId !== undefined
+          ? {
+              ...(paymentRecordId ? { id: paymentRecordId } : {}),
+              applicant_id: applicantId,
+              bundle_id: bundleId,
+              expected_amount_paid: alreadyPaid,
+              amount_due: amountDue,
+              amount_paid: newTotalPaid,
+            }
+          : null,
+      markApplicantEligible:
+        applicantId && newTotalPaid >= minPartialFloor ? applicantId : null,
+    });
+    const transactionId = checkoutResult.transactionId;
+    let responseItems = receiptItems;
+    if (checkoutResult.duplicate) {
+      const { data: existingItems, error: existingItemsError } = await supabase
+        .from("transaction_items")
+        .select("item_name, quantity")
+        .eq("transaction_id", transactionId);
+      if (existingItemsError) throw existingItemsError;
+      responseItems = (existingItems || []).map((item: any) => ({
+        item_name: item.item_name,
+        quantity: Number(item.quantity || 0),
+      }));
     }
+    const responseBalance = checkoutResult.duplicate
+      ? Number(checkoutResult.transaction.balance_due || 0)
+      : remainingBalance;
 
     return {
       success: true,
-      transactionId: txn.transaction_id,
-      items: receiptItems,
+      transactionId,
+      items: responseItems,
       total: amountPaid,
-      balance: amountDue - newTotalPaid,
-      isFullPayment: newTotalPaid >= amountDue,
+      balance: responseBalance,
+      isFullPayment: responseBalance <= 0,
     };
   },
 
@@ -5145,29 +5300,37 @@ export const bundlePaymentAPI = {
     applicantId: number;
     shiftId: number;
     paymentMode: "Cash" | "POS_Transfer";
+    clientTransactionId?: string;
   }) {
-    const { applicantId, shiftId, paymentMode } = params;
+    const {
+      applicantId,
+      shiftId,
+      paymentMode,
+      clientTransactionId = crypto.randomUUID(),
+    } = params;
     const FORM_PRICE = 3000;
 
     // Auto-fetch applicant to stamp name/class snapshot
-    const { data: applicantRow } = await supabase
+    const { data: applicantRow, error: applicantError } = await supabase
       .from("applicants")
       .select("first_name, last_name, proposed_class")
       .eq("id", applicantId)
       .single();
+    if (applicantError) throw applicantError;
     const customerName = applicantRow
       ? `${applicantRow.first_name} ${applicantRow.last_name}`
       : null;
     const targetClass = applicantRow?.proposed_class || null;
 
     // Check if an "Admission Form" exists in physical inventory with active stock
-    const { data: formItems } = await supabase
+    const { data: formItems, error: formItemsError } = await supabase
       .from("inventory")
       .select("item_id, stock_quantity, item_name, selling_price")
       .ilike("item_name", "%admission form%")
       .limit(1);
+    if (formItemsError) throw formItemsError;
     const formItem = formItems?.[0] as any;
-    const isPhysicalInventory =
+    let isPhysicalInventory =
       !!formItem && Number(formItem.stock_quantity) > 0;
 
     // Route revenue: Store Revenue if physical inventory, otherwise School Administrative Income by default
@@ -5176,33 +5339,8 @@ export const bundlePaymentAPI = {
       ? "Admission Form Purchase (Physical Store Inventory)"
       : "Admission Form Fee (School Administrative Income)";
 
-    const txn = await tryInsertTxn({
-      applicant_id: applicantId,
-      shift_id: shiftId,
-      type: txnType,
-      amount_paid: FORM_PRICE,
-      payment_mode: paymentMode,
-      notes,
-      customer_name: customerName,
-      target_class: targetClass,
-    });
-
     const items: any[] = [];
     if (isPhysicalInventory) {
-      await inventoryAPI.changeStock(
-        formItem.item_id,
-        -1,
-        "SALE",
-        `Admission form transaction #${txn.transaction_id}`,
-      );
-      await supabase.from("transaction_items").insert({
-        transaction_id: txn.transaction_id,
-        item_id: formItem.item_id,
-        item_name: formItem.item_name,
-        quantity: 1,
-        unit_price: FORM_PRICE,
-        total_price: FORM_PRICE,
-      });
       items.push({
         item_name: formItem.item_name,
         quantity: 1,
@@ -5216,28 +5354,82 @@ export const bundlePaymentAPI = {
       });
     }
 
-    await applicantAPI.markEligible(applicantId);
-
-    // Double-entry ledger for form purchase
-    try {
-      await ledgerAPI.recordDoubleEntry({
-        studentId: `applicant_${applicantId}`,
-        transactionId: txn.transaction_id,
-        feeTypeName: isPhysicalInventory
-          ? "Admission Form (Store Inventory)"
-          : "Admission Form (Administrative Income)",
-        amount: FORM_PRICE,
-        paymentMode: paymentMode,
-      });
-    } catch (e) {
-      /* ledger write failure is non-fatal */
+    const checkoutResult = await commitCashierCheckout({
+      clientTransactionId,
+      request: { kind: "FORM_PAYMENT", applicantId, shiftId, paymentMode },
+      transaction: {
+        applicant_id: applicantId,
+        shift_id: shiftId,
+        type: txnType,
+        amount_paid: FORM_PRICE,
+        payment_mode: paymentMode,
+        notes,
+        customer_name: customerName,
+        target_class: targetClass,
+      },
+      items: isPhysicalInventory
+        ? [
+            {
+        item_id: formItem.item_id,
+        item_name: formItem.item_name,
+        quantity: 1,
+        unit_price: FORM_PRICE,
+        total_price: FORM_PRICE,
+            },
+          ]
+        : [],
+      stockChanges: isPhysicalInventory
+        ? [{ item_id: formItem.item_id, quantity: 1 }]
+        : [],
+      markApplicantEligible: applicantId,
+      ledgerEntries: [
+        {
+          student_id: `applicant_${applicantId}`,
+          entry_type: "debit",
+          fee_type_name: isPhysicalInventory
+            ? "Admission Form (Store Inventory)"
+            : "Admission Form (Administrative Income)",
+          amount: FORM_PRICE,
+        },
+        {
+          student_id: `applicant_${applicantId}`,
+          entry_type: "credit",
+          fee_type_name: isPhysicalInventory
+            ? "Admission Form (Store Inventory)"
+            : "Admission Form (Administrative Income)",
+          amount: FORM_PRICE,
+          payment_mode: paymentMode,
+        },
+      ],
+    });
+    const transactionId = checkoutResult.transactionId;
+    let responseItems = items;
+    if (checkoutResult.duplicate) {
+      isPhysicalInventory = String(checkoutResult.transaction.notes || "").includes(
+        "Physical Inventory",
+      );
+      const { data: existingItems, error: existingItemsError } = await supabase
+        .from("transaction_items")
+        .select("item_name, quantity, total_price")
+        .eq("transaction_id", transactionId);
+      if (existingItemsError) throw existingItemsError;
+      responseItems =
+        existingItems && existingItems.length > 0
+          ? existingItems
+          : [
+              {
+                item_name: "Admission Application Form (Administrative)",
+                quantity: 1,
+                total_price: FORM_PRICE,
+              },
+            ];
     }
 
     return {
       success: true,
-      transactionId: txn.transaction_id,
+      transactionId,
       total: FORM_PRICE,
-      items,
+      items: responseItems,
       isPhysicalInventory,
     };
   },
@@ -5258,6 +5450,7 @@ export const bundlePaymentAPI = {
     studentTags?: string[];
     balanceDue?: number;
     bundleId?: number;
+    clientTransactionId?: string;
     bundleItems?: {
       item_id: number;
       item_name: string;
@@ -5280,23 +5473,11 @@ export const bundlePaymentAPI = {
       balanceDue,
       bundleId,
       bundleItems,
+      clientTransactionId = crypto.randomUUID(),
     } = params;
 
     const baseAmount = coachingIncluded ? amount - 10_000 : amount;
     const notes = `Registration Fee — ${categoryGroup} (${studentStatus})${coachingIncluded ? " + Coaching Add-on" : ""}${balanceDue ? ` — Balance: ₦${balanceDue.toLocaleString()}` : ""}`;
-
-    const txn = await tryInsertTxn({
-      applicant_id: applicantId,
-      bundle_id: bundleId ?? null,
-      shift_id: shiftId,
-      type: "BUNDLE_PURCHASE",
-      amount_paid: amount,
-      payment_mode: paymentMode,
-      notes,
-      customer_name: customerName ?? null,
-      target_class: targetClass ?? null,
-      balance_due: balanceDue ?? 0,
-    });
 
     // Build line items for receipt - include actual bundle items if provided
     const lineItems: {
@@ -5340,11 +5521,15 @@ export const bundlePaymentAPI = {
       itemFitsClass(item, targetClass, studentTags),
     );
 
+    let liveStock: Record<number, number> = {};
+    let inStockBundleItems: NonNullable<typeof finalBundleItems> = [];
+    let checkoutItems: Record<string, unknown>[] = [];
+    let checkoutIssuances: Record<string, unknown>[] = [];
     if (finalBundleItems.length > 0) {
-      const liveStock = await inventoryAPI.getStockLevels(
+      liveStock = await inventoryAPI.getStockLevels(
         finalBundleItems.map((item) => item.item_id),
       );
-      const inStockBundleItems = finalBundleItems
+      inStockBundleItems = finalBundleItems
         .map((item) => {
           const available = liveStock[item.item_id] ?? 0;
           return {
@@ -5354,19 +5539,9 @@ export const bundlePaymentAPI = {
         })
         .filter((item) => item.quantity > 0);
 
-      // Decrement bundle items from inventory (in-stock only)
-      for (const item of inStockBundleItems)
-        await inventoryAPI.changeStock(
-          item.item_id,
-          -item.quantity,
-          "SALE",
-          `Registration bundle transaction #${txn.transaction_id}`,
-        );
-
       // Persist ALL physical bundle items into transaction_items with selling prices
       // This logs the physical items to the student's store purchase history and drives the revenue split
-      const itemRows = finalBundleItems.map((item) => ({
-        transaction_id: txn.transaction_id,
+      checkoutItems = finalBundleItems.map((item) => ({
         item_id: item.item_id,
         item_name: item.item_name,
         quantity: item.quantity,
@@ -5374,16 +5549,12 @@ export const bundlePaymentAPI = {
         total_price:
           (Number(item.selling_price) || 0) * (Number(item.quantity) || 1),
       }));
-      if (itemRows.length > 0)
-        await supabase.from("transaction_items").insert(itemRows);
-
       // Track ALL bundle items in student_book_issuances for fulfillment tracking.
-      const allIssuanceRows = finalBundleItems.map((item) => {
+      checkoutIssuances = finalBundleItems.map((item) => {
         const available = liveStock[item.item_id] ?? 0;
         const wasInStock = available > 0;
         return {
           applicant_id: applicantId,
-          transaction_id: txn.transaction_id,
           item_id: item.item_id,
           book_name: item.item_name,
           item_name: item.item_name,
@@ -5393,18 +5564,6 @@ export const bundlePaymentAPI = {
           stock_deducted: wasInStock,
         };
       });
-      if (allIssuanceRows.length > 0) {
-        const { error: issuanceErr } = await supabase
-          .from("student_book_issuances")
-          .insert(allIssuanceRows);
-        if (issuanceErr)
-          console.error(
-            "[student_book_issuances] insert failed (registration):",
-            issuanceErr.message,
-            issuanceErr.details,
-            { rows: allIssuanceRows },
-          );
-      }
 
       // Receipt shows in-stock items
       lineItems.push(
@@ -5430,34 +5589,71 @@ export const bundlePaymentAPI = {
       });
     }
 
-    await applicantAPI.markEligible(applicantId);
-
-    // Double-entry ledger for registration payment
-    try {
-      await ledgerAPI.recordDoubleEntry({
-        studentId: `applicant_${applicantId}`,
-        transactionId: txn.transaction_id,
-        feeTypeName: `Registration — ${categoryGroup} ${studentStatus}`,
-        amount: amount,
-        paymentMode: paymentMode,
+    const ledgerStudentId = `applicant_${applicantId}`;
+    const ledgerEntries: Record<string, unknown>[] = [
+      {
+        student_id: ledgerStudentId,
+        entry_type: "debit",
+        fee_type_name: `Registration — ${categoryGroup} ${studentStatus}`,
+        amount,
+      },
+      {
+        student_id: ledgerStudentId,
+        entry_type: "credit",
+        fee_type_name: `Registration — ${categoryGroup} ${studentStatus}`,
+        amount,
+        payment_mode: paymentMode,
+      },
+    ];
+    if (balanceDue && balanceDue > 0) {
+      ledgerEntries.push({
+        student_id: ledgerStudentId,
+        entry_type: "debit",
+        fee_type_name: `Registration Package Remaining Balance — ${categoryGroup} ${studentStatus}`,
+        amount: Number(balanceDue),
       });
-      if (balanceDue && balanceDue > 0) {
-        await supabase.from("ledger_entries").insert({
-          student_id: `applicant_${applicantId}`,
-          transaction_id: txn.transaction_id,
-          entry_type: "debit",
-          fee_type_name: `Registration Package Remaining Balance — ${categoryGroup} ${studentStatus}`,
-          amount: Number(balanceDue),
-          academic_term: null,
-        });
-      }
-    } catch (e) {
-      /* ledger write failure is non-fatal */
     }
+
+    const { transactionId } = await commitCashierCheckout({
+      clientTransactionId,
+      request: {
+        kind: "DIRECT_REGISTRATION",
+        applicantId,
+        shiftId,
+        paymentMode,
+        amount,
+        categoryGroup,
+        studentStatus,
+        coachingIncluded,
+        balanceDue: balanceDue || 0,
+        bundleId: bundleId || null,
+        bundleItems: finalBundleItems,
+      },
+      transaction: {
+        applicant_id: applicantId,
+        bundle_id: bundleId ?? null,
+        shift_id: shiftId,
+        type: "BUNDLE_PURCHASE",
+        amount_paid: amount,
+        payment_mode: paymentMode,
+        notes,
+        customer_name: customerName ?? null,
+        target_class: targetClass ?? null,
+        balance_due: balanceDue ?? 0,
+      },
+      items: checkoutItems,
+      issuances: checkoutIssuances,
+      stockChanges: inStockBundleItems.map(({ item_id, quantity }) => ({
+        item_id,
+        quantity,
+      })),
+      ledgerEntries,
+      markApplicantEligible: applicantId,
+    });
 
     return {
       success: true,
-      transactionId: txn.transaction_id,
+      transactionId,
       total: amount,
       items: lineItems,
     };
@@ -5473,6 +5669,7 @@ export const bundlePaymentAPI = {
     minPartialFloor: number;
     customerName?: string;
     targetClass?: string;
+    clientTransactionId?: string;
   }) {
     const {
       studentFeeId,
@@ -5483,6 +5680,7 @@ export const bundlePaymentAPI = {
       minPartialFloor,
       customerName,
       targetClass,
+      clientTransactionId = crypto.randomUUID(),
     } = params;
 
     const { data: sf, error: feeError } = await supabase
@@ -5495,8 +5693,6 @@ export const bundlePaymentAPI = {
       .single();
     if (feeError) throw feeError;
     if (!sf) throw new Error("Fee record not found");
-    if (!sf.fee_type_id)
-      throw new Error("Payment must be allocated to a specific fee head.");
     if (!Number.isFinite(amount) || amount <= 0)
       throw new Error("Payment amount must be greater than zero.");
     const balance = Number(sf.amount_due) - Number(sf.amount_paid);
@@ -5514,32 +5710,19 @@ export const bundlePaymentAPI = {
       );
     }
 
-    const txn = await tryInsertTxn({
-      student_id: studentId,
-      shift_id: shiftId,
-      type: "FEES_CASH_COLLECTION",
-      amount_paid: amount,
-      payment_mode: paymentMode,
-      fee_type_id: sf.fee_type_id,
-      customer_name: customerName,
-      target_class: targetClass,
-    });
-    const { error: feeUpdateError } = await supabase
-      .from("student_fees")
-      .update({ amount_paid: Number(sf.amount_paid) + amount })
-      .eq("id", studentFeeId);
-    if (feeUpdateError) throw feeUpdateError;
-
-    // Double-entry ledger
-    const feeTypeName = (sf as any).fee_types?.name || "Fee Payment";
-    await ledgerAPI.recordDoubleEntry({
-      studentId,
-      transactionId: txn.transaction_id,
-      feeTypeName,
+    await studentFeeAPI.recordPayment(
+      studentFeeId,
       amount,
+      studentId,
+      shiftId,
       paymentMode,
-    });
-    await studentFeeAPI.syncStudentOwedBalance(studentId);
+      customerName,
+      targetClass,
+      undefined,
+      0,
+      undefined,
+      clientTransactionId,
+    );
 
     return { success: true, newBalance: balance - amount };
   },
@@ -5548,6 +5731,31 @@ export const bundlePaymentAPI = {
 // ─── STUDENT BUNDLE BALANCE (Collect Fees) ────────────────────────────────────
 // Merged into studentFeeAPI below (via Object.assign) so existing callers using
 // studentFeeAPI.checkStudentBundlePayment / recordBundleBalancePayment keep working.
+async function getBundleInstallmentTotals(
+  studentId: string,
+): Promise<Map<number, number>> {
+  const { data, error } = await supabase
+    .from("transactions")
+    .select("amount_paid, notes, status")
+    .eq("student_id", studentId)
+    .ilike("notes", "%Bundle Installment Payment%Append-only%");
+  if (error) throw error;
+
+  const totals = new Map<number, number>();
+  for (const installment of data || []) {
+    if (String(installment.status || "").toUpperCase() === "VOIDED") continue;
+    const parentId = Number(
+      String(installment.notes || "").match(/Ref: Txn #(\d+); Append-only/)?.[1],
+    );
+    if (!Number.isInteger(parentId)) continue;
+    totals.set(
+      parentId,
+      (totals.get(parentId) || 0) + Number(installment.amount_paid || 0),
+    );
+  }
+  return totals;
+}
+
 const studentBundleBalanceAPI = {
   // Check if a student has an active bundle payment for current term (to avoid double-billing).
   // Uses a dynamic SUM-based lookup: also checks via applicant linkage for recently enrolled students.
@@ -5629,25 +5837,7 @@ const studentBundleBalanceAPI = {
       return false;
     });
 
-    const { data: installments, error: installmentsError } = await supabase
-      .from("transactions")
-      .select("amount_paid, notes, status")
-      .eq("student_id", studentId)
-      .ilike("notes", "%Bundle Installment Payment%Append-only%");
-    if (installmentsError) throw installmentsError;
-    const installmentTotals = new Map<number, number>();
-    for (const installment of installments || []) {
-      if (String(installment.status || "").toUpperCase() === "VOIDED") continue;
-      const parentId = Number(
-        String(installment.notes || "").match(/Ref: Txn #(\d+); Append-only/)?.[1],
-      );
-      if (!Number.isInteger(parentId)) continue;
-      installmentTotals.set(
-        parentId,
-        (installmentTotals.get(parentId) || 0) +
-          Number(installment.amount_paid || 0),
-      );
-    }
+    const installmentTotals = await getBundleInstallmentTotals(studentId);
     const balanceFor = (transaction: any) =>
       Math.max(
         0,
@@ -5694,6 +5884,7 @@ const studentBundleBalanceAPI = {
     paymentMode: "Cash" | "POS_Transfer";
     customerName?: string;
     targetClass?: string;
+    clientTransactionId?: string;
   }): Promise<{ success: boolean; newBalance: number }> {
     const {
       transactionId,
@@ -5703,6 +5894,7 @@ const studentBundleBalanceAPI = {
       paymentMode,
       customerName,
       targetClass,
+      clientTransactionId = crypto.randomUUID(),
     } = params;
     // Get current transaction to check balance
     const { data: txn, error: txnError } = await supabase
@@ -5746,19 +5938,6 @@ const studentBundleBalanceAPI = {
       );
     }
     // Create a NEW installment transaction row — never overwrite the original
-    const installmentTxn = await tryInsertTxn({
-      student_id: studentId,
-      shift_id: shiftId,
-      type: "FEES_CASH_COLLECTION",
-      amount_paid: amount,
-      payment_mode: paymentMode,
-      fee_type_id: txn.fee_type_id || null,
-      bundle_id: txn.bundle_id || null,
-      academic_term: txn.academic_term,
-      notes: `Bundle Installment Payment (Ref: Txn #${transactionId}; Append-only)`,
-      customer_name: customerName,
-      target_class: targetClass,
-    });
     const newBalance = Math.max(0, currentBalance - amount);
 
     const feeName = `Registration Package — ${(txn as any).bundles?.name || "Transition Fee"}`;
@@ -5769,48 +5948,66 @@ const studentBundleBalanceAPI = {
       .eq("entry_type", "debit")
       .ilike("fee_type_name", "%Remaining Balance%");
     if (outstandingError) throw outstandingError;
-    const [outstandingEntry, ...duplicateOutstandingEntries] =
-      outstandingEntries || [];
-    if (outstandingEntry && newBalance > 0) {
-      const { error } = await supabase
-        .from("ledger_entries")
-        .update({ amount: newBalance })
-        .eq("id", outstandingEntry.id);
-      if (error) throw error;
-    } else if (outstandingEntry) {
-      const { error } = await supabase
-        .from("ledger_entries")
-        .delete()
-        .eq("id", outstandingEntry.id);
-      if (error) throw error;
-    }
-    for (const duplicate of duplicateOutstandingEntries) {
-      const { error } = await supabase
-        .from("ledger_entries")
-        .delete()
-        .eq("id", duplicate.id);
-      if (error) throw error;
-    }
-    const { error: creditError } = await supabase
-      .from("ledger_entries")
-      .insert({
-        student_id: studentId,
-        transaction_id: installmentTxn.transaction_id,
-        entry_type: "credit",
-        fee_type_name: `${feeName} Payment`,
-        amount,
-        payment_mode: paymentMode,
-        academic_term: txn.academic_term || null,
+    const [outstandingEntry, ...duplicateOutstandingEntries] = outstandingEntries || [];
+    const ledgerUpdates = [
+      ...(outstandingEntry
+        ? [
+            newBalance > 0
+              ? { id: outstandingEntry.id, amount: newBalance }
+              : { id: outstandingEntry.id, delete: true },
+          ]
+        : []),
+      ...duplicateOutstandingEntries.map((entry: any) => ({
+        id: entry.id,
+        delete: true,
+      })),
+    ];
+    const installmentCommit = await commitCashierCheckout({
+        clientTransactionId,
+        request: {
+          kind: "BUNDLE_BALANCE_PAYMENT",
+          transactionId,
+          studentId,
+          shiftId,
+          amount,
+          paymentMode,
+        },
+        transaction: {
+          student_id: studentId,
+          shift_id: shiftId,
+          type: "FEES_CASH_COLLECTION",
+          amount_paid: amount,
+          payment_mode: paymentMode,
+          fee_type_id: txn.fee_type_id || null,
+          bundle_id: txn.bundle_id || null,
+          academic_term: txn.academic_term,
+          notes: `Bundle Installment Payment (Ref: Txn #${transactionId}; Append-only)`,
+          customer_name: customerName || null,
+          target_class: targetClass || null,
+        },
+        ledgerEntries: [
+          {
+            student_id: studentId,
+            entry_type: "credit",
+            fee_type_name: `${feeName} Payment`,
+            amount,
+            payment_mode: paymentMode,
+            academic_term: txn.academic_term || null,
+          },
+        ],
+        ledgerUpdates,
       });
-    if (creditError) throw creditError;
-      await studentFeeAPI.syncStudentOwedBalance(studentId);
-      window.dispatchEvent(
-        new CustomEvent("pos:transaction-updated", {
-          detail: { transactionId: installmentTxn.transaction_id },
-        }),
-      );
+    const installmentTransactionId = installmentCommit.transactionId;
+    window.dispatchEvent(
+      new CustomEvent("pos:transaction-updated", {
+        detail: { transactionId: installmentTransactionId },
+      }),
+    );
 
-      return { success: true, newBalance };
+    return {
+      success: true,
+      newBalance: installmentCommit.duplicate ? currentBalance : newBalance,
+    };
   },
 };
 
@@ -6778,6 +6975,8 @@ export const ledgerAPI = {
     for (const transaction of [...(txns || []), ...applicantTransactions])
       transactionsById.set(transaction.transaction_id, transaction);
 
+    const installmentTotals = await getBundleInstallmentTotals(studentId);
+
     const entries = [...(data || [])];
     for (const transaction of transactionsById.values()) {
       const transactionEntries = entries.filter(
@@ -6828,7 +7027,26 @@ export const ledgerAPI = {
           payment_mode: transaction.payment_mode,
         } as any);
       }
-      const balanceDue = Number(transaction.balance_due || 0);
+      const installmentPaid =
+        installmentTotals.get(transaction.transaction_id) || 0;
+      const balanceDue = Math.max(
+        0,
+        Number(transaction.balance_due || 0) - installmentPaid,
+      );
+      if (installmentPaid > 0 && balanceDue === 0) {
+        for (let index = entries.length - 1; index >= 0; index--) {
+          const entry = entries[index];
+          if (
+            entry.transaction_id === transaction.transaction_id &&
+            entry.entry_type === "debit" &&
+            /remaining balance|outstanding balance forward/i.test(
+              entry.fee_type_name || "",
+            )
+          ) {
+            entries.splice(index, 1);
+          }
+        }
+      }
       const hasBalanceEntry = transactionEntries.some(
         (entry: any) =>
           entry.entry_type === "debit" &&

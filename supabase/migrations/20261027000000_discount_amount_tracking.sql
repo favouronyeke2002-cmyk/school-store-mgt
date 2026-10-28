@@ -1,0 +1,8 @@
+ALTER TABLE transactions
+  ADD COLUMN IF NOT EXISTS discount_amount NUMERIC NOT NULL DEFAULT 0.00;
+
+ALTER TABLE transactions
+  ADD COLUMN IF NOT EXISTS original_bill_amount NUMERIC;
+
+ALTER TABLE student_fees
+  ADD COLUMN IF NOT EXISTS discount_amount NUMERIC NOT NULL DEFAULT 0.00;

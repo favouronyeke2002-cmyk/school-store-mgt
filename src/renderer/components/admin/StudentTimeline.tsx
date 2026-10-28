@@ -29,6 +29,8 @@ interface TEvent {
   session?: string;
   amount_paid_on_fee?: number;
   balance?: number;
+  original_bill_amount?: number;
+  discount_amount?: number;
   fee_type_name?: string | null;
   ref?: number;
   payment_mode?: string;
@@ -71,7 +73,9 @@ const StudentTimeline: React.FC<Props> = ({ studentId, studentName, studentClass
       id: `fee_${sf.id}`,
       kind: 'fee_charge',
       date: sf.created_at,
-      amount: Number(sf.amount_due),
+      amount: Number(sf.amount_due) + Number(sf.discount_amount || 0),
+      original_bill_amount: Number(sf.amount_due) + Number(sf.discount_amount || 0),
+      discount_amount: Number(sf.discount_amount || 0),
       fee_name: isArrears && !(sf.fee_name || '').toLowerCase().includes('arrears') ? `${sf.fee_name} (Arrears B/F)` : sf.fee_name,
       term: sf.term,
       session: sf.academic_session,
@@ -88,6 +92,11 @@ const StudentTimeline: React.FC<Props> = ({ studentId, studentName, studentClass
         kind: 'fee_payment',
         date: txn.timestamp,
         amount: Number(txn.amount_paid),
+        original_bill_amount: Number(
+          txn.original_bill_amount ??
+            Number(txn.amount_paid) + Number(txn.discount_amount || 0),
+        ),
+        discount_amount: Number(txn.discount_amount || 0),
         fee_type_name: txn.fee_type_name,
         ref: txn.transaction_id,
         payment_mode: txn.payment_mode,
@@ -264,6 +273,11 @@ const StudentTimeline: React.FC<Props> = ({ studentId, studentName, studentClass
                               <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 bg-success-200 text-success-800 rounded uppercase tracking-wide mb-1">Fee Payment</span>
                               <div className="font-semibold text-sm text-gray-900">{e.fee_type_name || 'Fee Payment'}</div>
                               <div className="text-xs text-gray-500">Ref #{e.ref} · {e.payment_mode}</div>
+                              <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                                <div>Original Bill: {fmt(e.original_bill_amount || e.amount)}</div>
+                                <div>Discount / Concession: -{fmt(e.discount_amount || 0)}</div>
+                                <div className="font-semibold">Net Cash/Transfer Collected: {fmt(e.amount)}</div>
+                              </div>
                             </>
                           )}
                           {e.kind === 'store_purchase' && (
@@ -285,9 +299,16 @@ const StudentTimeline: React.FC<Props> = ({ studentId, studentName, studentClass
                             {e.kind === 'fee_payment' ? '+' : ''}{fmt(e.amount)}
                           </div>
                           {e.kind === 'fee_charge' && (
-                            <div className={`text-xs font-medium mt-0.5 ${e.balance! <= 0 ? 'text-success-600' : 'text-danger-600'}`}>
-                              {e.balance! <= 0 ? '✓ Cleared' : `${fmt(e.balance!)} owing`}
-                            </div>
+                            <>
+                              {(e.discount_amount || 0) > 0 && (
+                                <div className="text-xs text-amber-700 font-medium mt-0.5">
+                                  Discount: -{fmt(e.discount_amount || 0)}
+                                </div>
+                              )}
+                              <div className={`text-xs font-medium mt-0.5 ${e.balance! <= 0 ? 'text-success-600' : 'text-danger-600'}`}>
+                                {e.balance! <= 0 ? '✓ Cleared' : `${fmt(e.balance!)} owing`}
+                              </div>
+                            </>
                           )}
                         </div>
                       </div>

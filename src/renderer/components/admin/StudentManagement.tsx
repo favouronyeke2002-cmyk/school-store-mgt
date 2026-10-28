@@ -37,6 +37,7 @@ interface Student {
   student_class: string;
   department_stream?: string | null;
   current_fees_owed: number;
+  discount_amount: number;
   admission_type?: "Returning" | "New";
   student_status?: "Day" | "Boarding";
 }
@@ -928,7 +929,16 @@ const StudentManagement: React.FC<{
                           <td className="px-4 py-3 font-mono text-sm">
                             {s.student_id}
                           </td>
-                          <td className="px-4 py-3 font-medium">{s.name}</td>
+                          <td className="px-4 py-3 font-medium">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span>{s.name}</span>
+                              {s.discount_amount > 0 && (
+                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                  Concession / Discount Applied
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td className="px-4 py-3">
                             <span className="px-2 py-1 bg-primary-100 text-primary-800 rounded text-xs">
                               {s.student_class}

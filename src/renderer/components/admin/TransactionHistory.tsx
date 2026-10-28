@@ -34,6 +34,8 @@ const normalizeTransactionType = (value?: string) =>
     .toLowerCase()
     .replace(/[_\s-]+/g, " ");
 
+const DISCOUNTED_TRANSACTION_FILTER = "DISCOUNTED_TRANSACTIONS";
+
 function buildReceiptHtml(
   settings: any,
   txn: any,
@@ -113,6 +115,7 @@ function buildReceiptHtml(
   ${txn.remaining_balance != null ? `<div class="row"><span>Remaining Balance:</span><span>${fmtCurrency(Number(txn.remaining_balance))}</span></div>` : ""}
   ${balanceDueHtml}
   <div class="divider2"></div>
+  ${Number(txn.discount_amount || 0) > 0 ? `<div class="row"><span>Original Bill:</span><span>${fmtCurrency(Number(txn.original_bill_amount ?? total + Number(txn.discount_amount)))}</span></div><div class="row"><span>Discount / Concession:</span><span>-${fmtCurrency(Number(txn.discount_amount))}</span></div>` : ""}
   <div class="row bold large"><span>TOTAL:</span><span>${fmtCurrency(total)}</span></div>
   <div class="row"><span>Payment:</span><span>${paymentLabel}</span></div>
   <div class="divider"></div>
@@ -176,6 +179,7 @@ interface Transaction {
   status?: string; // 'ACTIVE' | 'VOIDED' | 'voided'
   is_voided?: boolean;
   voided_at?: string;
+  discount_amount?: number;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -293,7 +297,10 @@ const TransactionHistory: React.FC = () => {
           query,
           startDate,
           endDate,
-          type: typeFilter || undefined,
+          type:
+            typeFilter === DISCOUNTED_TRANSACTION_FILTER
+              ? undefined
+              : typeFilter || undefined,
           status: statusFilter || undefined,
           paymentMode: paymentFilter,
         }),
@@ -312,6 +319,7 @@ const TransactionHistory: React.FC = () => {
       const normalizedTypeFilter = typeFilter
         ? normalizeTransactionType(typeFilter)
         : "";
+      const discountedOnly = typeFilter === DISCOUNTED_TRANSACTION_FILTER;
 
       const allData: Transaction[] = [...txnData, ...expenseData]
         .map((t: any) => ({
@@ -326,8 +334,10 @@ const TransactionHistory: React.FC = () => {
             t.is_voided === true ||
             String(t.status || "").toLowerCase() === "voided";
           const typeMatches =
-            !normalizedTypeFilter ||
-            normalizeTransactionType(t.type) === normalizedTypeFilter;
+            discountedOnly
+              ? Number(t.discount_amount || 0) > 0
+              : !normalizedTypeFilter ||
+                normalizeTransactionType(t.type) === normalizedTypeFilter;
           if (statusFilter === "voided") return voided && typeMatches;
           if (statusFilter === "completed") return !voided && typeMatches;
           return typeMatches;
@@ -541,6 +551,7 @@ const TransactionHistory: React.FC = () => {
       payment_mode: editPaymentMode,
       fee_type_name: details.transaction?.fee_type_name,
       balance_due: details.transaction?.balance_due || 0,
+      discount_amount: details.transaction?.discount_amount || 0,
     };
     printReceipt(
       buildReceiptHtml(
@@ -676,6 +687,9 @@ const TransactionHistory: React.FC = () => {
               <option value="FEES_CASH_COLLECTION">Tuition / Term Fees</option>
               <option value="STORE_PURCHASE">Store Purchases</option>
               <option value="BUNDLE_PURCHASE">Bundles</option>
+              <option value={DISCOUNTED_TRANSACTION_FILTER}>
+                Discounts / Concessions
+              </option>
             </select>
           </div>
           <div className="flex items-center gap-2">
@@ -734,12 +748,13 @@ const TransactionHistory: React.FC = () => {
                   "Class",
                   "Type",
                   "Payment",
-                  "Amount",
+                  "Amount Paid",
+                  "Discount Amount",
                   "Actions",
                 ].map((h, i) => (
                   <th
                     key={i}
-                    className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase ${i >= 6 ? "text-right" : "text-left"} ${i === 7 ? "text-center" : ""}`}
+                    className={`px-4 py-3 text-xs font-medium text-gray-500 uppercase ${i >= 6 ? "text-right" : "text-left"} ${i === 8 ? "text-center" : ""}`}
                   >
                     {h}
                   </th>
@@ -749,13 +764,13 @@ const TransactionHistory: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-12 text-gray-400">
+                  <td colSpan={9} className="text-center py-12 text-gray-400">
                     Loading…
                   </td>
                 </tr>
               ) : transactions.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-12 text-gray-400">
+                  <td colSpan={9} className="text-center py-12 text-gray-400">
                     No transactions found
                   </td>
                 </tr>
@@ -850,6 +865,9 @@ const TransactionHistory: React.FC = () => {
                         className={`px-4 py-3 text-right font-bold ${t.type === "EXPENSE" ? "text-red-600" : ""} ${isVoid ? "line-through text-gray-400" : ""}`}
                       >
                         {fmtCurrency(t.amount_paid)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-medium text-amber-700">
+                        {fmtCurrency(Number(t.discount_amount || 0))}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <div className="flex flex-col items-center gap-1.5">
@@ -1124,6 +1142,34 @@ const TransactionHistory: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
+                </div>
+              )}
+
+              {/* Fee payment breakdown */}
+              {selected.type === "FEES_CASH_COLLECTION" && (
+                <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 space-y-1.5 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Original Bill</span>
+                      <span className="font-medium">
+                        {fmtCurrency(
+                          Number(
+                            details.transaction.original_bill_amount ??
+                              Number(selected.amount_paid) +
+                                Number(details.transaction.discount_amount),
+                          ),
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-amber-800">
+                      <span>Discount / Concession</span>
+                      <span>
+                        -{fmtCurrency(Number(details.transaction.discount_amount))}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t border-amber-200 pt-1.5 font-semibold">
+                      <span>Net {paymentLabel(selected.payment_mode)} Collected</span>
+                      <span>{fmtCurrency(selected.amount_paid)}</span>
+                    </div>
                 </div>
               )}
 
