@@ -577,6 +577,8 @@ const TransactionHistory: React.FC = () => {
   // ── Payment label helper ──────────────────────────────────────────────────
   const paymentLabel = (mode: string) =>
     normalizePaymentMode(mode) === "pos_transfer" ? "POS / Transfer" : "Cash";
+  const expensePaymentLabel = (mode?: string) =>
+    mode === "Cash Drawer" ? "Cash" : mode || "—";
 
   const transaction: Transaction = selected
     ? {
@@ -867,7 +869,7 @@ const TransactionHistory: React.FC = () => {
                       </td>
                       <td className="px-4 py-3 text-sm">
                         {t.type === "EXPENSE"
-                          ? "Cash Drawer"
+                          ? expensePaymentLabel(t.payment_mode)
                           : paymentLabel(t.payment_mode)}
                       </td>
                       <td
@@ -1054,8 +1056,8 @@ const TransactionHistory: React.FC = () => {
                       </span>
                     </div>
                     <div>
-                      <span className="text-gray-500">Payment:</span> Cash
-                      Drawer
+                      <span className="text-gray-500">Payment:</span>{" "}
+                      {expensePaymentLabel(selected.payment_mode)}
                     </div>
                   </>
                 )}

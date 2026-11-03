@@ -2171,7 +2171,8 @@ export const studentFeeAPI = {
         amount_paid: amount,
         discount_amount: discountAmount,
         original_bill_amount:
-          originalBillAmount ?? Number(sf.amount_due) + discountAmount,
+          originalBillAmount ??
+          Number(sf.amount_due) + Number(sf.discount_amount || 0),
         payment_mode: paymentMode,
         fee_type_id: sf.fee_type_id,
         customer_name: customerName || null,
@@ -2188,18 +2189,24 @@ export const studentFeeAPI = {
       ledgerEntries: [
         {
           student_id: studentId,
-          entry_type: "debit",
-          fee_type_name: feeTypeName,
-          amount,
-        },
-        {
-          student_id: studentId,
           entry_type: "credit",
           fee_type_name: feeTypeName,
           amount,
           payment_mode: paymentMode,
           cashier_name: cashierName || null,
         },
+        ...(discountAmount > 0
+          ? [
+              {
+                student_id: studentId,
+                entry_type: "credit",
+                fee_type_name: `${feeTypeName} Concession`,
+                amount: discountAmount,
+                payment_mode: paymentMode,
+                cashier_name: cashierName || null,
+              },
+            ]
+          : []),
       ],
     });
 
@@ -2692,7 +2699,11 @@ async function commitCashierCheckout(
   const { data, error } = await supabase.rpc("commit_cashier_checkout", {
     p_client_transaction_id: checkout.clientTransactionId,
     p_request: checkout.request,
-    p_transaction: checkout.transaction,
+    p_transaction:
+      checkout.request.kind === "FEE_PAYMENT" ||
+      checkout.request.kind === "BUNDLE_BALANCE_PAYMENT"
+        ? { ...checkout.transaction, type: "FEES_CASH_COLLECTION" }
+        : checkout.transaction,
     p_items: checkout.items || [],
     p_issuances: checkout.issuances || [],
     p_stock_changes: checkout.stockChanges || [],
@@ -4734,7 +4745,10 @@ export const applicantAPI = {
         feeType:
           transaction.fee_types?.name ||
           transaction.bundles?.name ||
-          transaction.notes ||
+          transaction.notes?.replace(
+            /\s+—\s+Balance:\s*₦[\d,]+(?:\.\d+)?\s*$/i,
+            "",
+          ) ||
           String(transaction.type || "Payment").replace(/_/g, " "),
         amountPaid: Number(transaction.amount_paid || 0),
         paymentMethod: transaction.payment_mode || null,
@@ -5477,7 +5491,7 @@ export const bundlePaymentAPI = {
     } = params;
 
     const baseAmount = coachingIncluded ? amount - 10_000 : amount;
-    const notes = `Registration Fee — ${categoryGroup} (${studentStatus})${coachingIncluded ? " + Coaching Add-on" : ""}${balanceDue ? ` — Balance: ₦${balanceDue.toLocaleString()}` : ""}`;
+    const notes = `Registration Fee — ${categoryGroup} (${studentStatus})${coachingIncluded ? " + Coaching Add-on" : ""}`;
 
     // Build line items for receipt - include actual bundle items if provided
     const lineItems: {
