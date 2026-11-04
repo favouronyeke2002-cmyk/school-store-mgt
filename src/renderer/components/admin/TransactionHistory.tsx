@@ -296,6 +296,8 @@ const TransactionHistory: React.FC = () => {
     setPage(1);
     setLoading(true);
     try {
+      const includeExpenses =
+        typeFilter === "EXPENSE" || (!query.trim() && !typeFilter);
       const [txnData, expenseData] = await Promise.all([
         transactionAPI.search({
           query,
@@ -308,16 +310,18 @@ const TransactionHistory: React.FC = () => {
           status: statusFilter || undefined,
           paymentMode: paymentFilter,
         }),
-        expenseAPI.getExpensesForHistory({
-          startDate,
-          endDate,
-          paymentMode:
-            paymentFilter === "Cash"
-              ? "Cash Drawer"
-              : paymentFilter === "POS_Transfer"
-                ? "Bank Transfer"
-                : undefined,
-        }),
+        includeExpenses
+          ? expenseAPI.getExpensesForHistory({
+              startDate,
+              endDate,
+              paymentMode:
+                paymentFilter === "Cash"
+                  ? "Cash Drawer"
+                  : paymentFilter === "POS_Transfer"
+                    ? "Bank Transfer"
+                    : undefined,
+            })
+          : Promise.resolve([]),
       ]);
 
       const normalizedTypeFilter = typeFilter
@@ -698,6 +702,7 @@ const TransactionHistory: React.FC = () => {
               <option value="FEES_CASH_COLLECTION">Tuition / Term Fees</option>
               <option value="STORE_PURCHASE">Store Purchases</option>
               <option value="BUNDLE_PURCHASE">Bundles</option>
+              <option value="EXPENSE">Expense</option>
               <option value={DISCOUNTED_TRANSACTION_FILTER}>
                 Discounts / Concessions
               </option>

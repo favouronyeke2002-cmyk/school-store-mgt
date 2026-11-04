@@ -303,35 +303,111 @@ export const shiftAPI = {
 
 // ─── STUDENTS ─────────────────────────────────────────────────────────────────
 export const customerAPI = {
-  async findDuplicate(data: {
+  async findSimilarProfiles(data: {
     firstName: string;
     lastName: string;
-    parentPhone?: string;
+    studentClass?: string;
+    partial?: boolean;
   }) {
     const firstName = data.firstName.trim();
     const lastName = data.lastName.trim();
-    const parentPhone = data.parentPhone?.trim() || null;
+    const studentClass = data.studentClass?.trim() || "";
+    const partial = data.partial === true;
+    const escapeIlike = (value: string) => value.replace(/[\\%_]/g, "\\$&");
+    const pattern = (value: string) =>
+      partial ? `%${escapeIlike(value)}%` : escapeIlike(value);
 
     const findInTable = async (table: "students" | "applicants") => {
-      let query = supabase
-        .from(table)
-        .select("*")
-        .ilike("first_name", firstName)
-        .ilike("last_name", lastName);
-      query = parentPhone
-        ? query.eq("parent_phone", parentPhone)
-        : query.is("parent_phone", null);
+      const classColumn =
+        table === "students" ? "student_class" : "proposed_class";
+      const matches: any[] = [];
+      const findByName = async (
+        column: "first_name" | "last_name",
+        value: string,
+        classScoped: boolean,
+      ) => {
+        if (!value) return;
+        let query = supabase
+          .from(table)
+          .select("*")
+          .ilike(column, pattern(value));
+        if (classScoped && studentClass)
+          query = query.eq(classColumn, studentClass);
+        const { data: records, error } = await query.limit(20);
+        if (error) throw error;
+        matches.push(...(records || []));
+      };
 
-      const { data: match, error } = await query.limit(1).maybeSingle();
-      if (error) throw error;
-      return match;
+      if (firstName && lastName) {
+        const { data: records, error } = await supabase
+          .from(table)
+          .select("*")
+          .ilike("first_name", escapeIlike(firstName))
+          .ilike("last_name", escapeIlike(lastName))
+          .limit(20);
+        if (error) throw error;
+        matches.push(...(records || []));
+      }
+      if (studentClass) {
+        await findByName("first_name", firstName, true);
+        await findByName("last_name", lastName, true);
+      }
+
+      const seen = new Set<string>();
+      return matches.filter((record) => {
+        const id = String(record.student_id || record.id);
+        if (seen.has(id)) return false;
+        seen.add(id);
+        const exactFullName =
+          firstName &&
+          lastName &&
+          String(record.first_name || "").toLowerCase() ===
+            firstName.toLowerCase() &&
+          String(record.last_name || "").toLowerCase() ===
+            lastName.toLowerCase();
+        const sameClass =
+          studentClass &&
+          String(record[classColumn] || "").toLowerCase() ===
+            studentClass.toLowerCase();
+        const firstNameMatch = firstName
+          ? partial
+            ? String(record.first_name || "")
+                .toLowerCase()
+                .includes(firstName.toLowerCase())
+            : String(record.first_name || "").toLowerCase() ===
+              firstName.toLowerCase()
+          : false;
+        const lastNameMatch = lastName
+          ? partial
+            ? String(record.last_name || "")
+                .toLowerCase()
+                .includes(lastName.toLowerCase())
+            : String(record.last_name || "").toLowerCase() ===
+              lastName.toLowerCase()
+          : false;
+        return Boolean(
+          exactFullName || (sameClass && (firstNameMatch || lastNameMatch)),
+        );
+      });
     };
 
-    const student = await findInTable("students");
-    if (student) return { kind: "student" as const, record: student };
-
-    const applicant = await findInTable("applicants");
-    return applicant ? { kind: "applicant" as const, record: applicant } : null;
+    const [students, applicants] = await Promise.all([
+      findInTable("students"),
+      findInTable("applicants"),
+    ]);
+    return [
+      ...students.map((record) => ({ kind: "student" as const, record })),
+      ...applicants.map((record) => ({ kind: "applicant" as const, record })),
+    ].sort((a, b) => {
+      const fullName = (record: any) =>
+        `${record.first_name || ""} ${record.last_name || ""}`
+          .trim()
+          .toLowerCase();
+      const expected = `${firstName} ${lastName}`.trim().toLowerCase();
+      const aExact = fullName(a.record) === expected ? 1 : 0;
+      const bExact = fullName(b.record) === expected ? 1 : 0;
+      return bExact - aExact;
+    });
   },
 };
 
@@ -381,7 +457,9 @@ export const studentAPI = {
       for (let offset = 0; ; offset += 1000) {
         const { data: fees, error: feesError } = await supabase
           .from("student_fees")
-          .select("student_id, amount_due, amount_paid, fee_types(name, fee_category)")
+          .select(
+            "student_id, amount_due, amount_paid, fee_types(name, fee_category)",
+          )
           .range(offset, offset + 999);
         if (feesError) throw feesError;
         for (const fee of fees || []) {
@@ -1259,7 +1337,6 @@ export const feeTypeAPI = {
         Math.abs(amountDelta),
         amountDelta > 0 ? "debit" : "credit",
       );
-
     }
 
     // ── Prune stale assignments ────────────────────────────────────────────
@@ -1703,8 +1780,7 @@ export const studentFeeAPI = {
           name: existing?.name || name,
           balance:
             (existing?.balance || 0) +
-            (entry.entry_type === "debit" ? 1 : -1) *
-              Number(entry.amount || 0),
+            (entry.entry_type === "debit" ? 1 : -1) * Number(entry.amount || 0),
         });
         ledgerBalances.set(entry.student_id, studentBalances);
       }
@@ -1904,9 +1980,7 @@ export const studentFeeAPI = {
     if (studentsError) throw studentsError;
     if (studentFeesError) throw studentFeesError;
 
-    const validIds = new Set(
-      (feeTypes || []).map((ft: any) => ft.id),
-    );
+    const validIds = new Set((feeTypes || []).map((ft: any) => ft.id));
     const feeTypeById = new Map(
       (feeTypes || []).map((feeType: any) => [feeType.id, feeType]),
     );
@@ -2143,7 +2217,9 @@ export const studentFeeAPI = {
       originalBillAmount != null &&
       (!Number.isFinite(originalBillAmount) || originalBillAmount < 0)
     )
-      throw new Error("Original bill amount must be a valid non-negative amount.");
+      throw new Error(
+        "Original bill amount must be a valid non-negative amount.",
+      );
     const balance = Number(sf.amount_due) - Number(sf.amount_paid);
     if (discountAmount > balance + 0.01)
       throw new Error("Discount cannot exceed the remaining fee balance.");
@@ -2234,11 +2310,12 @@ export const studentFeeAPI = {
     ]);
     if (feeError) throw feeError;
     if (balanceError) throw balanceError;
-    const trueBalance = (allFees || []).reduce(
-      (sum: number, sf: any) =>
-        sum + Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid)),
-      0,
-    ) +
+    const trueBalance =
+      (allFees || []).reduce(
+        (sum: number, sf: any) =>
+          sum + Math.max(0, Number(sf.amount_due) - Number(sf.amount_paid)),
+        0,
+      ) +
       (balanceEntries || []).reduce(
         (sum: number, entry: any) =>
           String(entry.fee_type_name || "").startsWith("Class Fee — ")
@@ -2301,7 +2378,9 @@ export const studentFeeAPI = {
     let updatedStudents = 0;
     for (const stu of students || []) {
       await ledgerAPI.syncStudentFeeBalances(stu.student_id);
-      const correct = await studentFeeAPI.syncStudentOwedBalance(stu.student_id);
+      const correct = await studentFeeAPI.syncStudentOwedBalance(
+        stu.student_id,
+      );
       if (Number(stu.current_fees_owed) !== correct) updatedStudents++;
     }
 
@@ -2689,9 +2768,7 @@ type CashierCheckoutCommit = {
   performedBy?: string;
 };
 
-async function commitCashierCheckout(
-  checkout: CashierCheckoutCommit,
-): Promise<{
+async function commitCashierCheckout(checkout: CashierCheckoutCommit): Promise<{
   transactionId: number;
   duplicate: boolean;
   transaction: Record<string, unknown>;
@@ -2721,7 +2798,9 @@ async function commitCashierCheckout(
     transaction?: Record<string, unknown>;
   } | null;
   if (!result?.transaction_id)
-    throw new Error("Checkout was committed without returning a transaction ID.");
+    throw new Error(
+      "Checkout was committed without returning a transaction ID.",
+    );
   return {
     transactionId: result.transaction_id,
     duplicate: Boolean(result.duplicate),
@@ -3143,11 +3222,8 @@ export const transactionAPI = {
       ...(paymentMode ? { payment_mode: paymentMode } : {}),
     };
     const auditDetail = [
-      current.type !== nextType
-        ? `type ${current.type} → ${nextType}`
-        : null,
-      updates.payment_mode &&
-      updates.payment_mode !== current.payment_mode
+      current.type !== nextType ? `type ${current.type} → ${nextType}` : null,
+      updates.payment_mode && updates.payment_mode !== current.payment_mode
         ? `payment mode ${current.payment_mode || "unset"} → ${updates.payment_mode}`
         : null,
     ]
@@ -3213,10 +3289,7 @@ export const transactionAPI = {
         .from("transactions")
         .select("amount_paid, status")
         .eq("student_id", txn.student_id)
-        .ilike(
-          "notes",
-          `%Ref: Txn #${transactionId}; Append-only%`,
-        );
+        .ilike("notes", `%Ref: Txn #${transactionId}; Append-only%`);
       if (installmentsError) throw installmentsError;
       if (
         (installments || []).some(
@@ -3575,7 +3648,13 @@ export const transactionAPI = {
 
     const { transactionId: txnId } = await commitCashierCheckout({
       clientTransactionId,
-      request: { kind: "STORE_PURCHASE", studentId, shiftId, cart, paymentMode },
+      request: {
+        kind: "STORE_PURCHASE",
+        studentId,
+        shiftId,
+        cart,
+        paymentMode,
+      },
       transaction: {
         student_id: studentId,
         shift_id: shiftId,
@@ -3654,11 +3733,15 @@ export const transactionAPI = {
         .maybeSingle();
       if (feeError) throw feeError;
       if (!studentFee)
-        throw new Error("The selected registration fee is not assigned to this student.");
+        throw new Error(
+          "The selected registration fee is not assigned to this student.",
+        );
       const remaining =
         Number(studentFee.amount_due) - Number(studentFee.amount_paid);
       if (feeAmount > remaining + 0.01)
-        throw new Error("Registration payment exceeds the outstanding fee balance.");
+        throw new Error(
+          "Registration payment exceeds the outstanding fee balance.",
+        );
       feeTypeId = studentFee.fee_type_id;
       feeTypeName = (studentFee as any).fee_types?.name || feeTypeName;
       feeUpdate = {
@@ -3676,7 +3759,8 @@ export const transactionAPI = {
       0,
     );
     const total = feeAmount + itemTotal;
-    if (total <= 0) throw new Error("Registration checkout total must be greater than zero.");
+    if (total <= 0)
+      throw new Error("Registration checkout total must be greater than zero.");
     const itemRows = selectedItems.map((item) => ({
       item_id: item.item_id,
       item_name: item.item_name,
@@ -4908,20 +4992,20 @@ export const applicantAPI = {
       { data: txns, error: txnError },
     ] = await Promise.all([
       supabase
-      .from("applicant_payments")
-      .select("amount_due, amount_paid")
-      .eq("applicant_id", applicantId),
+        .from("applicant_payments")
+        .select("amount_due, amount_paid")
+        .eq("applicant_id", applicantId),
       supabase
-      .from("transactions")
-      .select("balance_due")
-      .eq("applicant_id", applicantId)
-      .in("type", [
-        "BUNDLE_PURCHASE",
-        "REGISTRATION_PAYMENT",
-        "ACCEPTANCE_FEE",
-      ])
-      .gt("balance_due", 0)
-      .neq("status", "VOIDED"),
+        .from("transactions")
+        .select("balance_due")
+        .eq("applicant_id", applicantId)
+        .in("type", [
+          "BUNDLE_PURCHASE",
+          "REGISTRATION_PAYMENT",
+          "ACCEPTANCE_FEE",
+        ])
+        .gt("balance_due", 0)
+        .neq("status", "VOIDED"),
     ]);
     if (paymentError) throw paymentError;
     if (txnError) throw txnError;
@@ -4963,7 +5047,7 @@ export const bundlePaymentAPI = {
       settingsAPI.get(),
       supabase
         .from("students")
-          .select("name, student_class")
+        .select("name, student_class")
         .eq("student_id", studentId)
         .single(),
     ]);
@@ -5116,12 +5200,13 @@ export const bundlePaymentAPI = {
     let paymentRecordId: number | null = null;
 
     if (applicantId) {
-      const { data: existingPayment, error: existingPaymentError } = await supabase
-        .from("applicant_payments")
-        .select("*")
-        .eq("applicant_id", applicantId)
-        .eq("bundle_id", bundleId)
-        .maybeSingle();
+      const { data: existingPayment, error: existingPaymentError } =
+        await supabase
+          .from("applicant_payments")
+          .select("*")
+          .eq("applicant_id", applicantId)
+          .eq("bundle_id", bundleId)
+          .maybeSingle();
       if (existingPaymentError) throw existingPaymentError;
 
       if (existingPayment) {
@@ -5344,8 +5429,7 @@ export const bundlePaymentAPI = {
       .limit(1);
     if (formItemsError) throw formItemsError;
     const formItem = formItems?.[0] as any;
-    let isPhysicalInventory =
-      !!formItem && Number(formItem.stock_quantity) > 0;
+    let isPhysicalInventory = !!formItem && Number(formItem.stock_quantity) > 0;
 
     // Route revenue: Store Revenue if physical inventory, otherwise School Administrative Income by default
     const txnType = "FORM_FEE";
@@ -5384,11 +5468,11 @@ export const bundlePaymentAPI = {
       items: isPhysicalInventory
         ? [
             {
-        item_id: formItem.item_id,
-        item_name: formItem.item_name,
-        quantity: 1,
-        unit_price: FORM_PRICE,
-        total_price: FORM_PRICE,
+              item_id: formItem.item_id,
+              item_name: formItem.item_name,
+              quantity: 1,
+              unit_price: FORM_PRICE,
+              total_price: FORM_PRICE,
             },
           ]
         : [],
@@ -5419,9 +5503,9 @@ export const bundlePaymentAPI = {
     const transactionId = checkoutResult.transactionId;
     let responseItems = items;
     if (checkoutResult.duplicate) {
-      isPhysicalInventory = String(checkoutResult.transaction.notes || "").includes(
-        "Physical Inventory",
-      );
+      isPhysicalInventory = String(
+        checkoutResult.transaction.notes || "",
+      ).includes("Physical Inventory");
       const { data: existingItems, error: existingItemsError } = await supabase
         .from("transaction_items")
         .select("item_name, quantity, total_price")
@@ -5759,7 +5843,9 @@ async function getBundleInstallmentTotals(
   for (const installment of data || []) {
     if (String(installment.status || "").toUpperCase() === "VOIDED") continue;
     const parentId = Number(
-      String(installment.notes || "").match(/Ref: Txn #(\d+); Append-only/)?.[1],
+      String(installment.notes || "").match(
+        /Ref: Txn #(\d+); Append-only/,
+      )?.[1],
     );
     if (!Number.isInteger(parentId)) continue;
     totals.set(
@@ -5860,8 +5946,7 @@ const studentBundleBalanceAPI = {
       );
     const relevantTxn = currentTerm
       ? registrationTxns.find(
-          (t: any) =>
-            t.academic_term === currentTerm && balanceFor(t) > 0,
+          (t: any) => t.academic_term === currentTerm && balanceFor(t) > 0,
         ) ||
         registrationTxns.find((t: any) => balanceFor(t) > 0) ||
         registrationTxns.find((t: any) => t.academic_term === currentTerm)
@@ -5928,10 +6013,7 @@ const studentBundleBalanceAPI = {
         .from("transactions")
         .select("amount_paid, status")
         .eq("student_id", studentId)
-        .ilike(
-          "notes",
-          `%Ref: Txn #${transactionId}; Append-only%`,
-        );
+        .ilike("notes", `%Ref: Txn #${transactionId}; Append-only%`);
     if (priorInstallmentsError) throw priorInstallmentsError;
     const priorPaid = (priorInstallments || []).reduce(
       (sum: number, installment: any) =>
@@ -5962,7 +6044,8 @@ const studentBundleBalanceAPI = {
       .eq("entry_type", "debit")
       .ilike("fee_type_name", "%Remaining Balance%");
     if (outstandingError) throw outstandingError;
-    const [outstandingEntry, ...duplicateOutstandingEntries] = outstandingEntries || [];
+    const [outstandingEntry, ...duplicateOutstandingEntries] =
+      outstandingEntries || [];
     const ledgerUpdates = [
       ...(outstandingEntry
         ? [
@@ -5977,40 +6060,40 @@ const studentBundleBalanceAPI = {
       })),
     ];
     const installmentCommit = await commitCashierCheckout({
-        clientTransactionId,
-        request: {
-          kind: "BUNDLE_BALANCE_PAYMENT",
-          transactionId,
-          studentId,
-          shiftId,
-          amount,
-          paymentMode,
-        },
-        transaction: {
+      clientTransactionId,
+      request: {
+        kind: "BUNDLE_BALANCE_PAYMENT",
+        transactionId,
+        studentId,
+        shiftId,
+        amount,
+        paymentMode,
+      },
+      transaction: {
+        student_id: studentId,
+        shift_id: shiftId,
+        type: "FEES_CASH_COLLECTION",
+        amount_paid: amount,
+        payment_mode: paymentMode,
+        fee_type_id: txn.fee_type_id || null,
+        bundle_id: txn.bundle_id || null,
+        academic_term: txn.academic_term,
+        notes: `Bundle Installment Payment (Ref: Txn #${transactionId}; Append-only)`,
+        customer_name: customerName || null,
+        target_class: targetClass || null,
+      },
+      ledgerEntries: [
+        {
           student_id: studentId,
-          shift_id: shiftId,
-          type: "FEES_CASH_COLLECTION",
-          amount_paid: amount,
+          entry_type: "credit",
+          fee_type_name: `${feeName} Payment`,
+          amount,
           payment_mode: paymentMode,
-          fee_type_id: txn.fee_type_id || null,
-          bundle_id: txn.bundle_id || null,
-          academic_term: txn.academic_term,
-          notes: `Bundle Installment Payment (Ref: Txn #${transactionId}; Append-only)`,
-          customer_name: customerName || null,
-          target_class: targetClass || null,
+          academic_term: txn.academic_term || null,
         },
-        ledgerEntries: [
-          {
-            student_id: studentId,
-            entry_type: "credit",
-            fee_type_name: `${feeName} Payment`,
-            amount,
-            payment_mode: paymentMode,
-            academic_term: txn.academic_term || null,
-          },
-        ],
-        ledgerUpdates,
-      });
+      ],
+      ledgerUpdates,
+    });
     const installmentTransactionId = installmentCommit.transactionId;
     window.dispatchEvent(
       new CustomEvent("pos:transaction-updated", {
@@ -6587,9 +6670,7 @@ export const ledgerAPI = {
     if (entriesError) throw entriesError;
 
     const managedEntries = (existingEntries || []).filter((entry: any) =>
-      /^(Class Fee — |Arrears B\/F — )/.test(
-        String(entry.fee_type_name || ""),
-      ),
+      /^(Class Fee — |Arrears B\/F — )/.test(String(entry.fee_type_name || "")),
     );
     if (managedEntries.length > 0) {
       const { error } = await supabase
@@ -6799,9 +6880,9 @@ export const ledgerAPI = {
               ? `Registration Package — ${packageName}`
               : transaction.fee_type_id != null
                 ? packageName
-              : transaction.type === "STORE_PURCHASE"
-                ? "Store Purchase"
-                : `Admissions Payment - ${transaction.type || "Other"}`;
+                : transaction.type === "STORE_PURCHASE"
+                  ? "Store Purchase"
+                  : `Admissions Payment - ${transaction.type || "Other"}`;
       const isPackageTransaction =
         transaction.type === "BUNDLE_PURCHASE" ||
         transaction.type === "REGISTRATION_PAYMENT" ||
@@ -6908,21 +6989,23 @@ export const ledgerAPI = {
       if (insertEntriesError) throw insertEntriesError;
     }
 
-    const [{ data: studentFees, error: studentFeesError }, { data: balances, error: balancesError }] =
-      await Promise.all([
-        supabase
-          .from("student_fees")
-          .select("amount_due, amount_paid")
-          .eq("student_id", studentId),
-        supabase
-          .from("ledger_entries")
-          .select("fee_type_name, amount")
-          .eq("student_id", studentId)
-          .eq("entry_type", "debit")
-          .or(
-            "fee_type_name.ilike.%Remaining Balance%,fee_type_name.ilike.%Outstanding Balance Forward%",
-          ),
-      ]);
+    const [
+      { data: studentFees, error: studentFeesError },
+      { data: balances, error: balancesError },
+    ] = await Promise.all([
+      supabase
+        .from("student_fees")
+        .select("amount_due, amount_paid")
+        .eq("student_id", studentId),
+      supabase
+        .from("ledger_entries")
+        .select("fee_type_name, amount")
+        .eq("student_id", studentId)
+        .eq("entry_type", "debit")
+        .or(
+          "fee_type_name.ilike.%Remaining Balance%,fee_type_name.ilike.%Outstanding Balance Forward%",
+        ),
+    ]);
     if (studentFeesError) throw studentFeesError;
     if (balancesError) throw balancesError;
     const studentBalance = (studentFees || []).reduce(

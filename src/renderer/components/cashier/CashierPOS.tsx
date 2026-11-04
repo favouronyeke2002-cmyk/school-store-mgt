@@ -1130,6 +1130,95 @@ const ShiftResultModal: React.FC<{
   </div>
 );
 
+type SimilarProfile = {
+  kind: "student" | "applicant";
+  record: any;
+};
+
+const useSimilarProfileSuggestions = (
+  firstName: string,
+  lastName: string,
+  studentClass: string,
+) => {
+  const [matches, setMatches] = useState<SimilarProfile[]>([]);
+
+  useEffect(() => {
+    if (!firstName.trim() && !lastName.trim()) {
+      setMatches([]);
+      return;
+    }
+    setMatches([]);
+    let active = true;
+    const timer = window.setTimeout(() => {
+      customerAPI
+        .findSimilarProfiles({
+          firstName,
+          lastName,
+          studentClass,
+          partial: true,
+        })
+        .then((results) => {
+          if (active) setMatches(results);
+        })
+        .catch((error) => {
+          console.error("Failed to search for similar profiles:", error);
+          if (active) setMatches([]);
+        });
+    }, 300);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [firstName, lastName, studentClass]);
+
+  return matches;
+};
+
+const SimilarProfileSuggestions: React.FC<{
+  matches: SimilarProfile[];
+  onSelect: (match: SimilarProfile) => void;
+}> = ({ matches, onSelect }) => {
+  if (matches.length === 0) return null;
+
+  return (
+    <div className="-mt-2 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+      {matches.map(({ kind, record }) => {
+        const name =
+          record.name ||
+          record.full_name ||
+          `${record.first_name || ""} ${record.last_name || ""}`.trim();
+        const studentClass =
+          record.student_class ||
+          record.proposed_class ||
+          "Class not specified";
+        const id = record.student_id || record.id;
+        return (
+          <button
+            key={`${kind}-${id}`}
+            type="button"
+            onClick={() => onSelect({ kind, record })}
+            className="flex w-full items-center justify-between gap-3 border-b border-gray-100 px-3 py-2.5 text-left last:border-b-0 hover:bg-primary-50 focus:bg-primary-50 focus:outline-none"
+          >
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold text-gray-800">
+                {name}
+              </span>
+              <span className="block truncate text-xs text-gray-500">
+                {studentClass} · {kind === "student" ? "Student" : "Applicant"}{" "}
+                · {id}
+              </span>
+            </span>
+            <span className="shrink-0 text-xs font-semibold text-primary-700">
+              Select
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 // ─── Quick Add Student Modal ──────────────────────────────────────────────────
 const QuickAddStudentModal: React.FC<{
   classes: string[];
@@ -1144,6 +1233,7 @@ const QuickAddStudentModal: React.FC<{
     studentStatus: "Day" | "Boarding";
   }) => void;
   onCancel: () => void;
+  onSelectExisting: (match: SimilarProfile) => void;
   saving: boolean;
   error: string;
 }> = ({
@@ -1152,6 +1242,7 @@ const QuickAddStudentModal: React.FC<{
   streamRequiredClasses,
   onSave,
   onCancel,
+  onSelectExisting,
   saving,
   error,
 }) => {
@@ -1161,6 +1252,11 @@ const QuickAddStudentModal: React.FC<{
   const [studentClass, setStudentClass] = useState(classes[0] || "");
   const [departmentStream, setDepartmentStream] = useState("");
   const [studentStatus, setStudentStatus] = useState<"Day" | "Boarding">("Day");
+  const similarProfiles = useSimilarProfileSuggestions(
+    firstName,
+    lastName,
+    studentClass,
+  );
   const classStreamRequired = (className: string) => {
     const level = seniorClassKey(className);
     return !!level && streamRequiredClasses.includes(level);
@@ -1249,6 +1345,10 @@ const QuickAddStudentModal: React.FC<{
               />
             </div>
           </div>
+          <SimilarProfileSuggestions
+            matches={similarProfiles}
+            onSelect={onSelectExisting}
+          />
           <div>
             <label className="text-sm font-medium text-gray-700 mb-1 block">
               Parent Phone Number
@@ -1368,6 +1468,7 @@ const WalkInApplicantModal: React.FC<{
     studentStatus: "Day" | "Boarding";
   }) => void;
   onCancel: () => void;
+  onSelectExisting: (match: SimilarProfile) => void;
   saving: boolean;
   error: string;
 }> = ({
@@ -1377,6 +1478,7 @@ const WalkInApplicantModal: React.FC<{
   classCategoryMap,
   onSave,
   onCancel,
+  onSelectExisting,
   saving,
   error,
 }) => {
@@ -1386,6 +1488,11 @@ const WalkInApplicantModal: React.FC<{
   const [proposedClass, setProposedClass] = useState(classes[0] || "");
   const [departmentStream, setDepartmentStream] = useState("");
   const [studentStatus, setStudentStatus] = useState<"Day" | "Boarding">("Day");
+  const similarProfiles = useSimilarProfileSuggestions(
+    firstName,
+    lastName,
+    proposedClass,
+  );
   const classStreamRequired = (className: string) => {
     const level = seniorClassKey(className);
     return !!level && streamRequiredClasses.includes(level);
@@ -1459,6 +1566,10 @@ const WalkInApplicantModal: React.FC<{
               />
             </div>
           </div>
+          <SimilarProfileSuggestions
+            matches={similarProfiles}
+            onSelect={onSelectExisting}
+          />
           <div>
             <label className="text-sm font-medium text-gray-700 mb-1 block">
               Parent Phone Number
@@ -1860,9 +1971,14 @@ const BundlePaymentModal: React.FC<{
               disabled={processing || isBelowFloor || parseFloat(amount) <= 0}
               className="flex-1 py-2.5 bg-success-600 text-white rounded-xl text-sm font-semibold hover:bg-success-700 disabled:opacity-50"
             >
-              {processing
-                ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</>
-                : `Pay ${fmt(parseFloat(amount) || 0)}`}
+              {processing ? (
+                <>
+                  <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                  Processing…
+                </>
+              ) : (
+                `Pay ${fmt(parseFloat(amount) || 0)}`
+              )}
             </button>
           </div>
         </form>
@@ -2359,9 +2475,14 @@ const RegistrationFlowModal: React.FC<{
             disabled={processing || total <= 0}
             className="flex-1 py-2.5 bg-success-600 text-white rounded-xl text-sm font-semibold hover:bg-success-700 disabled:opacity-50"
           >
-            {processing
-              ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</>
-              : `Complete Registration (${fmt(total)})`}
+            {processing ? (
+              <>
+                <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                Processing…
+              </>
+            ) : (
+              `Complete Registration (${fmt(total)})`
+            )}
           </button>
         </div>
       </div>
@@ -3061,13 +3182,18 @@ const WalkInRegistrationFeeModal: React.FC<{
               }
               className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50"
             >
-              {processing
-                ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</>
-                : !stockLoaded &&
-                    isBundleMode &&
-                    (matchedBundle!.items?.length || 0) > 0
-                  ? "Checking stock…"
-                  : `Confirm ${fmt(total)}`}
+              {processing ? (
+                <>
+                  <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                  Processing…
+                </>
+              ) : !stockLoaded &&
+                isBundleMode &&
+                (matchedBundle!.items?.length || 0) > 0 ? (
+                "Checking stock…"
+              ) : (
+                `Confirm ${fmt(total)}`
+              )}
             </button>
           )}
         </div>
@@ -3152,7 +3278,14 @@ const WalkInFormModal: React.FC<{
             disabled={processing}
             className="flex-1 py-2.5 bg-warning-500 text-white rounded-xl text-sm font-semibold hover:bg-warning-600 disabled:opacity-50"
           >
-            {processing ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</> : "Confirm ₦3,000"}
+            {processing ? (
+              <>
+                <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                Processing…
+              </>
+            ) : (
+              "Confirm ₦3,000"
+            )}
           </button>
         </div>
       </div>
@@ -3307,7 +3440,14 @@ const WalkInBundleModal: React.FC<{
             disabled={processing}
             className="flex-1 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50"
           >
-            {processing ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</> : `Confirm ${fmt(bundle.base_price)}`}
+            {processing ? (
+              <>
+                <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                Processing…
+              </>
+            ) : (
+              `Confirm ${fmt(bundle.base_price)}`
+            )}
           </button>
         </div>
       </div>
@@ -3721,6 +3861,32 @@ const CashierPOS: React.FC = () => {
     setBundleFullyPaid(false);
   };
 
+  const selectSimilarProfile = (match: SimilarProfile) => {
+    if (match.kind === "student") {
+      const record = match.record;
+      selectStudent({
+        ...record,
+        name:
+          record.name ||
+          `${record.first_name || ""} ${record.last_name || ""}`.trim(),
+      });
+    } else {
+      const record = match.record;
+      selectStudent({
+        _isApplicant: true,
+        _applicant: {
+          ...record,
+          full_name:
+            record.full_name ||
+            `${record.first_name || ""} ${record.last_name || ""}`.trim(),
+        },
+      });
+    }
+    setShowQuickAdd(false);
+    setShowWalkIn(false);
+    setDuplicateWarning(null);
+  };
+
   const clearStudent = () => {
     setSelectedStudent(null);
     setWalkInApplicant(null);
@@ -3868,7 +4034,8 @@ const CashierPOS: React.FC = () => {
         selectedStudent.student_class,
         user?.username,
         discount,
-        Number(selectedFee.amount_due) + Number(selectedFee.discount_amount || 0),
+        Number(selectedFee.amount_due) +
+          Number(selectedFee.discount_amount || 0),
         clientTransactionId,
       );
       if (result.success) {
@@ -4105,14 +4272,14 @@ const CashierPOS: React.FC = () => {
     setQuickAddError("");
     try {
       if (!allowDuplicate) {
-        const duplicate = await customerAPI.findDuplicate({
+        const duplicates = await customerAPI.findSimilarProfiles({
           firstName: data.firstName,
           lastName: data.lastName,
-          parentPhone: data.parentPhone,
+          studentClass: data.studentClass,
         });
-        if (duplicate) {
+        if (duplicates.length > 0) {
           setDuplicateWarning({
-            ...duplicate,
+            ...duplicates[0],
             onCreate: () => void handleQuickAddSave(data, true),
           });
           setQuickAddSaving(false);
@@ -4124,6 +4291,10 @@ const CashierPOS: React.FC = () => {
         studentClass: data.studentClass,
         admissionType: "Returning",
         studentStatus: data.studentStatus,
+        departmentStream: data.departmentStream || null,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        parentPhone: data.parentPhone,
         feesOwed: 0,
       });
       if (result.success) {
@@ -4318,14 +4489,14 @@ const CashierPOS: React.FC = () => {
     setWalkInError("");
     try {
       if (!allowDuplicate) {
-        const duplicate = await customerAPI.findDuplicate({
+        const duplicates = await customerAPI.findSimilarProfiles({
           firstName: data.firstName,
           lastName: data.lastName,
-          parentPhone: data.parentPhone,
+          studentClass: data.proposedClass,
         });
-        if (duplicate) {
+        if (duplicates.length > 0) {
           setDuplicateWarning({
-            ...duplicate,
+            ...duplicates[0],
             onCreate: () => void handleWalkInCreate(data, true),
           });
           setWalkInSaving(false);
@@ -5138,7 +5309,14 @@ const CashierPOS: React.FC = () => {
                 disabled={loading}
                 className="flex-1 py-3 bg-success-600 text-white rounded-xl font-bold hover:bg-success-700 disabled:opacity-50"
               >
-                {loading ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</> : "Confirm & Charge"}
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                    Processing…
+                  </>
+                ) : (
+                  "Confirm & Charge"
+                )}
               </button>
             </div>
           </div>
@@ -5345,6 +5523,7 @@ const CashierPOS: React.FC = () => {
             schoolSettings?.stream_required_classes || ["SS1", "SS2", "SS3"]
           }
           onSave={handleQuickAddSave}
+          onSelectExisting={selectSimilarProfile}
           onCancel={() => setShowQuickAdd(false)}
           saving={quickAddSaving}
           error={quickAddError}
@@ -5374,6 +5553,7 @@ const CashierPOS: React.FC = () => {
           }
           classCategoryMap={classCategoryMap}
           onSave={handleWalkInCreate}
+          onSelectExisting={selectSimilarProfile}
           onCancel={() => {
             setShowWalkIn(false);
             setWalkInError("");
@@ -5402,15 +5582,17 @@ const CashierPOS: React.FC = () => {
                     Possible duplicate found
                   </h2>
                   <p className="mt-1 text-sm text-gray-500">
-                    Warning:{" "}
                     {duplicateWarning.record.name ||
                       duplicateWarning.record.full_name ||
                       `${duplicateWarning.record.first_name || ""} ${duplicateWarning.record.last_name || ""}`.trim()}{" "}
-                    already exists in{" "}
+                    already exists in class{" "}
                     {duplicateWarning.record.student_class ||
                       duplicateWarning.record.proposed_class ||
-                      "an unspecified class"}
-                    .
+                      "Not specified"}{" "}
+                    (
+                    {duplicateWarning.record.student_id ||
+                      duplicateWarning.record.id}
+                    ). Are you sure you want to create a new profile?
                   </p>
                 </div>
               </div>
@@ -5448,38 +5630,11 @@ const CashierPOS: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  setDuplicateWarning(null);
-                  setShowQuickAdd(false);
-                  setShowWalkIn(false);
+                  selectSimilarProfile(duplicateWarning);
                 }}
                 className="flex-1 rounded-lg bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-800 hover:bg-gray-200"
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const { kind, record } = duplicateWarning;
-                  if (kind === "student") {
-                    selectStudent(record);
-                  } else {
-                    selectStudent({
-                      _isApplicant: true,
-                      _applicant: {
-                        ...record,
-                        full_name:
-                          record.full_name ||
-                          `${record.first_name} ${record.last_name}`,
-                      },
-                    });
-                  }
-                  setShowQuickAdd(false);
-                  setShowWalkIn(false);
-                  setDuplicateWarning(null);
-                }}
-                className="flex-1 rounded-lg bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-800 hover:bg-gray-200"
-              >
-                View Existing Profile
+                Select Existing Student
               </button>
               <button
                 type="button"
@@ -5490,7 +5645,7 @@ const CashierPOS: React.FC = () => {
                 }}
                 className="flex-1 rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700"
               >
-                Create Duplicate/New Student
+                Proceed Anyway / Create New
               </button>
             </div>
           </div>
@@ -5697,9 +5852,14 @@ const CashierPOS: React.FC = () => {
                   }
                   className="w-full py-3 bg-success-600 text-white font-bold rounded-xl hover:bg-success-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {bundleBalanceProcessing
-                    ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</>
-                    : `Record ${bundleBalanceAmount ? fmt(parseFloat(bundleBalanceAmount)) : ""} Payment`}
+                  {bundleBalanceProcessing ? (
+                    <>
+                      <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                      Processing…
+                    </>
+                  ) : (
+                    `Record ${bundleBalanceAmount ? fmt(parseFloat(bundleBalanceAmount)) : ""} Payment`
+                  )}
                 </button>
               </div>
             </div>
