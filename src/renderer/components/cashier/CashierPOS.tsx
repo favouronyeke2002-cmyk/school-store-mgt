@@ -1143,7 +1143,7 @@ const useSimilarProfileSuggestions = (
   const [matches, setMatches] = useState<SimilarProfile[]>([]);
 
   useEffect(() => {
-    if (!firstName.trim() && !lastName.trim()) {
+    if ((!firstName.trim() && !lastName.trim()) || !studentClass) {
       setMatches([]);
       return;
     }
@@ -1161,7 +1161,7 @@ const useSimilarProfileSuggestions = (
           if (active) setMatches(results);
         })
         .catch((error) => {
-          console.error("Failed to search for similar profiles:", error);
+          console.warn("Similar profile suggestions unavailable:", error);
           if (active) setMatches([]);
         });
     }, 300);
@@ -1178,11 +1178,12 @@ const useSimilarProfileSuggestions = (
 const SimilarProfileSuggestions: React.FC<{
   matches: SimilarProfile[];
   onSelect: (match: SimilarProfile) => void;
-}> = ({ matches, onSelect }) => {
-  if (matches.length === 0) return null;
+  open: boolean;
+}> = ({ matches, onSelect, open }) => {
+  if (!open || matches.length === 0) return null;
 
   return (
-    <div className="-mt-2 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+    <div className="mt-2 max-h-32 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
       {matches.map(({ kind, record }) => {
         const name =
           record.name ||
@@ -1252,11 +1253,25 @@ const QuickAddStudentModal: React.FC<{
   const [studentClass, setStudentClass] = useState(classes[0] || "");
   const [departmentStream, setDepartmentStream] = useState("");
   const [studentStatus, setStudentStatus] = useState<"Day" | "Boarding">("Day");
+  const [suggestionsOpen, setSuggestionsOpen] = useState(true);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
   const similarProfiles = useSimilarProfileSuggestions(
     firstName,
     lastName,
     studentClass,
   );
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !suggestionsRef.current?.contains(event.target)
+      ) {
+        setSuggestionsOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, []);
   const classStreamRequired = (className: string) => {
     const level = seniorClassKey(className);
     return !!level && streamRequiredClasses.includes(level);
@@ -1283,7 +1298,7 @@ const QuickAddStudentModal: React.FC<{
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl bg-white p-6 shadow-2xl mx-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-primary-100 rounded-xl flex items-center justify-center">
@@ -1316,39 +1331,44 @@ const QuickAddStudentModal: React.FC<{
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">
-                First Name *
-              </label>
-              <input
-                type="text"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-                placeholder="First name"
-                required
-                autoFocus
+          <div ref={suggestionsRef}>
+            <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">
+                    First Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    onFocus={() => setSuggestionsOpen(true)}
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                    placeholder="First name"
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">
+                    Last Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    onFocus={() => setSuggestionsOpen(true)}
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
+                    placeholder="Last name"
+                    required
+                  />
+                </div>
+              </div>
+              <SimilarProfileSuggestions
+                matches={similarProfiles}
+                onSelect={onSelectExisting}
+                open={suggestionsOpen}
               />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">
-                Last Name *
-              </label>
-              <input
-                type="text"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-                placeholder="Last name"
-                required
-              />
-            </div>
           </div>
-          <SimilarProfileSuggestions
-            matches={similarProfiles}
-            onSelect={onSelectExisting}
-          />
           <div>
             <label className="text-sm font-medium text-gray-700 mb-1 block">
               Parent Phone Number
@@ -1488,11 +1508,25 @@ const WalkInApplicantModal: React.FC<{
   const [proposedClass, setProposedClass] = useState(classes[0] || "");
   const [departmentStream, setDepartmentStream] = useState("");
   const [studentStatus, setStudentStatus] = useState<"Day" | "Boarding">("Day");
+  const [suggestionsOpen, setSuggestionsOpen] = useState(true);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
   const similarProfiles = useSimilarProfileSuggestions(
     firstName,
     lastName,
     proposedClass,
   );
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !suggestionsRef.current?.contains(event.target)
+      ) {
+        setSuggestionsOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, []);
   const classStreamRequired = (className: string) => {
     const level = seniorClassKey(className);
     return !!level && streamRequiredClasses.includes(level);
@@ -1514,7 +1548,7 @@ const WalkInApplicantModal: React.FC<{
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl bg-white p-6 shadow-2xl mx-4">
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-warning-100 rounded-xl flex items-center justify-center">
@@ -1537,7 +1571,8 @@ const WalkInApplicantModal: React.FC<{
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div ref={suggestionsRef}>
+            <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium text-gray-700 mb-1 block">
                 First Name *
@@ -1546,6 +1581,7 @@ const WalkInApplicantModal: React.FC<{
                 type="text"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
+                onFocus={() => setSuggestionsOpen(true)}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
                 placeholder="First name"
                 required
@@ -1560,6 +1596,7 @@ const WalkInApplicantModal: React.FC<{
                 type="text"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
+                onFocus={() => setSuggestionsOpen(true)}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
                 placeholder="Last name"
                 required
@@ -1569,7 +1606,9 @@ const WalkInApplicantModal: React.FC<{
           <SimilarProfileSuggestions
             matches={similarProfiles}
             onSelect={onSelectExisting}
+            open={suggestionsOpen}
           />
+          </div>
           <div>
             <label className="text-sm font-medium text-gray-700 mb-1 block">
               Parent Phone Number
@@ -3455,6 +3494,32 @@ const WalkInBundleModal: React.FC<{
   );
 };
 
+class CashierSaleErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.warn("Cashier customer page failed to render:", error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div role="alert" className="flex-1 p-6 text-sm text-danger-700">
+          Customer search is unavailable. Refresh the terminal to try again.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ─── Main CashierPOS ─────────────────────────────────────────────────────────
 const CashierPOS: React.FC = () => {
   const { user, logout } = useAuth();
@@ -3501,10 +3566,13 @@ const CashierPOS: React.FC = () => {
   const [studentSuggestions, setStudentSuggestions] = useState<Student[]>([]);
   const [studentSuggTotal, setStudentSuggTotal] = useState(0);
   const [studentSuggPage, setStudentSuggPage] = useState(1);
+  const [studentSearchLoading, setStudentSearchLoading] = useState(false);
+  const [studentSearchError, setStudentSearchError] = useState("");
+  const [studentSearchedValue, setStudentSearchedValue] = useState("");
   const [showStudentDrop, setShowStudentDrop] = useState(false);
   const [classes, setClasses] = useState<string[]>([]);
   const studentRef = useRef<HTMLDivElement>(null);
-  const studentSuggPageSize = 10;
+  const studentSuggPageSize = 20;
 
   // Store purchase
   const [categories, setCategories] = useState<Category[]>([]);
@@ -3695,62 +3763,71 @@ const CashierPOS: React.FC = () => {
       .catch(console.error);
   }, [itemSearch, activeCat]);
 
-  // Student search suggestions (paginated)
+  // Search enrolled students and pending applicants together.
   useEffect(() => {
-    if (!studentSearch || selectedStudent) {
+    const searchTerm = studentSearch.trim();
+    let active = true;
+
+    if (searchTerm.length < 3 || selectedStudent) {
       setStudentSuggestions([]);
       setStudentSuggTotal(0);
-      return;
+      setShowStudentDrop(false);
+      setStudentSearchLoading(false);
+      setStudentSearchError("");
+      setStudentSearchedValue("");
+      return () => {
+        active = false;
+      };
     }
-    // When "Pending Applicants" filter is active, search the applicants table instead
-    if (studentClassFilter === "__pending__") {
-      applicantAPI
-        .getAll({
-          search: studentSearch,
+    setStudentSuggestions([]);
+    setStudentSuggTotal(0);
+    setShowStudentDrop(false);
+    setStudentSearchLoading(true);
+    setStudentSearchError("");
+    setStudentSearchedValue("");
+
+    const timer = window.setTimeout(() => {
+      customerAPI
+        .searchPOSProfiles({
+          search: searchTerm,
+          studentClass:
+            studentClassFilter !== "all" && studentClassFilter !== "__pending__"
+              ? studentClassFilter
+              : undefined,
           departmentStream:
             studentStreamFilter !== "all" ? studentStreamFilter : undefined,
+          limit: 10,
+          onError: () => {
+            if (active)
+              setStudentSearchError("Search is temporarily unavailable.");
+          },
         })
-        .then((applicants: any[]) => {
-          const nonEnrolled = applicants.filter(
-            (a: any) => a.status !== "enrolled",
-          );
-          const mapped = nonEnrolled.map((a: any) => ({
-            student_id: `__applicant__${a.id}`,
-            name: a.full_name,
-            student_class: a.proposed_class || "Pending",
-            current_fees_owed: 0,
-            _isApplicant: true,
-            _applicant: a,
-          })) as any[];
-          setStudentSuggestions(mapped);
-          setStudentSuggTotal(mapped.length);
-          setShowStudentDrop(mapped.length > 0);
+        .then((results) => {
+          if (!active) return;
+          setStudentSuggestions(results as Student[]);
+          setStudentSuggTotal(results.length);
+          setShowStudentDrop(results.length > 0);
+          setStudentSearchedValue(searchTerm);
         })
-        .catch(console.error);
-      return;
-    }
-    studentAPI
-      .getAll({
-        search: studentSearch,
-        class: studentClassFilter !== "all" ? studentClassFilter : undefined,
-        departmentStream:
-          studentStreamFilter !== "all" ? studentStreamFilter : undefined,
-        page: studentSuggPage,
-        pageSize: studentSuggPageSize,
-      })
-      .then((d) => {
-        setStudentSuggestions(d.students);
-        setStudentSuggTotal(d.total);
-        setShowStudentDrop(d.students.length > 0);
-      })
-      .catch(console.error);
-  }, [
-    studentSearch,
-    studentClassFilter,
-    studentStreamFilter,
-    selectedStudent,
-    studentSuggPage,
-  ]);
+        .catch((error) => {
+          if (!active) return;
+          console.warn("POS customer search unavailable:", error);
+          setStudentSuggestions([]);
+          setStudentSuggTotal(0);
+          setShowStudentDrop(false);
+          setStudentSearchError("Search is temporarily unavailable.");
+          setStudentSearchedValue(searchTerm);
+        })
+        .finally(() => {
+          if (active) setStudentSearchLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [studentSearch, studentClassFilter, studentStreamFilter, selectedStudent]);
 
   // Student fees for fees tab - standard fees always load; bundle balance (if any) is appended separately
   useEffect(() => {
@@ -4272,7 +4349,7 @@ const CashierPOS: React.FC = () => {
     setQuickAddError("");
     try {
       if (!allowDuplicate) {
-        const duplicates = await customerAPI.findSimilarProfiles({
+        const duplicates = await customerAPI.findClassDuplicateProfiles({
           firstName: data.firstName,
           lastName: data.lastName,
           studentClass: data.studentClass,
@@ -4489,7 +4566,7 @@ const CashierPOS: React.FC = () => {
     setWalkInError("");
     try {
       if (!allowDuplicate) {
-        const duplicates = await customerAPI.findSimilarProfiles({
+        const duplicates = await customerAPI.findClassDuplicateProfiles({
           firstName: data.firstName,
           lastName: data.lastName,
           studentClass: data.proposedClass,
@@ -5092,105 +5169,110 @@ const CashierPOS: React.FC = () => {
 
       {/* ── NEW SALE TAB ────────────────────────────────────────────── */}
       {tab === "sale" && (
-        <CashierSalePage
-          activeShift={activeShift}
-          user={user}
-          selectedStudent={selectedStudent}
-          studentClassFilter={studentClassFilter}
-          studentStreamFilter={studentStreamFilter}
-          streams={schoolSettings?.streams || []}
-          classes={classes}
-          studentSearch={studentSearch}
-          studentSuggestions={studentSuggestions}
-          showStudentDrop={showStudentDrop}
-          studentSuggPage={studentSuggPage}
-          studentSuggTotalPages={studentSuggTotalPages}
-          walkInApplicant={walkInApplicant}
-          walkInEditMode={walkInEditMode}
-          walkInEditName={walkInEditName}
-          setWalkInEditName={setWalkInEditName}
-          walkInEditClass={walkInEditClass}
-          setWalkInEditClass={setWalkInEditClass}
-          walkInEditStream={walkInEditStream}
-          setWalkInEditStream={setWalkInEditStream}
-          walkInEditStudentStatus={walkInEditStudentStatus}
-          setWalkInEditStudentStatus={setWalkInEditStudentStatus}
-          quickAddedStudentIds={quickAddedStudentIds}
-          bundles={bundles}
-          classCategoryMap={classCategoryMap}
-          bundlePaymentInfo={bundlePaymentInfo}
-          bundleFullyPaid={bundleFullyPaid}
-          saleMode={saleMode}
-          cart={cart}
-          cartOpen={cartOpen}
-          setCartOpen={setCartOpen}
-          paymentMode={paymentMode}
-          loading={loading}
-          selectStudent={selectStudent}
-          setSelectedStudent={setSelectedStudent}
-          setStudentSearch={setStudentSearch}
-          setStudentSuggPage={setStudentSuggPage}
-          setStudentClassFilter={setStudentClassFilter}
-          setStudentStreamFilter={setStudentStreamFilter}
-          setShowWalkIn={setShowWalkIn}
-          setShowQuickAdd={setShowQuickAdd}
-          setQuickAddError={setQuickAddError}
-          clearStudent={clearStudent}
-          setWalkInApplicant={setWalkInApplicant}
-          setWalkInModalError={setWalkInModalError}
-          setWalkInError={setWalkInError}
-          setShowWalkInForm={setShowWalkInForm}
-          setShowWalkInAcceptance={setShowWalkInAcceptance}
-          setShowWalkInRegistration={setShowWalkInRegistration}
-          setWalkInAcceptanceBundle={setWalkInAcceptanceBundle}
-          setWalkInRegistrationBundle={setWalkInRegistrationBundle}
-          setShowQuickEditStudent={setShowQuickEditStudent}
-          setQuickEditName={setQuickEditName}
-          setQuickEditClass={setQuickEditClass}
-          setQuickEditStream={setQuickEditStream}
-          setQuickEditStudentStatus={setQuickEditStudentStatus}
-          setQuickEditError={setQuickEditError}
-          setHistoryDrawerTarget={setHistoryDrawerTarget}
-          setSaleMode={setSaleMode}
-          setActiveCat={setActiveCat}
-          categories={categories}
-          activeCat={activeCat}
-          itemSearch={itemSearch}
-          setItemSearch={setItemSearch}
-          inventory={inventory}
-          addToCart={addToCart}
-          updateQty={updateQty}
-          setPaymentMode={setPaymentMode}
-          setShowCheckout={setShowCheckout}
-          cartTotal={cartTotal}
-          setSelectedFee={setSelectedFee}
-          setFeesAmount={setFeesAmount}
-          setFeesDiscount={setFeesDiscount}
-          setBundleBalanceAmount={setBundleBalanceAmount}
-          setShowBundleBalancePayment={setShowBundleBalancePayment}
-          setTab={setTab}
-          handleWalkInEditSave={handleWalkInEditSave}
-          handleWalkInBundleAction={handleWalkInBundleAction}
-          handleReturningBundleAction={handleReturningBundleAction}
-          handleFeesPayment={handleFeesPayment}
-          setFeesPayMode={setFeesPayMode}
-          feesPayMode={feesPayMode}
-          studentFees={studentFees}
-          classFees={classFees}
-          selectedFee={selectedFee}
-          feesAmount={feesAmount}
-          feesDiscount={feesDiscount}
-          setCart={setCart}
-          showBundlePayment={showBundlePayment}
-          walkInEditSaving={walkInEditSaving}
-          setWalkInEditMode={setWalkInEditMode}
-          setSelectedBundle={setSelectedBundle}
-          setBundleAmount={setBundleAmount}
-          setBundlePayMode={setBundlePayMode}
-          setBundleError={setBundleError}
-          setShowBundlePayment={setShowBundlePayment}
-          tab={tab}
-        />
+        <CashierSaleErrorBoundary>
+          <CashierSalePage
+            activeShift={activeShift}
+            user={user}
+            selectedStudent={selectedStudent}
+            studentClassFilter={studentClassFilter}
+            studentStreamFilter={studentStreamFilter}
+            streams={schoolSettings?.streams || []}
+            classes={classes}
+            studentSearch={studentSearch}
+            studentSearchLoading={studentSearchLoading}
+            studentSearchError={studentSearchError}
+            studentSearchedValue={studentSearchedValue}
+            studentSuggestions={studentSuggestions}
+            showStudentDrop={showStudentDrop}
+            studentSuggPage={studentSuggPage}
+            studentSuggTotalPages={studentSuggTotalPages}
+            walkInApplicant={walkInApplicant}
+            walkInEditMode={walkInEditMode}
+            walkInEditName={walkInEditName}
+            setWalkInEditName={setWalkInEditName}
+            walkInEditClass={walkInEditClass}
+            setWalkInEditClass={setWalkInEditClass}
+            walkInEditStream={walkInEditStream}
+            setWalkInEditStream={setWalkInEditStream}
+            walkInEditStudentStatus={walkInEditStudentStatus}
+            setWalkInEditStudentStatus={setWalkInEditStudentStatus}
+            quickAddedStudentIds={quickAddedStudentIds}
+            bundles={bundles}
+            classCategoryMap={classCategoryMap}
+            bundlePaymentInfo={bundlePaymentInfo}
+            bundleFullyPaid={bundleFullyPaid}
+            saleMode={saleMode}
+            cart={cart}
+            cartOpen={cartOpen}
+            setCartOpen={setCartOpen}
+            paymentMode={paymentMode}
+            loading={loading}
+            selectStudent={selectStudent}
+            setSelectedStudent={setSelectedStudent}
+            setStudentSearch={setStudentSearch}
+            setStudentSuggPage={setStudentSuggPage}
+            setStudentClassFilter={setStudentClassFilter}
+            setStudentStreamFilter={setStudentStreamFilter}
+            setShowWalkIn={setShowWalkIn}
+            setShowQuickAdd={setShowQuickAdd}
+            setQuickAddError={setQuickAddError}
+            clearStudent={clearStudent}
+            setWalkInApplicant={setWalkInApplicant}
+            setWalkInModalError={setWalkInModalError}
+            setWalkInError={setWalkInError}
+            setShowWalkInForm={setShowWalkInForm}
+            setShowWalkInAcceptance={setShowWalkInAcceptance}
+            setShowWalkInRegistration={setShowWalkInRegistration}
+            setWalkInAcceptanceBundle={setWalkInAcceptanceBundle}
+            setWalkInRegistrationBundle={setWalkInRegistrationBundle}
+            setShowQuickEditStudent={setShowQuickEditStudent}
+            setQuickEditName={setQuickEditName}
+            setQuickEditClass={setQuickEditClass}
+            setQuickEditStream={setQuickEditStream}
+            setQuickEditStudentStatus={setQuickEditStudentStatus}
+            setQuickEditError={setQuickEditError}
+            setHistoryDrawerTarget={setHistoryDrawerTarget}
+            setSaleMode={setSaleMode}
+            setActiveCat={setActiveCat}
+            categories={categories}
+            activeCat={activeCat}
+            itemSearch={itemSearch}
+            setItemSearch={setItemSearch}
+            inventory={inventory}
+            addToCart={addToCart}
+            updateQty={updateQty}
+            setPaymentMode={setPaymentMode}
+            setShowCheckout={setShowCheckout}
+            cartTotal={cartTotal}
+            setSelectedFee={setSelectedFee}
+            setFeesAmount={setFeesAmount}
+            setFeesDiscount={setFeesDiscount}
+            setBundleBalanceAmount={setBundleBalanceAmount}
+            setShowBundleBalancePayment={setShowBundleBalancePayment}
+            setTab={setTab}
+            handleWalkInEditSave={handleWalkInEditSave}
+            handleWalkInBundleAction={handleWalkInBundleAction}
+            handleReturningBundleAction={handleReturningBundleAction}
+            handleFeesPayment={handleFeesPayment}
+            setFeesPayMode={setFeesPayMode}
+            feesPayMode={feesPayMode}
+            studentFees={studentFees}
+            classFees={classFees}
+            selectedFee={selectedFee}
+            feesAmount={feesAmount}
+            feesDiscount={feesDiscount}
+            setCart={setCart}
+            showBundlePayment={showBundlePayment}
+            walkInEditSaving={walkInEditSaving}
+            setWalkInEditMode={setWalkInEditMode}
+            setSelectedBundle={setSelectedBundle}
+            setBundleAmount={setBundleAmount}
+            setBundlePayMode={setBundlePayMode}
+            setBundleError={setBundleError}
+            setShowBundlePayment={setShowBundlePayment}
+            tab={tab}
+          />
+        </CashierSaleErrorBoundary>
       )}
 
       {/* ── SHIFT LOG TAB ────────────────────────────────────────────── */}
@@ -5582,17 +5664,18 @@ const CashierPOS: React.FC = () => {
                     Possible duplicate found
                   </h2>
                   <p className="mt-1 text-sm text-gray-500">
+                    A student named '
                     {duplicateWarning.record.name ||
                       duplicateWarning.record.full_name ||
-                      `${duplicateWarning.record.first_name || ""} ${duplicateWarning.record.last_name || ""}`.trim()}{" "}
-                    already exists in class{" "}
+                      `${duplicateWarning.record.first_name || ""} ${duplicateWarning.record.last_name || ""}`.trim()}
+                    ' already exists in class{" "}
                     {duplicateWarning.record.student_class ||
                       duplicateWarning.record.proposed_class ||
                       "Not specified"}{" "}
-                    (
+                    (ID:{" "}
                     {duplicateWarning.record.student_id ||
                       duplicateWarning.record.id}
-                    ). Are you sure you want to create a new profile?
+                    ). Do you want to select them or proceed?
                   </p>
                 </div>
               </div>

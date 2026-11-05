@@ -303,111 +303,271 @@ export const shiftAPI = {
 
 // ─── STUDENTS ─────────────────────────────────────────────────────────────────
 export const customerAPI = {
+  async searchPOSProfiles(data: {
+    search: string;
+    studentClass?: string;
+    departmentStream?: string;
+    limit?: number;
+    onError?: (error: unknown) => void;
+  }) {
+    try {
+      const search = data.search.trim().replace(/\s+/g, " ");
+      if (search.length < 3) return [];
+      const limit = data.limit || 10;
+      const escaped = search.replace(/[\\%_]/g, "\\$&");
+      const pattern = `%${escaped}%`;
+      const tokens = search.split(" ");
+      const namePairs =
+        tokens.length > 1
+          ? [
+              [tokens[0], tokens.slice(1).join(" ")],
+              [tokens.slice(1).join(" "), tokens[0]],
+            ]
+          : [];
+
+      const searchTable = async (table: "students" | "applicants") => {
+        const classColumn =
+          table === "students" ? "student_class" : "proposed_class";
+        const buildQuery = () => {
+          let query = supabase.from(table).select("*");
+          if (data.studentClass)
+            query = query.eq(classColumn, data.studentClass);
+          if (table === "applicants") query = query.neq("status", "enrolled");
+          return query;
+        };
+        const columns =
+          table === "students"
+            ? (["name", "first_name", "last_name"] as const)
+            : (["first_name", "last_name"] as const);
+        const columnQueries = columns.map(async (column) => {
+          const { data: records, error } = await buildQuery()
+            .ilike(column, pattern)
+            .limit(limit);
+          if (error) throw error;
+          return records || [];
+        });
+        const pairQueries = namePairs.map(async ([firstName, lastName]) => {
+          const { data: records, error } = await buildQuery()
+            .ilike("first_name", `%${firstName.replace(/[\\%_]/g, "\\$&")}%`)
+            .ilike("last_name", `%${lastName.replace(/[\\%_]/g, "\\$&")}%`)
+            .limit(limit);
+          if (error) throw error;
+          return records || [];
+        });
+        const records = (
+          await Promise.all([...columnQueries, ...pairQueries])
+        ).flat();
+        const seen = new Set<string>();
+        return records.filter((record: any) => {
+          const id = String(record.student_id || record.id);
+          if (seen.has(id)) return false;
+          seen.add(id);
+          return (
+            !data.departmentStream ||
+            !record.department_stream ||
+            record.department_stream === data.departmentStream
+          );
+        });
+      };
+
+      const [students, applicants] = await Promise.all([
+        searchTable("students"),
+        searchTable("applicants"),
+      ]);
+      const studentResults = students.map((record: any) => ({
+        ...record,
+        name:
+          record.name ||
+          `${record.first_name || ""} ${record.last_name || ""}`.trim(),
+        _isApplicant: false,
+      }));
+      const applicantResults = applicants.map((record: any) => ({
+        student_id: `__applicant__${record.id}`,
+        name:
+          record.full_name ||
+          `${record.first_name || ""} ${record.last_name || ""}`.trim(),
+        student_class: record.proposed_class || "Pending",
+        current_fees_owed: 0,
+        _isApplicant: true,
+        _applicant: {
+          ...record,
+          full_name:
+            record.full_name ||
+            `${record.first_name || ""} ${record.last_name || ""}`.trim(),
+        },
+      }));
+      return [...studentResults, ...applicantResults]
+        .sort((a, b) => {
+          const aName = String(a.name || "").toLowerCase();
+          const bName = String(b.name || "").toLowerCase();
+          const normalized = search.toLowerCase();
+          return (
+            Number(bName.startsWith(normalized)) -
+            Number(aName.startsWith(normalized))
+          );
+        })
+        .slice(0, limit * 2);
+    } catch (error) {
+      console.warn("POS customer search unavailable:", error);
+      data.onError?.(error);
+      return [];
+    }
+  },
+  async findClassDuplicateProfiles(data: {
+    firstName: string;
+    lastName: string;
+    studentClass: string;
+  }) {
+    try {
+      const studentClass = data.studentClass.trim();
+      const nameParts = `${data.firstName} ${data.lastName}`
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((part) => part.toLowerCase())
+        .filter((part, index, parts) => parts.indexOf(part) === index);
+      if (nameParts.length === 0 || !studentClass) return [];
+      const escapeIlike = (value: string) => value.replace(/[\\%_]/g, "\\$&");
+      const findInTable = async (table: "students" | "applicants") => {
+        const classColumn =
+          table === "students" ? "student_class" : "proposed_class";
+        const candidates: any[] = [];
+        for (const namePart of nameParts) {
+          for (const column of ["first_name", "last_name"] as const) {
+            const { data: records, error } = await supabase
+              .from(table)
+              .select("*")
+              .eq(classColumn, studentClass)
+              .ilike(column, `%${escapeIlike(namePart)}%`)
+              .limit(1000);
+            if (error) throw error;
+            candidates.push(...(records || []));
+          }
+        }
+
+        const seen = new Set<string>();
+        return candidates.filter((record) => {
+          const id = String(record.student_id || record.id);
+          if (seen.has(id)) return false;
+          seen.add(id);
+          const first = String(record.first_name || "").toLowerCase();
+          const last = String(record.last_name || "").toLowerCase();
+          return nameParts.every((part) => {
+            return first.includes(part) || last.includes(part);
+          });
+        });
+      };
+      const [students, applicants] = await Promise.all([
+        findInTable("students"),
+        findInTable("applicants"),
+      ]);
+      return [
+        ...students.map((record: any) => ({
+          kind: "student" as const,
+          record,
+        })),
+        ...applicants.map((record: any) => ({
+          kind: "applicant" as const,
+          record,
+        })),
+      ].sort((a, b) => {
+        const expected = [...nameParts].sort().join(" ");
+        const name = (record: any) =>
+          [record.first_name || "", record.last_name || ""]
+            .join(" ")
+            .toLowerCase()
+            .split(/\s+/)
+            .filter(Boolean)
+            .sort()
+            .join(" ");
+        return Number(name(b.record) === expected) - Number(name(a.record) === expected);
+      });
+    } catch (error) {
+      console.warn("Class duplicate check unavailable:", error);
+      throw error;
+    }
+  },
   async findSimilarProfiles(data: {
     firstName: string;
     lastName: string;
     studentClass?: string;
     partial?: boolean;
   }) {
-    const firstName = data.firstName.trim();
-    const lastName = data.lastName.trim();
-    const studentClass = data.studentClass?.trim() || "";
-    const partial = data.partial === true;
-    const escapeIlike = (value: string) => value.replace(/[\\%_]/g, "\\$&");
-    const pattern = (value: string) =>
-      partial ? `%${escapeIlike(value)}%` : escapeIlike(value);
+    try {
+      const firstName = data.firstName.trim();
+      const lastName = data.lastName.trim();
+      const studentClass = data.studentClass?.trim() || "";
+      const partial = data.partial === true;
+      const nameParts = `${firstName} ${lastName}`
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((part) => part.toLowerCase())
+        .filter((part, index, parts) => parts.indexOf(part) === index);
+      if (nameParts.length === 0 || !studentClass) return [];
+      const escapeIlike = (value: string) => value.replace(/[\\%_]/g, "\\$&");
 
-    const findInTable = async (table: "students" | "applicants") => {
-      const classColumn =
-        table === "students" ? "student_class" : "proposed_class";
-      const matches: any[] = [];
-      const findByName = async (
-        column: "first_name" | "last_name",
-        value: string,
-        classScoped: boolean,
-      ) => {
-        if (!value) return;
-        let query = supabase
-          .from(table)
-          .select("*")
-          .ilike(column, pattern(value));
-        if (classScoped && studentClass)
-          query = query.eq(classColumn, studentClass);
-        const { data: records, error } = await query.limit(20);
-        if (error) throw error;
-        matches.push(...(records || []));
+      const findInTable = async (table: "students" | "applicants") => {
+        const classColumn =
+          table === "students" ? "student_class" : "proposed_class";
+        const matches: any[] = [];
+        for (const namePart of nameParts) {
+          for (const column of ["first_name", "last_name"] as const) {
+            const { data: records, error } = await supabase
+              .from(table)
+              .select("*")
+              .eq(classColumn, studentClass)
+              .ilike(
+                column,
+                partial
+                  ? `%${escapeIlike(namePart)}%`
+                  : escapeIlike(namePart),
+              )
+              .limit(20);
+            if (error) throw error;
+            matches.push(...(records || []));
+          }
+        }
+
+        const seen = new Set<string>();
+        return matches.filter((record) => {
+          const id = String(record.student_id || record.id);
+          if (seen.has(id)) return false;
+          seen.add(id);
+          const first = String(record.first_name || "").toLowerCase();
+          const last = String(record.last_name || "").toLowerCase();
+          return nameParts.every((part) => {
+            return partial
+              ? first.includes(part) || last.includes(part)
+              : first === part || last === part;
+          });
+        });
       };
 
-      if (firstName && lastName) {
-        const { data: records, error } = await supabase
-          .from(table)
-          .select("*")
-          .ilike("first_name", escapeIlike(firstName))
-          .ilike("last_name", escapeIlike(lastName))
-          .limit(20);
-        if (error) throw error;
-        matches.push(...(records || []));
-      }
-      if (studentClass) {
-        await findByName("first_name", firstName, true);
-        await findByName("last_name", lastName, true);
-      }
-
-      const seen = new Set<string>();
-      return matches.filter((record) => {
-        const id = String(record.student_id || record.id);
-        if (seen.has(id)) return false;
-        seen.add(id);
-        const exactFullName =
-          firstName &&
-          lastName &&
-          String(record.first_name || "").toLowerCase() ===
-            firstName.toLowerCase() &&
-          String(record.last_name || "").toLowerCase() ===
-            lastName.toLowerCase();
-        const sameClass =
-          studentClass &&
-          String(record[classColumn] || "").toLowerCase() ===
-            studentClass.toLowerCase();
-        const firstNameMatch = firstName
-          ? partial
-            ? String(record.first_name || "")
-                .toLowerCase()
-                .includes(firstName.toLowerCase())
-            : String(record.first_name || "").toLowerCase() ===
-              firstName.toLowerCase()
-          : false;
-        const lastNameMatch = lastName
-          ? partial
-            ? String(record.last_name || "")
-                .toLowerCase()
-                .includes(lastName.toLowerCase())
-            : String(record.last_name || "").toLowerCase() ===
-              lastName.toLowerCase()
-          : false;
-        return Boolean(
-          exactFullName || (sameClass && (firstNameMatch || lastNameMatch)),
-        );
+      const [students, applicants] = await Promise.all([
+        findInTable("students"),
+        findInTable("applicants"),
+      ]);
+      return [
+        ...students.map((record) => ({ kind: "student" as const, record })),
+        ...applicants.map((record) => ({ kind: "applicant" as const, record })),
+      ].sort((a, b) => {
+        const fullName = (record: any) =>
+          `${record.first_name || ""} ${record.last_name || ""}`
+            .trim()
+            .toLowerCase();
+        const expected = nameParts.join(" ").toLowerCase();
+        const swapped = [...nameParts].reverse().join(" ").toLowerCase();
+        const aName = fullName(a.record);
+        const bName = fullName(b.record);
+        const aExact = aName === expected || aName === swapped ? 1 : 0;
+        const bExact = bName === expected || bName === swapped ? 1 : 0;
+        return bExact - aExact;
       });
-    };
-
-    const [students, applicants] = await Promise.all([
-      findInTable("students"),
-      findInTable("applicants"),
-    ]);
-    return [
-      ...students.map((record) => ({ kind: "student" as const, record })),
-      ...applicants.map((record) => ({ kind: "applicant" as const, record })),
-    ].sort((a, b) => {
-      const fullName = (record: any) =>
-        `${record.first_name || ""} ${record.last_name || ""}`
-          .trim()
-          .toLowerCase();
-      const expected = `${firstName} ${lastName}`.trim().toLowerCase();
-      const aExact = fullName(a.record) === expected ? 1 : 0;
-      const bExact = fullName(b.record) === expected ? 1 : 0;
-      return bExact - aExact;
-    });
+    } catch (error) {
+      console.warn("Similar profile search unavailable:", error);
+      return [];
+    }
   },
 };
 

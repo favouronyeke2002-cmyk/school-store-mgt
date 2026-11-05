@@ -36,6 +36,9 @@ const CashierSalePage: React.FC<any> = (props) => {
     classes,
     streams,
     studentSearch,
+    studentSearchLoading,
+    studentSearchError,
+    studentSearchedValue,
     studentSuggestions,
     showStudentDrop,
     studentSuggPage,
@@ -132,6 +135,16 @@ const CashierSalePage: React.FC<any> = (props) => {
     setShowBundlePayment,
     refund,
   } = props;
+  const [showRegistrationOptions, setShowRegistrationOptions] =
+    React.useState(false);
+  const searchTerm = studentSearch.trim();
+  const canOfferRegistration =
+    searchTerm.length >= 3 &&
+    studentSearchedValue === searchTerm &&
+    !studentSearchLoading &&
+    !studentSearchError &&
+    studentSuggestions.length === 0 &&
+    !selectedStudent;
 
   const requiredStreamClasses = Array.isArray(
     schoolSettings?.stream_required_classes,
@@ -207,12 +220,13 @@ const CashierSalePage: React.FC<any> = (props) => {
         </div>
 
         <div className="bg-white border-b px-5 py-4 shrink-0">
-          <div className="flex items-center justify-between mb-2">
+          <div className="relative z-40 mb-2 flex flex-wrap items-center justify-between gap-2">
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
               Select Customer
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
+                type="button"
                 onClick={() => {
                   setSelectedStudent(null);
                   setStudentSearch("");
@@ -226,18 +240,19 @@ const CashierSalePage: React.FC<any> = (props) => {
                   setWalkInRegistrationBundle(null);
                   setShowWalkIn(true);
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-warning-50 border border-warning-300 text-warning-700 hover:bg-warning-100 rounded-lg text-xs font-semibold transition-all"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-warning-300 bg-warning-50 px-3 py-1.5 text-xs font-semibold text-warning-700 hover:bg-warning-100"
               >
-                <User className="w-3.5 h-3.5" /> Walk-In Applicant
+                <User className="h-3.5 w-3.5" /> Walk-In Applicant
               </button>
               <button
+                type="button"
                 onClick={() => {
                   setShowQuickAdd(true);
                   setQuickAddError("");
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 border border-primary-300 text-primary-700 hover:bg-primary-100 rounded-lg text-xs font-semibold transition-all"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-primary-300 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 hover:bg-primary-100"
               >
-                <UserPlus className="w-3.5 h-3.5" /> Quick Add Student
+                <UserPlus className="h-3.5 w-3.5" /> Quick Add Student
               </button>
             </div>
           </div>
@@ -249,11 +264,11 @@ const CashierSalePage: React.FC<any> = (props) => {
                 setSelectedStudent(null);
                 setStudentSearch("");
                 setStudentSuggPage(1);
+                setShowRegistrationOptions(false);
               }}
               className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 shrink-0"
             >
               <option value="all">All Classes</option>
-              <option value="__pending__">Pending Applicants</option>
               {classes.map((c: string) => (
                 <option key={c} value={c}>
                   {c}
@@ -267,6 +282,7 @@ const CashierSalePage: React.FC<any> = (props) => {
                 setSelectedStudent(null);
                 setStudentSearch("");
                 setStudentSuggPage(1);
+                setShowRegistrationOptions(false);
               }}
               className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 shrink-0"
             >
@@ -288,9 +304,10 @@ const CashierSalePage: React.FC<any> = (props) => {
                   if (selectedStudent) setSelectedStudent(null);
                   setWalkInApplicant(null);
                   setStudentSuggPage(1);
+                  setShowRegistrationOptions(false);
                 }}
                 className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-400"
-                placeholder="Search by name…"
+                placeholder="Type at least 3 characters to search…"
               />
               {selectedStudent && (
                 <button
@@ -324,31 +341,36 @@ const CashierSalePage: React.FC<any> = (props) => {
                             {s.department_stream
                               ? ` · ${s.department_stream}`
                               : ""}{" "}
-                            · {s.student_id}
+                            ·{" "}
+                            {s._isApplicant
+                              ? `Applicant #${s._applicant.id}`
+                              : s.student_id}
                           </div>
                         </button>
                         <div className="flex items-center gap-2 shrink-0">
-                          {s.current_fees_owed > 0 && (
+                          {!s._isApplicant && s.current_fees_owed > 0 && (
                             <span className="text-xs font-bold text-danger-600 bg-danger-50 px-2 py-0.5 rounded-full">
                               Owes {fmt(s.current_fees_owed)}
                             </span>
                           )}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setHistoryDrawerTarget({
-                                id: s.student_id,
-                                name: s.name,
-                                class: s.student_class,
-                                current_fees_owed: s.current_fees_owed,
-                              });
-                            }}
-                            className="px-2 py-1 bg-gray-100 hover:bg-primary-50 text-gray-600 hover:text-primary-700 rounded-md text-xs font-semibold flex items-center gap-1 transition-colors"
-                            title="View History / Ledger"
-                          >
-                            <FileText className="w-3.5 h-3.5" /> History
-                          </button>
+                          {!s._isApplicant && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setHistoryDrawerTarget({
+                                  id: s.student_id,
+                                  name: s.name,
+                                  class: s.student_class,
+                                  current_fees_owed: s.current_fees_owed,
+                                });
+                              }}
+                              className="px-2 py-1 bg-gray-100 hover:bg-primary-50 text-gray-600 hover:text-primary-700 rounded-md text-xs font-semibold flex items-center gap-1 transition-colors"
+                              title="View History / Ledger"
+                            >
+                              <FileText className="w-3.5 h-3.5" /> History
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -383,6 +405,68 @@ const CashierSalePage: React.FC<any> = (props) => {
                 </div>
               )}
           </div>
+
+          {searchTerm.length < 3 && !selectedStudent && (
+            <p className="mt-2 text-xs text-gray-400">
+              Enter at least 3 characters to search students and applicants.
+            </p>
+          )}
+          {studentSearchLoading && searchTerm.length >= 3 && (
+            <p className="mt-2 text-xs text-gray-500">Searching…</p>
+          )}
+          {studentSearchError && (
+            <p role="alert" className="mt-2 text-xs text-danger-700">
+              {studentSearchError}
+            </p>
+          )}
+          {canOfferRegistration && (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() =>
+                  setShowRegistrationOptions((visible) => !visible)
+                }
+                className="w-full rounded-lg border border-warning-300 bg-warning-50 px-3 py-2.5 text-left text-sm font-semibold text-warning-800 hover:bg-warning-100"
+              >
+                Student not found? Click here to register new profile.
+              </button>
+              {showRegistrationOptions && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowQuickAdd(true);
+                      setQuickAddError("");
+                      setShowRegistrationOptions(false);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-primary-300 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 hover:bg-primary-100"
+                  >
+                    <UserPlus className="h-3.5 w-3.5" /> Quick Add Student
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedStudent(null);
+                      setStudentSearch("");
+                      setWalkInApplicant(null);
+                      setWalkInModalError("");
+                      setWalkInError("");
+                      setShowWalkInForm(false);
+                      setShowWalkInAcceptance(false);
+                      setShowWalkInRegistration(false);
+                      setWalkInAcceptanceBundle(null);
+                      setWalkInRegistrationBundle(null);
+                      setShowWalkIn(true);
+                      setShowRegistrationOptions(false);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-warning-300 bg-white px-3 py-2 text-xs font-semibold text-warning-700 hover:bg-warning-50"
+                  >
+                    <User className="h-3.5 w-3.5" /> Walk-In Applicant
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {walkInApplicant && !props.showBundlePayment && (
             <div className="mt-3 bg-warning-50 border border-warning-300 rounded-xl px-4 py-3">
@@ -996,9 +1080,14 @@ const CashierSalePage: React.FC<any> = (props) => {
                             }
                             className="w-full py-4 bg-success-600 text-white font-bold rounded-xl hover:bg-success-700 disabled:opacity-50 disabled:cursor-not-allowed text-lg"
                           >
-                            {props.loading
-                              ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Processing…</>
-                              : `Record ${feesAmount ? fmt(amt) : ""} Payment`}
+                            {props.loading ? (
+                              <>
+                                <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                                Processing…
+                              </>
+                            ) : (
+                              `Record ${feesAmount ? fmt(amt) : ""} Payment`
+                            )}
                           </button>
                         );
                       })()}
