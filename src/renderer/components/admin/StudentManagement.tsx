@@ -1,3 +1,4 @@
+// lets do things
 import React, { useState, useEffect } from "react";
 import {
   ChevronRight,
@@ -605,8 +606,7 @@ const StudentManagement: React.FC<{
         if (feeNames.has(key)) continue;
         const existing = ledgerBalances.get(key) || { name, balance: 0 };
         existing.balance +=
-          (entry.entry_type === "debit" ? 1 : -1) *
-          Number(entry.amount || 0);
+          (entry.entry_type === "debit" ? 1 : -1) * Number(entry.amount || 0);
         ledgerBalances.set(key, existing);
       }
       for (const [key, ledgerFee] of ledgerBalances) {
@@ -971,7 +971,9 @@ const StudentManagement: React.FC<{
                             <button
                               type="button"
                               onClick={() => toggleFeeBreakdown(s)}
-                              aria-expanded={expandedFeeStudent === s.student_id}
+                              aria-expanded={
+                                expandedFeeStudent === s.student_id
+                              }
                               aria-label={`Show itemized fees for ${s.name}`}
                               className="inline-flex items-center gap-1 rounded px-1 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-400"
                             >
@@ -1147,8 +1149,7 @@ const StudentManagement: React.FC<{
                 {debtorReportRows.length === 1 ? "item" : "items"} ·{" "}
                 {fmt(
                   debtorReportRows.reduce(
-                    (totalAmount, row) =>
-                      totalAmount + row.outstandingAmount,
+                    (totalAmount, row) => totalAmount + row.outstandingAmount,
                     0,
                   ),
                 )}{" "}
